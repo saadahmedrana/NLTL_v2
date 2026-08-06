@@ -1,0 +1,2847 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ssp: <https://w3id.org/mtl-requirements/ssp#> .
+@prefix ice: <http://example.com/iceregulations#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix vsso: <https://github.com/w3c/vsso#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix ssn: <http://www.w3.org/ns/ssn/> .
+@prefix req: <http://example.com/powertrain-requirements#> .
+
+
+
+# Section 3.2.2
+ice:MinimumEnginePowerShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Ship does not meet TRAFICOM minimum engine power requirements." ;
+    
+    sh:sparql [
+        sh:message "Engine power ({?actualPower} kW) is below the minimum 2800 kW required for IA Super ice class." ;
+        sh:select """
+            PREFIX vsso: <https://github.com/w3c/vsso#>
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX fmu: <https://w3id.org/mtl-requirements/fmu#>
+            
+            SELECT $this ?actualPower ?iceClass
+            WHERE {
+                $this ssp:iceClass ?iceClass .
+                
+                $this ssp:hasComponent ?engine .
+                
+                ?engine ssp:hasVariable ssp:EngineMinPower .
+                ssp:EngineMinPower ssp:hasVariableValue ?actualPower .
+                
+                FILTER(?iceClass = 'IA Super' && ?actualPower < 2800.0)
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Engine power ({?actualPower} kW) is below the minimum 1000 kW required for IA, IB, or IC ice class." ;
+        sh:select """
+            PREFIX vsso: <https://github.com/w3c/vsso#>
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX fmu: <https://w3id.org/mtl-requirements/fmu#>
+            
+            SELECT $this ?actualPower ?iceClass
+            WHERE {
+                # Get the ship's ice class
+                $this ssp:iceClass ?iceClass .
+                
+                # Get the engine component
+                $this ssp:hasComponent ?engine .
+                
+                # Get the engine power through the variable
+                ?engine ssp:hasVariable ssp:EngineMinPower .
+                ssp:EngineMinPower ssp:hasVariableValue ?actualPower .
+                
+                # Check if power is below requirement for other ice classes
+                FILTER((?iceClass = 'IA' || ?iceClass = 'IB' || ?iceClass = 'IC') && ?actualPower < 1000.0)
+            }
+        """
+    ] .
+
+
+ice:EnginePowerVariableShape a sh:NodeShape ;
+    sh:targetNode ssp:Engine001 ;
+    sh:message "Engine must have engine power declared as a variable." ;
+    sh:property [
+        sh:path ssp:hasVariable ;
+        sh:hasValue ssp:EngineMinPower ;
+        sh:minCount 1 ;
+        sh:message "Engine is missing the required engine power variable." ;
+    ] .
+
+
+
+ice:EngineExistsShape a sh:NodeShape ;
+    sh:targetClass ssp:System ;
+    sh:message "Ship must have at least one combustion engine component." ;
+    
+    sh:sparql [
+        sh:message "No PowertrainCombustionEngine found in the system." ;
+        sh:select """
+            PREFIX vsso: <https://github.com/w3c/vsso#>
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            
+            SELECT $this
+            WHERE {
+                $this a ssp:System .
+                FILTER NOT EXISTS {
+                    $this ssp:hasComponent ?engine .
+                    ?engine ssp:hasVariable ssp:EngineMinPower .
+                }
+            }
+        """
+    ] .
+
+
+ice:RegulationApplicabilityShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Ship contraction date does not satisfy 2021 Ice Class Regulation applicability." ;
+    
+    sh:sparql [
+        sh:message "Ship contracted on {?date} is not subject to the 2021 Ice Class Regulations (applies to ships contracted on or after 2021-07-05)." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            
+            SELECT $this ?date
+            WHERE {
+                ssp:contractionDate ssn:isPropertyOf $this .
+                ssp:contractionDate ssp:hasVariableValue ?date .
+                FILTER(?date < "2021-07-05"^^xsd:date)
+            }
+        """
+    ] .
+
+# section 4.2.1
+ice:IceLoadHeightShape a sh:NodeShape ;
+    sh:targetNode ssp:iceLoadMaxHeight ;
+    sh:message "Ice load height does not meet requirements." ;
+    
+    sh:sparql [
+        sh:message "Ice load height h_max ({?height} m) does not match the required value of {?requiredHeight} m for {?iceClass} ice class." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#> 
+            PREFIX fmu: <https://w3id.org/mtl-requirements/fmu#> 
+            PREFIX ssn: <http://www.w3.org/ns/ssn/> 
+            
+            SELECT $this ?height ?requiredHeight ?iceClass
+            WHERE {
+                # height value 
+                ssp:iceLoadMaxHeight ssp:hasVariableValue ?height .
+                
+                ssp:iceLoadMaxHeight ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                # Use conditional binding to determine required height
+                BIND(
+                    IF(?iceClass = "IA Super", 0.35,
+                    IF(?iceClass = "IA", 0.30,
+                    IF(?iceClass = "IB", 0.25,
+                    IF(?iceClass = "IC", 0.22, 0))))
+                    AS ?requiredHeight
+                )
+                
+                # Direct comparison
+                FILTER(?height != ?requiredHeight)
+            }
+        """
+    ] .
+
+# section 5
+ice:ServiceSpeedShape a sh:NodeShape ;
+    sh:targetNode ssp:HullSpeed ;
+    sh:message "Ship service speed does not meet ice class requirements." ;
+    
+    sh:sparql [
+        sh:message "Maximum service speed ({?speed} knots) is below the minimum required speed of {?requiredSpeed} knots for {?iceClass} ice class." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#> 
+            PREFIX fmu: <https://w3id.org/mtl-requirements/fmu#> 
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?speed ?requiredSpeed ?iceClass
+            WHERE {
+                ssp:HullSpeed ssp:hasVariableValue ?speed .
+                
+                ssp:HullSpeed ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 20,
+                    IF(?iceClass = "IA", 18,
+                    IF(?iceClass = "IB", 16,
+                    IF(?iceClass = "IC", 14, 0))))
+                    AS ?requiredSpeed
+                )
+                
+                FILTER(?speed < ?requiredSpeed)
+            }
+        """
+    ] .
+
+
+# section 6.5.1
+ice:PropellerBladeForceShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Propeller force requirements not properly defined." ;
+    
+    sh:sparql [
+        sh:message "Propeller must have defined maximum forward and backward blade forces for ice milling simulation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#> 
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                # Either missing backward force
+                {
+                    FILTER NOT EXISTS { 
+                        ssp:BackwardShipForce ssn:isPropertyOf $this .
+                    }
+                }
+                UNION
+                # Or missing forward force
+                {
+                    FILTER NOT EXISTS { 
+                        ssp:ForwardShipForce ssn:isPropertyOf $this .
+                    }
+                }
+            }
+        """
+    ] .
+
+# section 6.5.2
+ice:IceThrustShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Propeller thrust requirements not properly defined." ;
+    
+    sh:sparql [
+        sh:message "Propeller must have defined maximum backward ice thrust (T_b) as required by regulations." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#> 
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS { 
+                    ssp:BackwardIceThrust ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Propeller must have defined maximum forward ice thrust (T_f) as required by regulations." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#> 
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS { 
+                    ssp:ForwardIceThrust ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+
+# section 6.5.3.2
+ice:PropellerTorqueShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Propeller torque requirements not properly defined." ;
+    
+    sh:property [
+        sh:path [sh:inversePath ssn:isPropertyOf] ;
+        sh:hasValue ssp:PropellerTorque ;
+        sh:minCount 1 ;
+        sh:message "Propeller must have defined design ice torque (Q_max) as required by regulations." ;
+    ] .
+
+
+# math validation section 4.2.1
+ice:LoadDistributionFactorShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Load distribution factor (f4) validation failed." ;
+    
+    sh:sparql [
+        sh:message "Load distribution factor ({?actualFactor}) does not match the calculated value ({?calculatedF4}) based on load area and frame spacing." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/> 
+            
+            SELECT $this ?actualFactor ?calculatedF4
+            WHERE {
+                # Get the stored load distribution factor
+                ssp:loadDistribution ssn:isPropertyOf $this .
+                ssp:loadDistribution ssp:hasVariableValue ?actualFactor .
+                
+                # Get relevant ship parameters
+                $this ssn:isPropertyOf ?ship .
+                ssp:loadArea ssn:isPropertyOf ?ship .
+                ssp:loadArea ssp:hasVariableValue ?h .
+                ssp:frameSpacing ssn:isPropertyOf ?ship .
+                ssp:frameSpacing ssp:hasVariableValue ?s .
+                                
+                # Calculate f4 according to regulations: f4 = (1 - 0.2 h/s)
+                BIND((1 - (0.2 * (?h / ?s))) AS ?calculatedF4)
+                
+                # Check if the stored value matches calculated value (with small tolerance)
+                FILTER(ABS(?actualFactor - ?calculatedF4) > 0.01)
+            }
+        """
+    ] .
+
+req:PhysicalTestStatusShape a sh:NodeShape ;
+    sh:targetClass req:PhysicalTestRequirement ;
+    sh:message "Physical test requirement is missing a valid verification status." ;
+    sh:property [
+        sh:path req:hasVerificationStatus ;
+        sh:minCount 1 ;
+        sh:class req:RequirementStatus ;
+        sh:in (req:PendingStatus req:PassedStatus req:FailedStatus) ;
+        sh:message "Physical test must have a verification status of PendingStatus, PassedStatus, or FailedStatus."
+    ] .
+
+# Section 3.2 - Complex Requirement / Simulation Readiness
+ice:IceResistanceReadinessShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Simulation Readiness Check: Ice Resistance (R_ch) definition is missing." ;
+    
+    sh:sparql [
+        sh:message "The Hull is missing the 'ssp:IceResistance' property required to store the output of the complex ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#> 
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                # Verify that the IceResistance instance exists and is linked to the Hull
+                FILTER NOT EXISTS { 
+                    ssp:IceResistance ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:RegulatoryVersionShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Declared regulatory version is inconsistent with ship contraction date." ;
+    
+    sh:sparql [
+        sh:message "Contraction date {?date} is inconsistent with declared regulatory version {?version}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            
+            SELECT $this ?date ?version ?expectedVersion
+            WHERE {
+                ssp:contractionDate ssn:isPropertyOf $this .
+                ssp:contractionDate ssp:hasVariableValue ?date .
+                ssp:regulatoryVersion ssn:isPropertyOf $this .
+                ssp:regulatoryVersion ssp:hasVariableValue ?version .
+                
+                BIND(
+                    IF(?date >= "2021-07-05"^^xsd:date, "2021",
+                    IF(?date >= "2019-01-01"^^xsd:date, "2017",
+                    IF(?date >= "2012-01-01"^^xsd:date, "2010",
+                    IF(?date >= "2010-01-01"^^xsd:date, "2008", "pre-2008"))))
+                    AS ?expectedVersion
+                )
+                
+                FILTER(?version != ?expectedVersion)
+            }
+        """
+    ] .
+
+ice:WaterlineShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Hull must have upper and lower ice waterlines declared." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing the upper ice waterline (UIWL) definition." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:UIWL ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Hull is missing the lower ice waterline (LIWL) definition." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:LIWL ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:ForwardDraughtShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Forward draught does not meet minimum ice class requirements." ;
+    
+    sh:sparql [
+        sh:message "Forward draught ({?draught} m) is below the required minimum ({?minDraught} m)." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?draught ?minDraught
+            WHERE {
+                ssp:forwardDraught ssn:isPropertyOf $this .
+                ssp:forwardDraught ssp:hasVariableValue ?draught .
+                
+                ssp:displacement ssn:isPropertyOf $this .
+                ssp:displacement ssp:hasVariableValue ?delta .
+                
+                ssp:levelIceThickness ssn:isPropertyOf $this .
+                ssp:levelIceThickness ssp:hasVariableValue ?hi .
+                
+                BIND((2 + 0.00025 * ?delta) * ?hi AS ?calculatedMin)
+                BIND(4.0 * ?hi AS ?cap)
+                BIND(IF(?calculatedMin < ?cap, ?calculatedMin, ?cap) AS ?minDraught)
+                
+                FILTER(?draught < ?minDraught)
+            }
+        """
+    ] .
+
+ice:TorsionalVibrationShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Simulation Readiness Check: Peak design torque Q_peak from torsional vibration analysis is missing." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing Q_peak required for time-domain torsional vibration analysis." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:PeakPropellerTorque ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:StringerShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Stringer section modulus or shear area does not meet ice belt requirements." ;
+    
+    sh:sparql [
+        sh:message "Section modulus Z ({?actualZ}) does not match calculated value ({?calculatedZ}) for ice belt stringer." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?actualZ ?calculatedZ
+            WHERE {
+                ssp:stringerSectionModulus ssn:isPropertyOf $this .
+                ssp:stringerSectionModulus ssp:hasVariableValue ?actualZ .
+                
+                ssp:icePressure ssn:isPropertyOf $this .
+                ssp:icePressure ssp:hasVariableValue ?p .
+                
+                ssp:iceLoadMaxHeight ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf $this .
+                ssp:iceLoadMaxHeight ssp:hasVariableValue ?h .
+                
+                ssp:stringerSpan ssn:isPropertyOf $this .
+                ssp:stringerSpan ssp:hasVariableValue ?l .
+                
+                ssp:boundaryConditionFactor ssn:isPropertyOf $this .
+                ssp:boundaryConditionFactor ssp:hasVariableValue ?m .
+                
+                ssp:yieldStress ssn:isPropertyOf $this .
+                ssp:yieldStress ssp:hasVariableValue ?sigma_y .
+                
+                BIND(IF(?p * ?h < 0.15, 0.15, ?p * ?h) AS ?ph)
+                BIND((0.9 * 1.8 * ?ph * ?l * ?l * 1000000.0) / (?m * ?sigma_y) AS ?calculatedZ)
+                
+                FILTER(ABS(?actualZ - ?calculatedZ) > 0.01)
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Effective shear area A ({?actualA}) does not match calculated value ({?calculatedA}) for ice belt stringer." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?actualA ?calculatedA
+            WHERE {
+                ssp:stringerShearArea ssn:isPropertyOf $this .
+                ssp:stringerShearArea ssp:hasVariableValue ?actualA .
+                
+                ssp:icePressure ssn:isPropertyOf $this .
+                ssp:icePressure ssp:hasVariableValue ?p .
+                
+                ssp:iceLoadMaxHeight ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf $this .
+                ssp:iceLoadMaxHeight ssp:hasVariableValue ?h .
+                
+                ssp:stringerSpan ssn:isPropertyOf $this .
+                ssp:stringerSpan ssp:hasVariableValue ?l .
+                
+                ssp:yieldStress ssn:isPropertyOf $this .
+                ssp:yieldStress ssp:hasVariableValue ?sigma_y .
+                
+                BIND(IF(?p * ?h < 0.15, 0.15, ?p * ?h) AS ?ph)
+                BIND((1.7320508 * 0.9 * 1.8 * 1.2 * ?ph * ?l * 10000.0) / (2.0 * ?sigma_y) AS ?calculatedA)
+                
+                FILTER(ABS(?actualA - ?calculatedA) > 0.01)
+            }
+        """
+    ] .
+
+ice:IceClassValidityShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Ship must declare a valid ice class." ;
+    sh:property [
+        sh:path ssp:iceClass ;
+        sh:minCount 1 ;
+        sh:in ("IA Super" "IA" "IB" "IC" "II" "III") ;
+        sh:message "Ice class must be one of IA Super, IA, IB, IC, II, or III." ;
+    ] .
+
+ice:DraughtBetweenWaterlinesShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Operational draughts must be between UIWL and LIWL." ;
+    
+    sh:sparql [
+        sh:message "Forward draught ({?draftFore} m) is above UIWL ({?uiwl} m)." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?draftFore ?uiwl
+            WHERE {
+                ssp:forwardDraught ssn:isPropertyOf $this .
+                ssp:forwardDraught ssp:hasVariableValue ?draftFore .
+                ssp:UIWL ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf $this .
+                ssp:UIWL ssp:hasVariableValue ?uiwl .
+                FILTER(?draftFore > ?uiwl)
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Forward draught ({?draftFore} m) is below LIWL ({?liwl} m)." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?draftFore ?liwl
+            WHERE {
+                ssp:forwardDraught ssn:isPropertyOf $this .
+                ssp:forwardDraught ssp:hasVariableValue ?draftFore .
+                ssp:LIWL ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf $this .
+                ssp:LIWL ssp:hasVariableValue ?liwl .
+                FILTER(?draftFore < ?liwl)
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Aft draught ({?draftAft} m) is above UIWL ({?uiwl} m)." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?draftAft ?uiwl
+            WHERE {
+                ssp:aftDraught ssn:isPropertyOf $this .
+                ssp:aftDraught ssp:hasVariableValue ?draftAft .
+                ssp:UIWL ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf $this .
+                ssp:UIWL ssp:hasVariableValue ?uiwl .
+                FILTER(?draftAft > ?uiwl)
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Aft draught ({?draftAft} m) is below LIWL ({?liwl} m)." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?draftAft ?liwl
+            WHERE {
+                ssp:aftDraught ssn:isPropertyOf $this .
+                ssp:aftDraught ssp:hasVariableValue ?draftAft .
+                ssp:LIWL ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf $this .
+                ssp:LIWL ssp:hasVariableValue ?liwl .
+                FILTER(?draftAft < ?liwl)
+            }
+        """
+    ] .
+
+ice:UIWLDraughtTrimLimitShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Midships draught must not exceed UIWL." ;
+    
+    sh:sparql [
+        sh:message "Midships draught ({?draftMid} m) exceeds UIWL ({?uiwl} m)." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?draftMid ?uiwl
+            WHERE {
+                ssp:midshipsDraught ssn:isPropertyOf $this .
+                ssp:midshipsDraught ssp:hasVariableValue ?draftMid .
+                ssp:UIWL ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf $this .
+                ssp:UIWL ssp:hasVariableValue ?uiwl .
+                FILTER(?draftMid > ?uiwl)
+            }
+        """
+    ] .
+
+ice:MinBallastToLIWLShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Midships draught must be at least LIWL when navigating in ice." ;
+    
+    sh:sparql [
+        sh:message "Midships draught ({?draftMid} m) is below LIWL ({?liwl} m)." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?draftMid ?liwl
+            WHERE {
+                ssp:midshipsDraught ssn:isPropertyOf $this .
+                ssp:midshipsDraught ssp:hasVariableValue ?draftMid .
+                ssp:LIWL ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf $this .
+                ssp:LIWL ssp:hasVariableValue ?liwl .
+                FILTER(?draftMid < ?liwl)
+            }
+        """
+    ] .
+
+ice:PropellerSubmersionShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Propeller submersion depth does not meet requirements." ;
+    
+    sh:sparql [
+        sh:message "Propeller highest point depth ({?depth} m) is less than the required h_i ({?hi} m) below LIWL." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?depth ?hi
+            WHERE {
+                ssp:propellerHighestPoint ssn:isPropertyOf $this .
+                ssp:propellerHighestPoint ssp:hasVariableValue ?depth .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 1.0,
+                    IF(?iceClass = "IA", 0.8,
+                    IF(?iceClass = "IB", 0.6,
+                    IF(?iceClass = "IC", 0.4, 0))))
+                    AS ?hi
+                )
+                
+                FILTER(?depth < ?hi)
+            }
+        """
+    ] .
+
+ice:EngineOutputDefinitionShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Ship must declare total engine output." ;
+    
+    sh:sparql [
+        sh:message "No engine power variable found on any engine component of the ship." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                $this a ssp:System .
+                FILTER NOT EXISTS {
+                    $this ssp:hasComponent ?engine .
+                    ?engine ssp:hasVariable ssp:EngineMinPower .
+                    ssp:EngineMinPower ssp:hasVariableValue ?power .
+                }
+            }
+        """
+    ] .
+
+ice:PropellerDiameterShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Propeller must declare its diameter D_p." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing the propeller diameter (D_p) property." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:propellerDiameter ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:HullGeometryReadinessShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Ship is missing hull geometry parameters required for R_CH calculation." ;
+    
+    sh:sparql [
+        sh:message "Ship is missing ship length (L) required for ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:shipLength ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing bow length (L_BOW) required for ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:bowLength ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing parallel midship body length (L_PAR) required for ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:parallelMidshipLength ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing maximum breadth (B) required for ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:maxBreadth ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing bow waterline area (A_wf) required for ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:bowWaterlineArea ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing waterline angle (alpha) required for ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:waterlineAngle ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing stem rake angle (phi_1) required for ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:stemRake ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing bow rake angle (phi_2) required for ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:bowRake ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:BrashIceThicknessShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Brash ice thickness H_M does not match ice class." ;
+    
+    sh:sparql [
+        sh:message "H_M ({?hm} m) does not match the required value ({?requiredHM} m) for {?iceClass} ice class." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?hm ?requiredHM ?iceClass
+            WHERE {
+                $this ssp:iceClass ?iceClass .
+                ssp:brashIceThickness ssn:isPropertyOf $this .
+                ssp:brashIceThickness ssp:hasVariableValue ?hm .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 1.0,
+                    IF(?iceClass = "IA", 1.0,
+                    IF(?iceClass = "IB", 0.8,
+                    IF(?iceClass = "IC", 0.6, 0))))
+                    AS ?requiredHM
+                )
+                
+                FILTER(?hm != ?requiredHM)
+            }
+        """
+    ] .
+
+ice:KeValueConsistencyShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Ke value does not match Table 3-1." ;
+    
+    sh:sparql [
+        sh:message "Ke ({?ke}) does not match expected value ({?expectedKe}) for {?nProp} propeller(s) with {?propType} type." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?ke ?expectedKe ?nProp ?propType
+            WHERE {
+                ssp:KeValue ssn:isPropertyOf $this .
+                ssp:KeValue ssp:hasVariableValue ?ke .
+                
+                ssp:numberOfPropellers ssn:isPropertyOf $this .
+                ssp:numberOfPropellers ssp:hasVariableValue ?nProp .
+                
+                $this ssp:propellerType ?propType .
+                
+                BIND(
+                    IF(?nProp = 1 && ?propType = "CP", 2.03,
+                    IF(?nProp = 1 && ?propType = "FP", 2.26,
+                    IF(?nProp = 2 && ?propType = "CP", 1.44,
+                    IF(?nProp = 2 && ?propType = "FP", 1.60,
+                    IF(?nProp = 3 && ?propType = "CP", 1.18,
+                    IF(?nProp = 3 && ?propType = "FP", 1.31, 0))))))
+                    AS ?expectedKe
+                )
+                
+                FILTER(ABS(?ke - ?expectedKe) > 0.01)
+            }
+        """
+    ] .
+
+ice:CmuMinimumShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "C_mu coefficient is below the minimum." ;
+    
+    sh:sparql [
+        sh:message "C_mu ({?cmu}) is below the required minimum of 0.45." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?cmu
+            WHERE {
+                ssp:cMuCoefficient ssn:isPropertyOf $this .
+                ssp:cMuCoefficient ssp:hasVariableValue ?cmu .
+                FILTER(?cmu < 0.45)
+            }
+        """
+    ] .
+
+ice:LTB2ClampingShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "The clamped (LT/B^2)^3 term is outside the allowed range." ;
+    
+    sh:sparql [
+        sh:message "Stored (LT/B^2)^3 value ({?stored}) is outside the allowed range of 5 to 20." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?stored
+            WHERE {
+                ssp:ltb2Term ssn:isPropertyOf $this .
+                ssp:ltb2Term ssp:hasVariableValue ?stored .
+                FILTER(?stored < 5 || ?stored > 20)
+            }
+        """
+    ] .
+
+ice:IceResistanceCalculationShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Ice resistance R_CH calculation readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing the R_CH output property required for ice resistance calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:IceResistance ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing brash ice thickness (H_M) required for R_CH calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                $this ssn:isPropertyOf ?ship .
+                FILTER NOT EXISTS {
+                    ssp:brashIceThickness ssn:isPropertyOf ?ship .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing C_mu coefficient required for R_CH calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                $this ssn:isPropertyOf ?ship .
+                FILTER NOT EXISTS {
+                    ssp:cMuCoefficient ssn:isPropertyOf ?ship .
+                }
+            }
+        """
+    ] .
+
+ice:PminFormulaShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Minimum engine power formula readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Ship is missing the calculated minimum engine power (P_min) property needed to verify formula 3.1." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:minimumEnginePowerCalc ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:EnginePowerBothDraughtsShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Engine power must be verified at both UIWL and LIWL draughts." ;
+    
+    sh:sparql [
+        sh:message "Ship is missing UIWL draught value needed for dual-draught engine power verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                $this a ssp:System .
+                FILTER NOT EXISTS {
+                    ssp:UIWL ssn:isPropertyOf ?hull .
+                    ?hull ssn:isPropertyOf $this .
+                    ssp:UIWL ssp:hasVariableValue ?uiwl .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Ship is missing LIWL draught value needed for dual-draught engine power verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                $this a ssp:System .
+                FILTER NOT EXISTS {
+                    ssp:LIWL ssn:isPropertyOf ?hull .
+                    ?hull ssn:isPropertyOf $this .
+                    ssp:LIWL ssp:hasVariableValue ?liwl .
+                }
+            }
+        """
+    ] .
+
+ice:MinimumSpeedInIceShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Minimum 5-knot speed design requirement readiness check." ;
+    
+    sh:sparql [
+        sh:message "Ship must declare service speed and ice resistance parameters to verify the 5-knot minimum speed design requirement in brash ice." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                $this a ssp:System .
+                FILTER NOT EXISTS {
+                    ssp:HullSpeed ssn:isPropertyOf ?hull .
+                    ?hull ssn:isPropertyOf $this .
+                    ssp:HullSpeed ssp:hasVariableValue ?speed .
+                }
+            }
+        """
+    ] .
+
+ice:ExistingShipIASuperComplianceShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Existing IA Super or IA ship compliance deadline check." ;
+    
+    sh:sparql [
+        sh:message "Ship contracted before 2003-09-01 with ice class {?iceClass} must have complied with section 3.2.2 engine output requirements within 20 years of delivery." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            
+            SELECT $this ?iceClass ?contrDate
+            WHERE {
+                $this ssp:iceClass ?iceClass .
+                FILTER(?iceClass = "IA Super" || ?iceClass = "IA")
+                
+                ssp:contractionDate ssn:isPropertyOf $this .
+                ssp:contractionDate ssp:hasVariableValue ?contrDate .
+                FILTER(?contrDate < "2003-09-01"^^xsd:date)
+            }
+        """
+    ] .
+
+
+
+ice:HullRegionDefinitionShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Hull must declare a valid hull region." ;
+    
+    sh:sparql [
+        sh:message "Hull region ({?region}) must be one of Bow, Midbody, or Stern." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?region
+            WHERE {
+                ssp:hullRegion ssn:isPropertyOf $this .
+                ssp:hullRegion ssp:hasVariableValue ?region .
+                FILTER(?region != "Bow" && ?region != "Midbody" && ?region != "Stern")
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Hull is missing a hull region declaration." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:hullRegion ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:DirectAnalysisAcceptanceShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Direct analysis readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing yield stress (sigma_y) required for the direct analysis acceptance criterion." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:yieldStress ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:DirectAnalysisShearStressShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Direct analysis shear stress readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing yield stress (sigma_y) needed to compute allowable shear stress tau_y = sigma_y/sqrt(3)." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:yieldStress ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:NominalIcePressureShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Nominal ice pressure is incorrect." ;
+    
+    sh:sparql [
+        sh:message "Nominal ice pressure p0 ({?p0} MPa) does not equal the required 5.6 MPa." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?p0
+            WHERE {
+                ssp:nominalIcePressure ssn:isPropertyOf $this .
+                ssp:nominalIcePressure ssp:hasVariableValue ?p0 .
+                FILTER(ABS(?p0 - 5.6) > 0.01)
+            }
+        """
+    ] .
+
+ice:KFactorCalculationShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Factor k does not match formula 4.3." ;
+    
+    sh:sparql [
+        sh:message "k factor ({?storedK}) does not match calculated value based on sqrt(delta*P)/1000." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?storedK
+            WHERE {
+                ssp:kFactor ssn:isPropertyOf $this .
+                ssp:kFactor ssp:hasVariableValue ?storedK .
+                
+                ssp:displacement ssn:isPropertyOf $this .
+                ssp:displacement ssp:hasVariableValue ?delta .
+                
+                $this ssp:hasComponent ?engine .
+                ?engine ssp:hasVariable ssp:EngineMinPower .
+                ssp:EngineMinPower ssp:hasVariableValue ?P .
+                
+                BIND(?storedK * ?storedK * 1000000 AS ?kSquaredScaled)
+                BIND(?delta * ?P AS ?expectedSquared)
+                
+                FILTER(ABS(?kSquaredScaled - ?expectedSquared) > 10000)
+            }
+        """
+    ] .
+
+ice:CdFactorCalculationShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Factor cd is invalid." ;
+    
+    sh:sparql [
+        sh:message "cd factor ({?cd}) exceeds the maximum allowed value of 1.0." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?cd
+            WHERE {
+                ssp:cdFactor ssn:isPropertyOf $this .
+                ssp:cdFactor ssp:hasVariableValue ?cd .
+                FILTER(?cd > 1.0)
+            }
+        """
+    ] .
+
+ice:CpFactorBowShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Bow cp factor does not match Table 4-3." ;
+    
+    sh:sparql [
+        sh:message "Bow cp ({?cp}) should be 1.0 for all ice classes." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?cp
+            WHERE {
+                ssp:cpFactorBow ssn:isPropertyOf $this .
+                ssp:cpFactorBow ssp:hasVariableValue ?cp .
+                FILTER(ABS(?cp - 1.0) > 0.01)
+            }
+        """
+    ] .
+
+ice:CpFactorMidbodyShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Midbody cp factor does not match Table 4-3." ;
+    
+    sh:sparql [
+        sh:message "Midbody cp ({?cp}) does not match expected ({?expected}) for {?iceClass}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?cp ?expected ?iceClass
+            WHERE {
+                $this ssp:iceClass ?iceClass .
+                ssp:cpFactorMidbody ssn:isPropertyOf $this .
+                ssp:cpFactorMidbody ssp:hasVariableValue ?cp .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 1.0,
+                    IF(?iceClass = "IA", 0.85,
+                    IF(?iceClass = "IB", 0.70,
+                    IF(?iceClass = "IC", 0.50, 0))))
+                    AS ?expected
+                )
+                
+                FILTER(ABS(?cp - ?expected) > 0.01)
+            }
+        """
+    ] .
+
+ice:CpFactorSternShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Stern cp factor does not match Table 4-3." ;
+    
+    sh:sparql [
+        sh:message "Stern cp ({?cp}) does not match expected ({?expected}) for {?iceClass}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?cp ?expected ?iceClass
+            WHERE {
+                $this ssp:iceClass ?iceClass .
+                ssp:cpFactorStern ssn:isPropertyOf $this .
+                ssp:cpFactorStern ssp:hasVariableValue ?cp .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 0.75,
+                    IF(?iceClass = "IA", 0.65,
+                    IF(?iceClass = "IB", 0.45,
+                    IF(?iceClass = "IC", 0.25, 0))))
+                    AS ?expected
+                )
+                
+                FILTER(ABS(?cp - ?expected) > 0.01)
+            }
+        """
+    ] .
+
+ice:CaFactorCalculationShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Factor ca is outside allowed bounds." ;
+    
+    sh:sparql [
+        sh:message "ca factor ({?ca}) is outside the allowed range of 0.35 to 1.0." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?ca
+            WHERE {
+                ssp:caFactor ssn:isPropertyOf $this .
+                ssp:caFactor ssp:hasVariableValue ?ca .
+                FILTER(?ca < 0.35 || ?ca > 1.0)
+            }
+        """
+    ] .
+
+ice:DesignIcePressureShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Design ice pressure readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing design ice pressure (p) needed for structural calculations." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:designIcePressure ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:IceBeltExtensionAboveUIWLShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Ice belt extension above UIWL does not match Table 4-5." ;
+    
+    sh:sparql [
+        sh:message "Ice belt above UIWL ({?actual} m) does not match required ({?required} m) for {?iceClass} {?region}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?actual ?required ?iceClass ?region
+            WHERE {
+                ssp:iceBeltUpperExtension ssn:isPropertyOf $this .
+                ssp:iceBeltUpperExtension ssp:hasVariableValue ?actual .
+                
+                ssp:hullRegion ssn:isPropertyOf $this .
+                ssp:hullRegion ssp:hasVariableValue ?region .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 0.6,
+                    IF(?iceClass = "IA", 0.5,
+                    IF(?iceClass = "IB" || ?iceClass = "IC", 0.4, 0)))
+                    AS ?required
+                )
+                
+                FILTER(ABS(?actual - ?required) > 0.01)
+            }
+        """
+    ] .
+
+ice:IceBeltExtensionBelowLIWLShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Ice belt extension below LIWL does not match Table 4-5." ;
+    
+    sh:sparql [
+        sh:message "Ice belt below LIWL ({?actual} m) does not match required ({?required} m) for {?iceClass} {?region}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?actual ?required ?iceClass ?region
+            WHERE {
+                ssp:iceBeltLowerExtension ssn:isPropertyOf $this .
+                ssp:iceBeltLowerExtension ssp:hasVariableValue ?actual .
+                
+                ssp:hullRegion ssn:isPropertyOf $this .
+                ssp:hullRegion ssp:hasVariableValue ?region .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super" && (?region = "Bow" || ?region = "Midbody"), 1.2,
+                    IF(?iceClass = "IA Super" && ?region = "Stern", 1.0,
+                    IF(?iceClass = "IA" && ?region = "Bow", 0.9,
+                    IF(?iceClass = "IA" && (?region = "Midbody" || ?region = "Stern"), 0.75,
+                    IF((?iceClass = "IB" || ?iceClass = "IC") && ?region = "Bow", 0.7,
+                    IF((?iceClass = "IB" || ?iceClass = "IC") && (?region = "Midbody" || ?region = "Stern"), 0.6, 0))))))
+                    AS ?required
+                )
+                
+                FILTER(ABS(?actual - ?required) > 0.01)
+            }
+        """
+    ] .
+
+ice:ShellPlateThicknessTransverseShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Shell plate thickness readiness check for transverse framing failed." ;
+    
+    sh:sparql [
+        sh:message "Hull with transverse framing is missing shell plate thickness for formula 4.5 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:framingType ssn:isPropertyOf $this .
+                ssp:framingType ssp:hasVariableValue "Transverse" .
+                FILTER NOT EXISTS {
+                    ssp:shellPlateThickness ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Hull with transverse framing is missing frame spacing for formula 4.5 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:framingType ssn:isPropertyOf $this .
+                ssp:framingType ssp:hasVariableValue "Transverse" .
+                $this ssn:isPropertyOf ?ship .
+                FILTER NOT EXISTS {
+                    ssp:frameSpacing ssn:isPropertyOf ?ship .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Hull with transverse framing is missing design ice pressure for formula 4.5 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:framingType ssn:isPropertyOf $this .
+                ssp:framingType ssp:hasVariableValue "Transverse" .
+                FILTER NOT EXISTS {
+                    ssp:designIcePressure ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+
+ice:ShellPlateThicknessLongitudinalShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Shell plate thickness readiness check for longitudinal framing failed." ;
+    
+    sh:sparql [
+        sh:message "Hull with longitudinal framing is missing shell plate thickness for formula 4.6 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:framingType ssn:isPropertyOf $this .
+                ssp:framingType ssp:hasVariableValue "Longitudinal" .
+                FILTER NOT EXISTS {
+                    ssp:shellPlateThickness ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Hull with longitudinal framing is missing frame spacing for formula 4.6 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:framingType ssn:isPropertyOf $this .
+                ssp:framingType ssp:hasVariableValue "Longitudinal" .
+                $this ssn:isPropertyOf ?ship .
+                FILTER NOT EXISTS {
+                    ssp:frameSpacing ssn:isPropertyOf ?ship .
+                }
+            }
+        """
+    ] .
+
+ice:UpperBowIceBeltShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Upper bow ice belt strengthening check." ;
+    
+    sh:sparql [
+        sh:message "Ship has ice class {?iceClass} and service speed {?speed} knots, which requires upper bow ice belt strengthening (2 m above ice belt, stem to 0.2L) for speeds at or above 18 knots." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?iceClass ?speed
+            WHERE {
+                ssp:hullRegion ssn:isPropertyOf $this .
+                ssp:hullRegion ssp:hasVariableValue "Bow" .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                FILTER(?iceClass = "IA Super" || ?iceClass = "IA")
+                
+                ssp:serviceSpeed ssn:isPropertyOf ?ship .
+                ssp:serviceSpeed ssp:hasVariableValue ?speed .
+                FILTER(?speed >= 18)
+            }
+        """
+    ] .
+
+ice:AbrasionCorrosionIncrementShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Abrasion and corrosion increment is below standard." ;
+    
+    sh:sparql [
+        sh:message "Abrasion corrosion increment tc ({?tc} mm) is below the standard 2.0 mm without special coating justification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?tc
+            WHERE {
+                ssp:abrasionCorrosionIncrement ssn:isPropertyOf $this .
+                ssp:abrasionCorrosionIncrement ssp:hasVariableValue ?tc .
+                FILTER(?tc < 2.0)
+            }
+        """
+    ] .
+
+ice:FramingExtensionAboveUIWLShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Framing extension above UIWL does not match Table 4-6." ;
+    
+    sh:sparql [
+        sh:message "Framing above UIWL ({?actual} m) does not match required ({?required} m) for {?iceClass} {?region}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?actual ?required ?iceClass ?region
+            WHERE {
+                ssp:framingExtensionAboveUIWL ssn:isPropertyOf $this .
+                ssp:framingExtensionAboveUIWL ssp:hasVariableValue ?actual .
+                
+                ssp:hullRegion ssn:isPropertyOf $this .
+                ssp:hullRegion ssp:hasVariableValue ?region .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 1.2,
+                    IF(?iceClass = "IA" || ?iceClass = "IB" || ?iceClass = "IC", 1.0, 0))
+                    AS ?required
+                )
+                
+                FILTER(?actual < ?required)
+            }
+        """
+    ] .
+
+ice:FramingExtensionBelowLIWLShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Framing extension below LIWL does not match Table 4-6." ;
+    
+    sh:sparql [
+        sh:message "Framing below LIWL ({?actual} m) does not match required ({?required} m) for {?iceClass} {?region}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?actual ?required ?iceClass ?region
+            WHERE {
+                ssp:framingExtensionBelowLIWL ssn:isPropertyOf $this .
+                ssp:framingExtensionBelowLIWL ssp:hasVariableValue ?actual .
+                
+                ssp:hullRegion ssn:isPropertyOf $this .
+                ssp:hullRegion ssp:hasVariableValue ?region .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super" && ?region = "Bow", 2.0,
+                    IF(?iceClass = "IA Super" && ?region = "Midbody", 2.0,
+                    IF(?iceClass = "IA Super" && ?region = "Stern", 1.6,
+                    IF((?iceClass = "IA" || ?iceClass = "IB" || ?iceClass = "IC") && ?region = "Bow", 1.6,
+                    IF((?iceClass = "IA" || ?iceClass = "IB" || ?iceClass = "IC") && ?region = "Midbody", 1.3,
+                    IF((?iceClass = "IA" || ?iceClass = "IB" || ?iceClass = "IC") && ?region = "Stern", 1.0, 0))))))
+                    AS ?required
+                )
+                
+                FILTER(?actual < ?required)
+            }
+        """
+    ] .
+
+ice:TransverseFrameSectionModulusShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Transverse frame section modulus readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing transverse frame section modulus (Z_tf) required for formula 4.7 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:framingType ssn:isPropertyOf $this .
+                ssp:framingType ssp:hasVariableValue "Transverse" .
+                FILTER NOT EXISTS {
+                    ssp:transverseFrameSectionModulus ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:TransverseFrameShearAreaShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Transverse frame shear area readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing transverse frame shear area (A_tf) required for formula 4.8 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:framingType ssn:isPropertyOf $this .
+                ssp:framingType ssp:hasVariableValue "Transverse" .
+                FILTER NOT EXISTS {
+                    ssp:transverseFrameShearArea ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:LongitudinalFrameSectionModulusShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Longitudinal frame section modulus readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing longitudinal frame section modulus (Z_lf) required for formula 4.9 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:framingType ssn:isPropertyOf $this .
+                ssp:framingType ssp:hasVariableValue "Longitudinal" .
+                FILTER NOT EXISTS {
+                    ssp:longitudinalFrameSectionModulus ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:LongitudinalFrameShearAreaShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Longitudinal frame shear area readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing longitudinal frame shear area (A_lf) required for formula 4.10 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:framingType ssn:isPropertyOf $this .
+                ssp:framingType ssp:hasVariableValue "Longitudinal" .
+                FILTER NOT EXISTS {
+                    ssp:longitudinalFrameShearArea ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:FrameWebThicknessShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Frame web thickness check failed." ;
+    
+    sh:sparql [
+        sh:message "Frame web thickness ({?tw} mm) is below the minimum 9 mm requirement." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?tw
+            WHERE {
+                ssp:frameWebThickness ssn:isPropertyOf $this .
+                ssp:frameWebThickness ssp:hasVariableValue ?tw .
+                FILTER(?tw < 9.0)
+            }
+        """
+    ] .
+
+ice:StringerOutsideSectionModulusShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Stringer outside ice belt section modulus readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing stringer section modulus, ice pressure, or yield stress needed for formula 4.13 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:yieldStress ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:StringerOutsideShearAreaShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Stringer outside ice belt shear area readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing stringer shear area or yield stress needed for formula 4.14 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:stringerShearArea ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:PhMinimumStringerShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Product p*h is below the stringer minimum." ;
+    
+    sh:sparql [
+        sh:message "Product p*h ({?ph} MN/m) is below the minimum 0.15 MN/m for stringer calculations." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?ph
+            WHERE {
+                ssp:icePressure ssn:isPropertyOf $this .
+                ssp:icePressure ssp:hasVariableValue ?p .
+                
+                ssp:iceLoadMaxHeight ssn:isPropertyOf ?hull .
+                ?hull ssn:isPropertyOf $this .
+                ssp:iceLoadMaxHeight ssp:hasVariableValue ?h .
+                
+                BIND(?p * ?h AS ?ph)
+                FILTER(?ph < 0.15)
+            }
+        """
+    ] .
+
+ice:WebFrameIceLoadShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Web frame ice load readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing web frame spacing (S) required for ice load calculation per formula 4.15." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:webFrameSpacing ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:WebFrameShearAreaShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Web frame shear area readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing web frame shear area required for formula 4.16 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:webFrameShearArea ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:WebFrameSectionModulusShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Web frame section modulus readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing web frame section modulus required for formula 4.17 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:webFrameSectionModulus ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:StemPlateThicknessShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Stem plate thickness readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Hull is missing stem plate thickness required for section 4.7 verification." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:stemPlateThickness ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:StemFloorSpacingShape a sh:NodeShape ;
+    sh:targetNode ssp:Hull001 ;
+    sh:message "Stem floor spacing exceeds maximum." ;
+    
+    sh:sparql [
+        sh:message "Stem floor or bracket spacing ({?spacing} m) exceeds the maximum 0.6 m." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?spacing
+            WHERE {
+                ssp:stemFloorSpacing ssn:isPropertyOf $this .
+                ssp:stemFloorSpacing ssp:hasVariableValue ?spacing .
+                FILTER(?spacing > 0.6)
+            }
+        """
+    ] .
+
+ice:PropellerHullClearanceShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Propeller hull clearance does not meet requirements." ;
+    
+    sh:sparql [
+        sh:message "Propeller-hull clearance ({?clearance} m) is less than the required h0 ({?h0} m) for {?iceClass}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?clearance ?h0 ?iceClass
+            WHERE {
+                ssp:propellerHullClearance ssn:isPropertyOf $this .
+                ssp:propellerHullClearance ssp:hasVariableValue ?clearance .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 0.35,
+                    IF(?iceClass = "IA", 0.30,
+                    IF(?iceClass = "IB", 0.25,
+                    IF(?iceClass = "IC", 0.22, 0))))
+                    AS ?h0
+                )
+                
+                FILTER(?clearance < ?h0)
+            }
+        """
+    ] .
+
+ice:RudderMinServiceSpeedShape a sh:NodeShape ;
+    sh:targetNode ssp:Rudder001 ;
+    sh:message "Rudder scantling service speed is below ice class minimum." ;
+    
+    sh:sparql [
+        sh:message "Rudder service speed ({?vRudder} knots) is below the minimum ({?required} knots) for {?iceClass}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?vRudder ?required ?iceClass
+            WHERE {
+                ssp:rudderServiceSpeed ssn:isPropertyOf $this .
+                ssp:rudderServiceSpeed ssp:hasVariableValue ?vRudder .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 20,
+                    IF(?iceClass = "IA", 18,
+                    IF(?iceClass = "IB", 16,
+                    IF(?iceClass = "IC", 14, 0))))
+                    AS ?required
+                )
+                
+                FILTER(?vRudder < ?required)
+            }
+        """
+    ] .
+
+ice:RudderActualSpeedOverrideShape a sh:NodeShape ;
+    sh:targetNode ssp:Rudder001 ;
+    sh:message "Rudder service speed should use the actual speed if higher than ice class minimum." ;
+    
+    sh:sparql [
+        sh:message "Ship actual speed ({?vActual} knots) exceeds the rudder calculation speed ({?vRudder} knots), so the actual speed should be used." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?vActual ?vRudder
+            WHERE {
+                ssp:rudderServiceSpeed ssn:isPropertyOf $this .
+                ssp:rudderServiceSpeed ssp:hasVariableValue ?vRudder .
+                
+                $this ssn:isPropertyOf ?ship .
+                ssp:serviceSpeed ssn:isPropertyOf ?ship .
+                ssp:serviceSpeed ssp:hasVariableValue ?vActual .
+                
+                FILTER(?vActual > ?vRudder)
+            }
+        """
+    ] .
+
+ice:IceKnifeShape a sh:NodeShape ;
+    sh:targetNode ssp:Rudder001 ;
+    sh:message "Ice knife requirement check for IA and IA Super." ;
+    
+    sh:sparql [
+        sh:message "Ship has ice class {?iceClass} and requires an ice knife to protect the rudder, but none is declared." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?iceClass
+            WHERE {
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                FILTER(?iceClass = "IA Super" || ?iceClass = "IA")
+                
+                FILTER NOT EXISTS {
+                    ssp:hasIceKnife ssn:isPropertyOf $this .
+                    ssp:hasIceKnife ssp:hasVariableValue true .
+                }
+            }
+        """
+    ] .
+
+ice:RudderStoppersShape a sh:NodeShape ;
+    sh:targetNode ssp:Rudder001 ;
+    sh:message "Rudder stoppers requirement check for IA and IA Super." ;
+    
+    sh:sparql [
+        sh:message "Ship has ice class {?iceClass} and requires rudder stoppers, but none are declared." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?iceClass
+            WHERE {
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                FILTER(?iceClass = "IA Super" || ?iceClass = "IA")
+                
+                FILTER NOT EXISTS {
+                    ssp:hasRudderStoppers ssn:isPropertyOf $this .
+                    ssp:hasRudderStoppers ssp:hasVariableValue true .
+                }
+            }
+        """
+    ] .
+
+ice:HydraulicReliefValvesShape a sh:NodeShape ;
+    sh:targetNode ssp:Rudder001 ;
+    sh:message "Hydraulic relief valves must be installed." ;
+    
+    sh:sparql [
+        sh:message "Rudder turning mechanism is missing required hydraulic relief valves." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:hasHydraulicReliefValves ssn:isPropertyOf $this .
+                    ssp:hasHydraulicReliefValves ssp:hasVariableValue true .
+                }
+            }
+        """
+    ] .
+
+ice:PropellerBallastSubmersionFallbackShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Propeller submersion fallback check for IB and IC." ;
+    
+    sh:sparql [
+        sh:message "Propeller centreline depth ({?h0} m) minus H_ice ({?hice} m) indicates insufficient submersion for {?iceClass}, requiring design to IA standards." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?h0 ?hice ?iceClass ?hi
+            WHERE {
+                ssp:propellerCentrelineDepth ssn:isPropertyOf $this .
+                ssp:propellerCentrelineDepth ssp:hasVariableValue ?h0 .
+                
+                ssp:designIceBlockThickness ssn:isPropertyOf $this .
+                ssp:designIceBlockThickness ssp:hasVariableValue ?hice .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                FILTER(?iceClass = "IB" || ?iceClass = "IC")
+                
+                BIND(
+                    IF(?iceClass = "IB", 0.6,
+                    IF(?iceClass = "IC", 0.4, 0))
+                    AS ?hi
+                )
+                
+                BIND(?h0 - ?hice AS ?margin)
+                FILTER(?margin < 0)
+            }
+        """
+    ] .
+
+ice:DesignIceBlockThicknessShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Design ice block thickness does not match ice class." ;
+    
+    sh:sparql [
+        sh:message "H_ice ({?hice} m) does not match required ({?required} m) for {?iceClass}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?hice ?required ?iceClass
+            WHERE {
+                ssp:designIceBlockThickness ssn:isPropertyOf $this .
+                ssp:designIceBlockThickness ssp:hasVariableValue ?hice .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super", 1.75,
+                    IF(?iceClass = "IA", 1.5,
+                    IF(?iceClass = "IB", 1.2,
+                    IF(?iceClass = "IC", 1.0, 0))))
+                    AS ?required
+                )
+                
+                FILTER(ABS(?hice - ?required) > 0.01)
+            }
+        """
+    ] .
+
+ice:BackwardBladeForceOpenShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Backward blade force F_b readiness check for open propellers failed." ;
+    
+    sh:sparql [
+        sh:message "Open propeller is missing backward blade force (F_b), or required inputs (EAR, Z, n_n, D, H_ice) for formulae 6.1/6.2." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:propellerIsOpenType ssn:isPropertyOf $this .
+                ssp:propellerIsOpenType ssp:hasVariableValue true .
+                FILTER NOT EXISTS {
+                    ssp:BackwardShipForce ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:ForwardBladeForceOpenShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Forward blade force F_f readiness check for open propellers failed." ;
+    
+    sh:sparql [
+        sh:message "Open propeller is missing forward blade force (F_f), or required inputs (EAR, Z, D, H_ice) for formulae 6.4/6.5." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:propellerIsOpenType ssn:isPropertyOf $this .
+                ssp:propellerIsOpenType ssp:hasVariableValue true .
+                FILTER NOT EXISTS {
+                    ssp:ForwardShipForce ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:BackwardBladeForceDuctedShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Backward blade force F_b readiness check for ducted propellers failed." ;
+    
+    sh:sparql [
+        sh:message "Ducted propeller is missing backward blade force (F_b) for formulae 6.7/6.8." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:propellerIsOpenType ssn:isPropertyOf $this .
+                ssp:propellerIsOpenType ssp:hasVariableValue false .
+                FILTER NOT EXISTS {
+                    ssp:BackwardShipForce ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:ForwardBladeForceDuctedShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Forward blade force F_f readiness check for ducted propellers failed." ;
+    
+    sh:sparql [
+        sh:message "Ducted propeller is missing forward blade force (F_f) for formulae 6.9/6.10." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:propellerIsOpenType ssn:isPropertyOf $this .
+                ssp:propellerIsOpenType ssp:hasVariableValue false .
+                FILTER NOT EXISTS {
+                    ssp:ForwardShipForce ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:MaxSpindleTorqueShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Maximum spindle torque readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing maximum spindle torque (Q_smax) required per section 6.5.1.7." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:maxSpindleTorque ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:NumberOfIceLoadsShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Number of ice load cycles readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing N_ice load cycle count required for fatigue and load distribution calculations." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:niceLoadCycles ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:BackwardIceThrustShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Backward ice thrust readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing backward ice thrust (T_b) required per formula 6.18." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:BackwardIceThrust ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:ForwardResponseThrustShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Forward response thrust readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing forward response thrust (T_r forward) required per formula 6.19." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:forwardResponseThrust ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:BackwardResponseThrustShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Backward response thrust readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing backward response thrust (T_r backward) required per formula 6.20." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:backwardResponseThrust ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:QmaxOpenPropellerShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Q_max readiness check for open propellers failed." ;
+    
+    sh:sparql [
+        sh:message "Open propeller is missing Q_max or required inputs (d, D, P_0.7, n, H_ice) for formulae 6.21/6.22." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:propellerIsOpenType ssn:isPropertyOf $this .
+                ssp:propellerIsOpenType ssp:hasVariableValue true .
+                FILTER NOT EXISTS {
+                    ssp:PropellerTorque ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:QmaxDuctedPropellerShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Q_max readiness check for ducted propellers failed." ;
+    
+    sh:sparql [
+        sh:message "Ducted propeller is missing Q_max or required inputs for formulae 6.24/6.25." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                ssp:propellerIsOpenType ssn:isPropertyOf $this .
+                ssp:propellerIsOpenType ssp:hasVariableValue false .
+                FILTER NOT EXISTS {
+                    ssp:PropellerTorque ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:NonResonantShaftTorqueShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Non-resonant shaft torque readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propulsion system is missing engine inertia (I_e) required for non-resonant shaft torque calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:equivalentInertiaEngine ssn:isPropertyOf ?engine .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Propulsion system is missing total system inertia (I_t) required for non-resonant shaft torque calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                $this ssn:isPropertyOf ?ship .
+                FILTER NOT EXISTS {
+                    ssp:equivalentInertiaTotal ssn:isPropertyOf ?ship .
+                }
+            }
+        """
+    ] .
+
+ice:ResonantShaftTimeDomainShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Resonant shaft time domain analysis readiness check." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing peak design torque (Q_peak) from torsional vibration analysis required when blade order resonance exists in operational speed range." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:PeakPropellerTorque ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:ResonantShaftFrequencyDomainShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Resonant shaft frequency domain analysis readiness check." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing peak design torque (Q_peak) required for frequency domain torsional vibration analysis per formula 6.34." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:PeakPropellerTorque ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:BladeFailureForceShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Blade failure force readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing blade failure force (F_ex) required per formula 6.35." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:bladeFailureForce ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing blade root geometry (c_root, t_root, r_root) or material strengths (sigma_0.2, sigma_u) needed for F_ex calculation." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:bladeRootChord ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:BladeFailureSpindleTorqueShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Blade failure spindle torque readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing blade failure spindle torque (Q_sex) required per formula 6.36." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:bladeFailureSpindleTorque ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:BladeStressAcceptabilityShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Blade stress acceptability criterion not met." ;
+    
+    sh:sparql [
+        sh:message "sigma_ref2/sigma_st ratio ({?ratio}) is below the required 1.3." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?ratio
+            WHERE {
+                ssp:referenceStrength2 ssn:isPropertyOf $this .
+                ssp:referenceStrength2 ssp:hasVariableValue ?ref2 .
+                
+                ssp:bladeStress ssn:isPropertyOf $this .
+                ssp:bladeStress ssp:hasVariableValue ?st .
+                
+                FILTER(?st > 0)
+                BIND(?ref2 / ?st AS ?ratio)
+                FILTER(?ratio < 1.3)
+            }
+        """
+    ] .
+
+ice:ReferenceStrength2Shape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Reference strength sigma_ref2 readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing reference strength sigma_ref2 required for blade acceptability criterion." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:referenceStrength2 ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:FatigueDesignShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Fatigue design readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing mean fatigue strength (sigma_exp) required for fatigue design." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:meanFatigueStrength ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:EquivalentFatigueStressShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Equivalent fatigue stress readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing equivalent fatigue stress (sigma_fat) required per formula 6.41." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:equivalentFatigueStress ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:FatigueAcceptabilityShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Fatigue acceptability criterion not met." ;
+    
+    sh:sparql [
+        sh:message "sigma_fl/sigma_fat ratio ({?ratio}) is below the required 1.5." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?ratio
+            WHERE {
+                ssp:characteristicFatigueStrength ssn:isPropertyOf $this .
+                ssp:characteristicFatigueStrength ssp:hasVariableValue ?fl .
+                
+                ssp:equivalentFatigueStress ssn:isPropertyOf $this .
+                ssp:equivalentFatigueStress ssp:hasVariableValue ?fat .
+                
+                FILTER(?fat > 0)
+                BIND(?fl / ?fat AS ?ratio)
+                FILTER(?ratio < 1.5)
+            }
+        """
+    ] .
+
+ice:CharacteristicFatigueStrengthShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Characteristic fatigue strength readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing characteristic fatigue strength (sigma_fl) required for fatigue acceptability." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:characteristicFatigueStrength ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:AirReceiverCapacityReversibleShape a sh:NodeShape ;
+    sh:targetNode ssp:Engine001 ;
+    sh:message "Air receiver capacity insufficient for reversible engine." ;
+    
+    sh:sparql [
+        sh:message "Engine requires reversal for astern and air receiver capacity ({?starts} starts) is below the required 12." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?starts
+            WHERE {
+                ssp:engineRequiresReversal ssn:isPropertyOf $this .
+                ssp:engineRequiresReversal ssp:hasVariableValue true .
+                
+                ssp:airReceiverCapacity ssn:isPropertyOf $this .
+                ssp:airReceiverCapacity ssp:hasVariableValue ?starts .
+                
+                FILTER(?starts < 12)
+            }
+        """
+    ] .
+
+ice:AirReceiverCapacityNonReversibleShape a sh:NodeShape ;
+    sh:targetNode ssp:Engine001 ;
+    sh:message "Air receiver capacity insufficient for non-reversible engine." ;
+    
+    sh:sparql [
+        sh:message "Engine does not require reversal and air receiver capacity ({?starts} starts) is below the required 6." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?starts
+            WHERE {
+                ssp:engineRequiresReversal ssn:isPropertyOf $this .
+                ssp:engineRequiresReversal ssp:hasVariableValue false .
+                
+                ssp:airReceiverCapacity ssn:isPropertyOf $this .
+                ssp:airReceiverCapacity ssp:hasVariableValue ?starts .
+                
+                FILTER(?starts < 6)
+            }
+        """
+    ] .
+
+ice:AirCompressorChargeTimeShape a sh:NodeShape ;
+    sh:targetNode ssp:Engine001 ;
+    sh:message "Air compressor charge time exceeds maximum." ;
+    
+    sh:sparql [
+        sh:message "Charge time ({?tCharge} min) exceeds the required maximum ({?maxTime} min) for {?iceClass}." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?tCharge ?maxTime ?iceClass
+            WHERE {
+                ssp:airCompressorChargeTime ssn:isPropertyOf $this .
+                ssp:airCompressorChargeTime ssp:hasVariableValue ?tCharge .
+                
+                ssp:engineRequiresReversal ssn:isPropertyOf $this .
+                ssp:engineRequiresReversal ssp:hasVariableValue ?reversal .
+                
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:iceClass ?iceClass .
+                
+                BIND(
+                    IF(?iceClass = "IA Super" && ?reversal = true, 30,
+                    60)
+                    AS ?maxTime
+                )
+                
+                FILTER(?tCharge > ?maxTime)
+            }
+        """
+    ] .
+
+ice:SeaInletLocationShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Sea inlet location check failed." ;
+    
+    sh:sparql [
+        sh:message "Sea inlet is not confirmed as being near centreline and well aft." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:seaInletLocation ssn:isPropertyOf $this .
+                    ssp:seaInletLocation ssp:hasVariableValue true .
+                }
+            }
+        """
+    ] .
+
+ice:StrainerPlateAreaShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Strainer plate area ratio is below minimum." ;
+    
+    sh:sparql [
+        sh:message "Strainer plate open area ratio ({?ratio}) is below the required minimum of 4.0." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?ratio
+            WHERE {
+                ssp:strainerPlateAreaRatio ssn:isPropertyOf $this .
+                ssp:strainerPlateAreaRatio ssp:hasVariableValue ?ratio .
+                FILTER(?ratio < 4.0)
+            }
+        """
+    ] .
+
+ice:ExistingIBICMinPower740Shape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Existing IB/IC ship minimum engine power check." ;
+    
+    sh:sparql [
+        sh:message "Engine power ({?power} kW) is below the minimum 740 kW required for existing IB/IC ships under Annex II." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?power ?iceClass
+            WHERE {
+                $this ssp:iceClass ?iceClass .
+                FILTER(?iceClass = "IB" || ?iceClass = "IC")
+                
+                $this ssp:hasComponent ?engine .
+                ?engine ssp:hasVariable ssp:EngineMinPower .
+                ssp:EngineMinPower ssp:hasVariableValue ?power .
+                
+                FILTER(?power < 740.0)
+            }
+        """
+    ] .
+
+ice:CPBollardPitchDefaultShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "CP propeller bollard pitch readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "CP propeller is missing bollard pitch (P_0.7b) required for Q_max calculations." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:propellerType "CP" .
+                FILTER NOT EXISTS {
+                    ssp:propellerPitch07Bollard ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:EquivalentContactRadiusShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Equivalent contact radius readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing design ice block thruster thickness (H_iced) needed for equivalent contact radius calculation per formula 6.47." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:designIceBlockThicknessThruster ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:ExistingIBICMinPower740Shape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Existing IB/IC ship minimum engine power check." ;
+    
+    sh:sparql [
+        sh:message "Engine power ({?power} kW) is below the minimum 740 kW required for existing IB/IC ships under Annex II." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this ?power ?iceClass
+            WHERE {
+                $this ssp:iceClass ?iceClass .
+                FILTER(?iceClass = "IB" || ?iceClass = "IC")
+                
+                $this ssp:hasComponent ?engine .
+                ?engine ssp:hasVariable ssp:EngineMinPower .
+                ssp:EngineMinPower ssp:hasVariableValue ?power .
+                
+                FILTER(?power < 740.0)
+            }
+        """
+    ] .
+
+ice:CPBollardPitchDefaultShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "CP propeller bollard pitch readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "CP propeller is missing bollard pitch (P_0.7b) required for Q_max calculations." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                $this ssn:isPropertyOf ?ship .
+                ?ship ssp:propellerType "CP" .
+                FILTER NOT EXISTS {
+                    ssp:propellerPitch07Bollard ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:EquivalentContactRadiusShape a sh:NodeShape ;
+    sh:targetNode ssp:MainPropeller ;
+    sh:message "Equivalent contact radius readiness check failed." ;
+    
+    sh:sparql [
+        sh:message "Propeller is missing design ice block thruster thickness (H_iced) needed for equivalent contact radius calculation per formula 6.47." ;
+        sh:select """
+            PREFIX ssp: <https://w3id.org/mtl-requirements/ssp#>
+            PREFIX ssn: <http://www.w3.org/ns/ssn/>
+            
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ssp:designIceBlockThicknessThruster ssn:isPropertyOf $this .
+                }
+            }
+        """
+    ] .
+
+ice:AllRequirementsVerifiedShape a sh:NodeShape ;
+    sh:targetNode ssp:iceShip ;
+    sh:message "Not all requirements have been verified." ;
+    sh:sparql [
+        sh:message "{?count} requirements still have pending verification status." ;
+        sh:select """
+            PREFIX req: <http://example.com/powertrain-requirements#>
+            SELECT $this (COUNT(?req) AS ?count)
+            WHERE {
+                ?req req:hasVerificationStatus req:PendingStatus .
+            }
+            GROUP BY $this
+            HAVING (COUNT(?req) > 0)
+        """
+    ] .
