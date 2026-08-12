@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -14,7 +15,7 @@ except ModuleNotFoundError:  # deterministic local fallback used in this workspa
     pyshacl_validate = None
 
 
-STAGE2 = Path(__file__).resolve().parent
+STAGE2 = Path(os.environ.get("NLTL_STAGE2_DIR", Path(__file__).resolve().parent)).resolve()
 VOCAB_BASE = "https://w3id.org/nltl-benchmark/vocab#"
 NLTL = Namespace(VOCAB_BASE)
 NSH = Namespace("https://w3id.org/nltl-benchmark/shapes#")
@@ -89,11 +90,16 @@ def main() -> None:
 
     locals_ = [t["localName"] for t in registry]
     expected_count = manifest["terms"]
-    check("canonical term count", len(registry) == expected_count == 821, len(registry))
-    check("Stage 1 candidate lineage", manifest["stage1CandidateTerms"] == 823 and sum(len(t["sourceConceptIds"]) for t in registry) + len(retired) == 823, manifest["stage1CandidateTerms"])
+    check("canonical term count", len(registry) == expected_count, len(registry))
+    stage1_ids = {
+        cid for t in registry for cid in t["sourceConceptIds"] if not cid.startswith("VOC-R2-")
+    } | {cid for cid in retired if not cid.startswith("VOC-R2-")}
+    check("Stage 1 candidate lineage", manifest["stage1CandidateTerms"] == 823 and len(stage1_ids) == 823, len(stage1_ids))
+    r2_ids = {cid for t in registry for cid in t["sourceConceptIds"] if cid.startswith("VOC-R2-")}
+    check("R2 added concept lineage", len(r2_ids) == manifest.get("r2AddedConcepts", 0), sorted(r2_ids))
     check("one documented semantic merge", manifest["stage2SemanticMerges"] == 1, manifest["stage2SemanticMerges"])
-    check("one incoherent generic candidate retired", manifest["retiredStage1Candidates"] == len(retired) == 1 and "VOC-0747" in retired, list(retired))
-    check("documented naming refinements", len(naming_refinements) == manifest["stage2NamingRefinementRows"] == 12, len(naming_refinements))
+    check("retired/remodelled candidates reconciled", manifest["retiredStage1Candidates"] == len(retired) and "VOC-0747" in retired, list(retired))
+    check("documented naming refinements", len(naming_refinements) == manifest["stage2NamingRefinementRows"], len(naming_refinements))
     check("unique local names", len(set(locals_)) == expected_count, len(set(locals_)))
     check("ASCII lowerCamelCase", all(re.fullmatch(r"[a-z][A-Za-z0-9]*", n) for n in locals_), f"{expected_count}/{expected_count}")
     check("all names have traceability", all(t["sourceConceptIds"] and t["stage1LocalNames"] and t["requirements"] and t["aliases"] and t["sourceRefs"] for t in registry), f"{expected_count}/{expected_count}")
@@ -199,6 +205,20 @@ ex:q a qudt:QuantityValue ; qudt:numericValue "1.0"^^xsd:decimal .
         "shipCategory": str(NLTL.polarShipCategoryValue),
     }
     check("core regulated enumerations use IRIs", all(by_local[k]["kind"] == "ObjectProperty" and by_local[k]["parentOrRange"] == v for k, v in controlled.items()), controlled)
+    if manifest.get("revision") == "R2":
+        required_r2 = {
+            "compartment": ("Class", str(NLTL.shipComponent)),
+            "hasContainingCompartment": ("ObjectProperty", str(NLTL.compartment)),
+            "emergencyFirePump": ("Class", str(NLTL.firePump)),
+            "waterMistPump": ("Class", str(NLTL.firePump)),
+            "waterSprayPump": ("Class", str(NLTL.firePump)),
+        }
+        check(
+            "IMO-057 R2 terms and ranges",
+            all(by_local[name]["kind"] == kind and by_local[name]["parentOrRange"] == range_ for name, (kind, range_) in required_r2.items()),
+            required_r2,
+        )
+        check("obsolete string compartment term excluded", "containingCompartment" not in by_local, "retired with redirect")
 
     report = {
         "status": "PASS",

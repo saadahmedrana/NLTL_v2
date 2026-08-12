@@ -1,0 +1,86 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:RequiredEngineOutputShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "For ice classes IA, IB, IC, and IA Super, maximum continuous rating power must be a valid kW quantity not less than the calculated required power or the applicable minimum." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+
+                FILTER (
+                    ?iceClass IN (
+                        nltl:iceClassIa,
+                        nltl:iceClassIb,
+                        nltl:iceClassIc,
+                        nltl:iceClassIaSuper
+                    )
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:calculatedRequiredPower ?calculatedQuantity .
+                        ?calculatedQuantity
+                            qudt:numericValue ?calculatedValue ;
+                            qudt:unit unit:KiloW .
+                        FILTER (datatype(?calculatedValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:maximumContinuousRatingPower ?mcrQuantity .
+                        ?mcrQuantity
+                            qudt:numericValue ?mcrValue ;
+                            qudt:unit unit:KiloW .
+                        FILTER (datatype(?mcrValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this
+                            nltl:calculatedRequiredPower ?calculatedQuantity ;
+                            nltl:maximumContinuousRatingPower ?mcrQuantity .
+
+                        ?calculatedQuantity
+                            qudt:numericValue ?calculatedValue ;
+                            qudt:unit unit:KiloW .
+
+                        ?mcrQuantity
+                            qudt:numericValue ?mcrValue ;
+                            qudt:unit unit:KiloW .
+
+                        FILTER (
+                            datatype(?calculatedValue) = xsd:decimal &&
+                            datatype(?mcrValue) = xsd:decimal &&
+                            (
+                                ?mcrValue < ?calculatedValue
+                                ||
+                                (
+                                    ?iceClass IN (
+                                        nltl:iceClassIa,
+                                        nltl:iceClassIb,
+                                        nltl:iceClassIc
+                                    )
+                                    &&
+                                    ?mcrValue < "1000"^^xsd:decimal
+                                )
+                                ||
+                                (
+                                    ?iceClass = nltl:iceClassIaSuper
+                                    &&
+                                    ?mcrValue < "2800"^^xsd:decimal
+                                )
+                            )
+                        )
+                    }
+                )
+            }
+        """
+    ] .

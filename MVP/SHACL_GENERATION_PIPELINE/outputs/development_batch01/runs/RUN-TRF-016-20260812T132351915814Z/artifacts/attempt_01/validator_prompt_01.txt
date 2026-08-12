@@ -1,0 +1,566 @@
+PROMPT_ID: NLTL-SEMANTIC-VALIDATOR-0.1.2
+
+You review a candidate maritime SHACL graph. You do not determine whether a
+ship complies and you do not execute RDF data. Deterministic parser, SHACL
+structure, vocabulary, datatype, range, and unit reports are supplied to you.
+
+Check whether the candidate faithfully encodes the verified requirement with
+the correct applicability, targets, paths, alternatives, comparison direction,
+thresholds, formula operands, readiness/evidence boundary, datatypes, and
+units. Be strict about accidental pass logic, invented terms, and checks that
+target the wrong entity.
+
+The complete locked vocabulary is enforced by the deterministic report and is
+not repeated in this prompt. Review the retrieved relevant terms, the verified
+records for terms actually used by the candidate, and any deterministic
+mismatch candidates. Do not infer that an absent full-registry entry is
+unavailable: rely on the deterministic unknown/out-of-scope lists.
+
+Set activate_variable_matcher to true only when the repair requires locating a
+canonical term that was absent, misspelled, invented, or not supplied in the
+generator's scoped vocabulary. Activate it even when no candidate was supplied;
+the deterministic search will run after your decision. Ordinary semantic or
+SHACL corrections do not activate the matcher.
+
+Set accept to true only when deterministicValidation.valid is true and the
+candidate is semantically faithful enough to freeze for later RDF evaluation.
+If accept is true, activate_variable_matcher must be false.
+
+Return exactly one physical line of JSON with exactly these keys:
+{"accept":false,"activate_variable_matcher":false,"feedback":"Concrete repair instruction."}
+
+The first two values must be JSON booleans. feedback must be a JSON string.
+Do not return Markdown, analysis, additional keys, or additional lines.
+
+
+--- USER INPUT ---
+{
+  "candidateShacl": "@prefix gs: <urn:nltl:generated-shape:> .\n@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\ngs:LengthMetreQuantityShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:datatype xsd:decimal ;\n        sh:minCount 1\n    ] ;\n    sh:property [\n        sh:path qudt:unit ;\n        sh:hasValue unit:M ;\n        sh:minCount 1\n    ] .\n\ngs:MetricTonQuantityShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:datatype xsd:decimal ;\n        sh:minCount 1\n    ] ;\n    sh:property [\n        sh:path qudt:unit ;\n        sh:hasValue unit:TON_Metric ;\n        sh:minCount 1\n    ] .\n\ngs:UpperIceWaterlineShape\n    a sh:NodeShape ;\n    sh:class nltl:iceWaterline ;\n    sh:property [\n        sh:path nltl:waterlineDisplacement ;\n        sh:node gs:MetricTonQuantityShape ;\n        sh:minCount 1 ;\n        sh:message \"Each upper ice waterline must provide its displacement in metric tonnes.\"\n    ] .\n\ngs:BallastTankConstraintShape\n    a sh:NodeShape ;\n    sh:class nltl:ballastTank ;\n    sh:sparql [\n        sh:message \"A ballast tank above the lower ice waterline and used to reach that waterline must have freezing prevention.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT $this\n            WHERE {\n                $this nltl:situatedAboveLowerIceWaterline true ;\n                      nltl:usedToReachLowerIceWaterline true .\n                FILTER NOT EXISTS {\n                    $this nltl:freezingPreventionPresent true .\n                }\n            }\n        \"\"\"\n    ] .\n\ngs:ShipRequirementShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:ship ;\n    sh:property [\n        sh:path nltl:propellerHighestPointSubmerged ;\n        sh:datatype xsd:boolean ;\n        sh:hasValue true ;\n        sh:message \"The highest point of the propeller must be submerged.\"\n    ] ;\n    sh:property [\n        sh:path nltl:forwardDraught ;\n        sh:node gs:LengthMetreQuantityShape ;\n        sh:minCount 1 ;\n        sh:message \"Forward draught in metres is required for the minimum-draught calculation.\"\n    ] ;\n    sh:property [\n        sh:path nltl:levelIceThickness ;\n        sh:node gs:LengthMetreQuantityShape ;\n        sh:minCount 1 ;\n        sh:message \"Level ice thickness in metres is required for the minimum-draught calculation.\"\n    ] ;\n    sh:property [\n        sh:path nltl:hasUpperIceWaterline ;\n        sh:node gs:UpperIceWaterlineShape ;\n        sh:minCount 1 ;\n        sh:message \"At least one upper ice waterline with displacement is required.\"\n    ] ;\n    sh:property [\n        sh:path nltl:hasBallastTank ;\n        sh:node gs:BallastTankConstraintShape\n    ] ;\n    sh:sparql [\n        sh:message \"Forward draught must be at least the lesser of (2 + 0.00025 times the greatest UIWL displacement) times level ice thickness and four times level ice thickness.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n            PREFIX unit: <http://qudt.org/vocab/unit/>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT $this\n            WHERE {\n                $this nltl:forwardDraught ?forwardQuantity ;\n                      nltl:levelIceThickness ?iceQuantity ;\n                      nltl:hasUpperIceWaterline ?waterline .\n\n                ?forwardQuantity qudt:numericValue ?forward ;\n                                 qudt:unit unit:M .\n                ?iceQuantity qudt:numericValue ?iceThickness ;\n                             qudt:unit unit:M .\n                ?waterline nltl:waterlineDisplacement ?displacementQuantity .\n                ?displacementQuantity qudt:numericValue ?displacement ;\n                                      qudt:unit unit:TON_Metric .\n\n                FILTER NOT EXISTS {\n                    $this nltl:hasUpperIceWaterline ?otherWaterline .\n                    ?otherWaterline nltl:waterlineDisplacement ?otherQuantity .\n                    ?otherQuantity qudt:numericValue ?otherDisplacement ;\n                                   qudt:unit unit:TON_Metric .\n                    FILTER (?otherDisplacement > ?displacement)\n                }\n\n                BIND(\n                    (2.0 + (0.00025 * ?displacement)) * ?iceThickness\n                    AS ?displacementBasedMinimum\n                )\n                BIND(4.0 * ?iceThickness AS ?fourThicknessMinimum)\n                BIND(\n                    IF(\n                        ?displacementBasedMinimum < ?fourThicknessMinimum,\n                        ?displacementBasedMinimum,\n                        ?fourThicknessMinimum\n                    )\n                    AS ?requiredForwardDraught\n                )\n                FILTER (?forward < ?requiredForwardDraught)\n            }\n        \"\"\"\n    ] .\n",
+  "candidateUsedCanonicalTerms": [
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ballastTank",
+      "kind": "Class",
+      "label": "Ballast tank",
+      "localName": "ballastTank",
+      "range": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [
+        "forward_draught_m"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#forwardDraught",
+      "kind": "QuantityProperty",
+      "label": "Forward draught",
+      "localName": "forwardDraught",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M"
+    },
+    {
+      "aliases": [
+        "freezing_prevention_present"
+      ],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#freezingPreventionPresent",
+      "kind": "DatatypeProperty",
+      "label": "Freezing prevention present",
+      "localName": "freezingPreventionPresent",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasBallastTank",
+      "kind": "ObjectProperty",
+      "label": "Has ballast tank",
+      "localName": "hasBallastTank",
+      "range": "https://w3id.org/nltl-benchmark/vocab#ballastTank",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasUpperIceWaterline",
+      "kind": "ObjectProperty",
+      "label": "Has upper ice waterline",
+      "localName": "hasUpperIceWaterline",
+      "range": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "kind": "Class",
+      "label": "Ice waterline",
+      "localName": "iceWaterline",
+      "range": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [
+        "levelIceThickness",
+        "level_ice_thickness_m"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#levelIceThickness",
+      "kind": "QuantityProperty",
+      "label": "Level ice thickness",
+      "localName": "levelIceThickness",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M"
+    },
+    {
+      "aliases": [
+        "propeller_highest_point_submerged"
+      ],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#propellerHighestPointSubmerged",
+      "kind": "DatatypeProperty",
+      "label": "Propeller highest point submerged",
+      "localName": "propellerHighestPointSubmerged",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ship",
+      "kind": "Class",
+      "label": "Ship",
+      "localName": "ship",
+      "range": "",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#situatedAboveLowerIceWaterline",
+      "kind": "DatatypeProperty",
+      "label": "Situated above lower ice waterline",
+      "localName": "situatedAboveLowerIceWaterline",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#usedToReachLowerIceWaterline",
+      "kind": "DatatypeProperty",
+      "label": "Used to reach lower ice waterline",
+      "localName": "usedToReachLowerIceWaterline",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#waterlineDisplacement",
+      "kind": "QuantityProperty",
+      "label": "Waterline displacement",
+      "localName": "waterlineDisplacement",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/TON_Metric"
+    }
+  ],
+  "deterministicValidation": {
+    "datatype_unit_valid": true,
+    "errors": [],
+    "extraction_valid": true,
+    "meta_shacl_valid": true,
+    "out_of_scope_canonical_iris": [],
+    "shacl_structure_valid": true,
+    "suspicious_external_iris": [],
+    "target_path_valid": true,
+    "turtle_valid": true,
+    "unknown_canonical_iris": [],
+    "used_canonical_iris": [
+      "https://w3id.org/nltl-benchmark/vocab#ballastTank",
+      "https://w3id.org/nltl-benchmark/vocab#forwardDraught",
+      "https://w3id.org/nltl-benchmark/vocab#freezingPreventionPresent",
+      "https://w3id.org/nltl-benchmark/vocab#hasBallastTank",
+      "https://w3id.org/nltl-benchmark/vocab#hasUpperIceWaterline",
+      "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "https://w3id.org/nltl-benchmark/vocab#levelIceThickness",
+      "https://w3id.org/nltl-benchmark/vocab#propellerHighestPointSubmerged",
+      "https://w3id.org/nltl-benchmark/vocab#ship",
+      "https://w3id.org/nltl-benchmark/vocab#situatedAboveLowerIceWaterline",
+      "https://w3id.org/nltl-benchmark/vocab#usedToReachLowerIceWaterline",
+      "https://w3id.org/nltl-benchmark/vocab#waterlineDisplacement"
+    ],
+    "valid": true,
+    "vocabulary_valid": true,
+    "warnings": []
+  },
+  "importantBoundary": "No ship graph or expected RDF outcome is part of this review.",
+  "mismatchCandidates": [],
+  "registryBoundary": "The complete locked registry was checked deterministically but is intentionally not embedded. Treat unknown/out-of-scope findings as authoritative. Activate the vocabulary matcher whenever a repair requires locating a canonical term or controlled value absent from the scoped context, even when no deterministic candidate was supplied yet.",
+  "requirement": {
+    "activeStatus": "Stage 2 candidate - direct/deterministic",
+    "anchorMapField": "reg:UIWL, reg:LIWL",
+    "canonicalVariables": "UIWL, LIWL",
+    "category": "Static Calculation",
+    "clause": "2.2",
+    "codability": "High",
+    "conceptIds": "VOC-0213; VOC-0221; VOC-0281; VOC-0300; VOC-0413; VOC-0420; VOC-0438; VOC-0588; VOC-0783",
+    "coverageStatus": "Covered by candidate concepts",
+    "edition": "TRAFICOM/68863/03.04.01.00/2021",
+    "encodingPattern": "Formula-derived constraint",
+    "figureDependent": "No",
+    "id": "TRF-016",
+    "normalizedRequirement": "When navigating in ice, draught_amidships_m >= LIWL_draught_amidships_m. Any ballast tank above LIWL that is needed to reach LIWL shall have freezing_prevention_present = true. propeller_highest_point_submerged = true. forward_draught_m >= min((2 + 0.00025*displacement_UIWL_t)*level_ice_thickness_m, 4*level_ice_thickness_m). If multiple UIWL waterlines exist, use the displacement at the greatest-displacement UIWL.",
+    "page": 7,
+    "requiredInputs": "UIWL, LIWL",
+    "section": "Maximum and minimum draught fore and aft",
+    "source": "Ice Class Regulations and the Application Thereof",
+    "sourceSheet": "TRAFICOM",
+    "sourceText": "The ship shall always be loaded down at least to the draught of LIWL amidships when navigating in ice. Any ballast tank, situated above the LIWL and needed to load down the ship to this water line, shall be equipped with devices to prevent the water from freezing. In determining the LIWL, regard shall be paid to the need to ensure a reasonable degree of ice-going capability in ballast. The highest point of the propeller shall be submerged and if possible at a depth of at least h_i below the water surface in all loading conditions. The forward draught shall be at least (2 + 0.00025*Delta)*h_i [m], but need not exceed 4*h_i (2.1), where Delta is the displacement of the ship [t] determined from the waterline on the UIWL (see section 2.1). Where multiple waterlines are used for determining the UIWL, the displacement must be determined from the waterline corresponding to the greatest displacement. h_i is the level ice thickness [m] according to section 4.2.1.",
+    "sourceUrl": "https://www.finlex.fi/en/authorities/regulations/traficom-transport-maritime/2021/47238"
+  },
+  "retrievedRelevantVocabulary": [
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Ballast tank is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ballastTank",
+      "kind": "Class",
+      "label": "Ballast tank",
+      "localName": "ballastTank",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index; range dependency of hasBallastTank",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "kind": "Class",
+      "label": "Benchmark entity",
+      "localName": "benchmarkEntity",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "baseline target infrastructure",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "displacement_UIWL_t"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for displacementUiwlT derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#displacementAtUpperIceWaterline",
+      "kind": "QuantityProperty",
+      "label": "Displacement at upper ice waterline",
+      "localName": "displacementAtUpperIceWaterline",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "Mass",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/TON_Metric",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": "t"
+    },
+    {
+      "aliases": [
+        "draught_amidships_m"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for draughtAmidships derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#draughtAmidships",
+      "kind": "QuantityProperty",
+      "label": "Draught amidships",
+      "localName": "draughtAmidships",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "core",
+      "namingBasis": "Unit-stripped normalized regulatory variable",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": "m"
+    },
+    {
+      "aliases": [
+        "forward_draught_m"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for forwardDraught derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#forwardDraught",
+      "kind": "QuantityProperty",
+      "label": "Forward draught",
+      "localName": "forwardDraught",
+      "mappingStatus": "Exact local-name match in confirmed Haitham SSP namespace",
+      "module": "core",
+      "namingBasis": "Verified exact implementation term",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": "m"
+    },
+    {
+      "aliases": [
+        "freezing_prevention_present"
+      ],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Stage 1): candidate concept for freezingPreventionPresent derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#freezingPreventionPresent",
+      "kind": "DatatypeProperty",
+      "label": "Freezing prevention present",
+      "localName": "freezingPreventionPresent",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "core",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has ballast tank is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasBallastTank",
+      "kind": "ObjectProperty",
+      "label": "Has ballast tank",
+      "localName": "hasBallastTank",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#ballastTank",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasComponent",
+      "kind": "ObjectProperty",
+      "label": "has component",
+      "localName": "hasComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "recommendedUnit": null,
+      "selectionReason": "component-path dependency inferred from the linked term module",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has upper ice waterline is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasUpperIceWaterline",
+      "kind": "ObjectProperty",
+      "label": "Has upper ice waterline",
+      "localName": "hasUpperIceWaterline",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-011 | TRAFICOM p.6 | 2.1; TRF-013 | TRAFICOM p.7 | 2.2; TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Ice waterline is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "kind": "Class",
+      "label": "Ice waterline",
+      "localName": "iceWaterline",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "recommendedUnit": null,
+      "selectionReason": "range dependency of hasUpperIceWaterline",
+      "sourceReferences": "TRF-011 | TRAFICOM p.6 | 2.1; TRF-012 | TRAFICOM p.6 | 2.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "levelIceThickness",
+        "level_ice_thickness_m"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for levelIceThickness derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#levelIceThickness",
+      "kind": "QuantityProperty",
+      "label": "Level ice thickness",
+      "localName": "levelIceThickness",
+      "mappingStatus": "Exact local-name match in confirmed Haitham SSP namespace",
+      "module": "core",
+      "namingBasis": "Verified exact implementation term",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2; TRF-036 | TRAFICOM p.14 | 4.2.1",
+      "unitSymbol": "m"
+    },
+    {
+      "aliases": [
+        "LIWL_draught_amidships_m"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for liwlDraughtAmidships derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#liwlDraughtAmidships",
+      "kind": "QuantityProperty",
+      "label": "LIWL draught amidships",
+      "localName": "liwlDraughtAmidships",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "core",
+      "namingBasis": "Unit-stripped normalized regulatory variable",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": "m"
+    },
+    {
+      "aliases": [
+        "propeller_highest_point_submerged"
+      ],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Stage 1): candidate concept for propellerHighestPointSubmerged derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#propellerHighestPointSubmerged",
+      "kind": "DatatypeProperty",
+      "label": "Propeller highest point submerged",
+      "localName": "propellerHighestPointSubmerged",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "machinery",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ship",
+      "kind": "Class",
+      "label": "Ship",
+      "localName": "ship",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "baseline target infrastructure",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "kind": "Class",
+      "label": "Ship component",
+      "localName": "shipComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "component-path dependency inferred from the linked term module; range dependency of ballastTank",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Batch 01 development): Situated above lower ice waterline is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#situatedAboveLowerIceWaterline",
+      "kind": "DatatypeProperty",
+      "label": "Situated above lower ice waterline",
+      "localName": "situatedAboveLowerIceWaterline",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Batch 01 development): Used to reach lower ice waterline is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#usedToReachLowerIceWaterline",
+      "kind": "DatatypeProperty",
+      "label": "Used to reach lower ice waterline",
+      "localName": "usedToReachLowerIceWaterline",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Waterline displacement is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#waterlineDisplacement",
+      "kind": "QuantityProperty",
+      "label": "Waterline displacement",
+      "localName": "waterlineDisplacement",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": "Mass",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/TON_Metric",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-016 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": "t"
+    }
+  ],
+  "task": "Review one candidate SHACL graph for freezing before later RDF evaluation"
+}

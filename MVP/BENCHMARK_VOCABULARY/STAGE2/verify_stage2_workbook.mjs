@@ -4,7 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileBlob, SpreadsheetFile } from "@oai/artifact-tool";
 
-const stage2 = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
+const stage2 = process.env.NLTL_STAGE2_DIR
+  ? path.resolve(process.env.NLTL_STAGE2_DIR)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const workbookPath = process.env.NLTL_STAGE2_WORKBOOK
   ? path.resolve(process.env.NLTL_STAGE2_WORKBOOK)
   : path.join(stage2, "benchmark_vocabulary_stage2.xlsx");
@@ -50,8 +52,10 @@ function compareMatrix(sheetName, expected) {
 const expectedSheets = [
   "README", "MASTER_TERMS", "PROFILE_SUMMARY", "PROFILE_MEMBERSHIP", "REQUIREMENT_PROFILE",
   "NODE_PATTERNS", "CONTROLLED_VALUES", "NAMING_REFINEMENTS", "RETIRED_CANDIDATE",
-  "EXTERNAL_URI_REGISTER", "VALIDATION", "DECISIONS_LIMITATIONS", "SOURCE_LINEAGE",
+  "EXTERNAL_URI_REGISTER", "VALIDATION", "DECISIONS_LIMITATIONS",
 ];
+if (manifest.revision === "R2") expectedSheets.push("R2_REVISIONS");
+expectedSheets.push("SOURCE_LINEAGE");
 const sheetInspection = await wb.inspect({ kind: "sheet", include: "id,name", maxChars: 12000 });
 const actualSheets = sheetInspection.ndjson.split("\n").filter(Boolean).map(line => JSON.parse(line)).filter(x => x.kind === "sheet").map(x => x.name);
 assert(JSON.stringify(actualSheets) === JSON.stringify(expectedSheets), "sheet order and completeness", actualSheets);
@@ -143,9 +147,24 @@ const decisionRows = [
   ["LIM-S2-01", "Non-blocking", "Publication namespace", "w3id redirect not registered", "Register or replace before public release."],
   ["LIM-S2-02", "Non-blocking", "ISO 19848", "Normative text unavailable", "No ISO-specific definition or identifier is claimed."],
 ];
+if (manifest.revision === "R2") decisionRows.push([
+  "DEC-S2-R2-01",
+  "Adopted",
+  "IMO-057 relationship repair",
+  "Retire string-valued containingCompartment; add hasContainingCompartment plus explicit compartment and pump classes",
+  "The verified clause requires traversal from each named pump category to a compartment whose maintained temperature is above freezing; a string cannot support that SHACL path.",
+]);
 compareMatrix("DECISIONS_LIMITATIONS", [["Item_ID", "Status", "Topic", "Decision_or_Limitation", "Engineering_Rationale_or_Treatment"], ...decisionRows]);
 const sourceRows = evidence.manifest.map(x => [x.sourceId, x.path, x.filename, x.role, x.versionDate, x.pageCount, x.sha256, x.status, x.notes]);
 compareMatrix("SOURCE_LINEAGE", [["Source_ID", "Exact_Path", "Filename", "Content_Role", "Version_Date", "Page_Count", "SHA256", "Status", "Notes"], ...sourceRows]);
+if (manifest.revision === "R2") {
+  const r2Names = new Set(["compartment", "hasContainingCompartment", "emergencyFirePump", "waterMistPump", "waterSprayPump"]);
+  const r2Rows = terms.filter(t => r2Names.has(t.localName)).map(t => [
+    "IMO-057", t.sourceConceptIds.join("; "), t.localName, t.iri, t.kind, t.parentOrRange,
+    t.aliases.join("; "), t.sourceRefs, t.evidenceExcerpt, t.normalizedDefinition,
+  ]);
+  compareMatrix("R2_REVISIONS", [["Requirement_ID", "Concept_ID", "Canonical_Local_Name", "Canonical_URI", "Kind", "Parent_or_Range", "Aliases", "Source_Reference", "Verified_Evidence", "Normalized_Rationale"], ...r2Rows]);
+}
 
 const formulaScan = await wb.inspect({ kind: "match", searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A", options: { useRegex: true, maxResults: 300 }, summary: "independent formula error scan", maxChars: 4000 });
 assert(formulaScan.ndjson.includes("matched 0 entries"), "formula error scan", "0 formula error cells");
@@ -155,14 +174,15 @@ const visualRenderFiles = [
   "04_PROFILE_SUMMARY_A1-I9.png", "05_PROFILE_MEMBERSHIP_A1-K18.png",
   "06_REQUIREMENT_PROFILE_A1-H16.png", "07_REQUIREMENT_PROFILE_I1-O16.png",
   "08_NODE_PATTERNS_A1-D8.png", "09_CONTROLLED_VALUES_A1-D30.png",
-  "10_NAMING_REFINEMENTS_A1-D13.png", "11_RETIRED_CANDIDATE_A1-F5.png",
-  "12_EXTERNAL_URI_REGISTER_A1-F34.png", "13_VALIDATION_A1-C43.png",
+  manifest.revision === "R2" ? "10_NAMING_REFINEMENTS_A1-D14.png" : "10_NAMING_REFINEMENTS_A1-D13.png", "11_RETIRED_CANDIDATE_A1-F5.png",
+  "12_EXTERNAL_URI_REGISTER_A1-F34.png", manifest.revision === "R2" ? "13_VALIDATION_A1-C46.png" : "13_VALIDATION_A1-C43.png",
   "14_DECISIONS_LIMITATIONS_A1-E13.png", "15_SOURCE_LINEAGE_A1-I21.png",
 ];
+if (manifest.revision === "R2") visualRenderFiles.push("16_R2_REVISIONS_A1-J6.png");
 const renderExistence = await Promise.all(visualRenderFiles.map(async x => {
   try { await fs.access(path.join(stage2, "qa_workbook", x)); return true; } catch { return false; }
 }));
-assert(renderExistence.every(Boolean), "all-sheet visual render coverage", `${visualRenderFiles.length} inspected renders covering all 13 sheets`);
+assert(renderExistence.every(Boolean), "all-sheet visual render coverage", `${visualRenderFiles.length} inspected renders covering all ${expectedSheets.length} sheets`);
 
 const workbookBytes = await fs.readFile(workbookPath);
 const workbookSha256 = crypto.createHash("sha256").update(workbookBytes).digest("hex");
@@ -174,7 +194,7 @@ const report = {
   sheets: expectedSheets.length,
   terms: terms.length,
   requirements: evidence.requirements.length,
-  visualReview: "PASS - all 15 renders covering all 13 sheets were inspected for clipping, legibility, and layout defects",
+  visualReview: `PASS - all ${visualRenderFiles.length} renders covering all ${expectedSheets.length} sheets were inspected for clipping, legibility, and layout defects`,
   checksPassed: checks.length,
   checks,
 };

@@ -1,0 +1,251 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IceStringerShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:iceStringer ;
+    sh:property [
+        sh:path nltl:locatedWithinIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each ice stringer must state exactly once whether it is within the ice belt."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:locatedWithinIceBelt ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:locatedWithinIceBelt ;
+                sh:hasValue true
+            ] ;
+            sh:node gen:IceStringerCalculationShape
+        ]
+    ) .
+
+gen:IceStringerCalculationShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MegaPAQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MetreQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:designLineLoad ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LineLoadQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:span ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MetreQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:frameMomentFactorM ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MegaPAQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceStringerDistributionFactorF6 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:F6QuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceStringerSafetyFactorF7 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:F7QuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceStringerShearFactorF8 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:F8QuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:SectionModulusQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:ShearAreaQuantityValueShape
+    ] ;
+    sh:sparql [
+        sh:message "Design line load, section modulus, or required shear area does not satisfy clause 4.5.1 within relative tolerance 1e-6 and absolute fallback 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:icePressure/qudt:numericValue ?p ;
+                      nltl:designIceLoadHeight/qudt:numericValue ?h ;
+                      nltl:designLineLoad/qudt:numericValue ?lineLoad ;
+                      nltl:span/qudt:numericValue ?span ;
+                      nltl:frameMomentFactorM/qudt:numericValue ?m ;
+                      nltl:yieldStrength/qudt:numericValue ?yield ;
+                      nltl:sectionModulus/qudt:numericValue ?sectionModulus ;
+                      nltl:requiredShearArea/qudt:numericValue ?shearArea .
+                BIND(IF((?p * ?h) < 0.15, 0.15, (?p * ?h)) AS ?expectedLineLoadMNPerM)
+                BIND((?expectedLineLoadMNPerM * 1000.0) AS ?expectedLineLoadKNPerM)
+                BIND(IF((?m * ?yield) = 0.0, 1.0, (?m * ?yield)) AS ?safeDenominator)
+                BIND((0.9 * 1.8 * ?expectedLineLoadMNPerM * ?span * ?span * 1000000.0 / ?safeDenominator) AS ?expectedSectionModulus)
+                BIND((1.7320508075688772 * 0.9 * 1.8 * 1.2 * ?expectedLineLoadMNPerM * ?span * 10000.0 / (2.0 * IF(?yield = 0.0, 1.0, ?yield))) AS ?expectedShearArea)
+                FILTER(
+                    ?m = 0.0 ||
+                    ?yield = 0.0 ||
+                    ABS(?lineLoad - ?expectedLineLoadKNPerM) >
+                        ((0.000001 * ABS(?expectedLineLoadKNPerM)) + 0.000000001) ||
+                    ABS(?sectionModulus - ?expectedSectionModulus) >
+                        ((0.000001 * ABS(?expectedSectionModulus)) + 0.000000001) ||
+                    ABS(?shearArea - ?expectedShearArea) >
+                        ((0.000001 * ABS(?expectedShearArea)) + 0.000000001)
+                )
+            }
+        """
+    ] .
+
+gen:MegaPAQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MetreQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LineLoadQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN-PER-M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UnitlessQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:F6QuantityValueShape
+    a sh:NodeShape ;
+    sh:node gen:UnitlessQuantityValueShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:hasValue 0.9
+    ] .
+
+gen:F7QuantityValueShape
+    a sh:NodeShape ;
+    sh:node gen:UnitlessQuantityValueShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:hasValue 1.8
+    ] .
+
+gen:F8QuantityValueShape
+    a sh:NodeShape ;
+    sh:node gen:UnitlessQuantityValueShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:hasValue 1.2
+    ] .
+
+gen:SectionModulusQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:CentiM3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:ShearAreaQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:CentiM2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

@@ -1,0 +1,204 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:UpperIceWaterlineEnvelopeShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship shall have exactly one upper ice waterline."
+    ] ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "At least one intended ice operating waterline is required to establish the upper ice waterline envelope."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline points shall correspond exactly to the highest intended-waterline points at each sampled longitudinal station, using relative tolerance 1e-6 and absolute fallback 1e-9 m." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    FILTER (
+        EXISTS {
+            $this nltl:hasIntendedIceOperatingWaterline ?stationWaterline .
+            ?stationWaterline nltl:hasWaterlineProfilePoint ?stationPoint .
+            ?stationPoint nltl:longitudinalPosition ?stationXQuantity .
+            ?stationXQuantity qudt:numericValue ?stationX ;
+                qudt:unit unit:M .
+
+            FILTER NOT EXISTS {
+                $this nltl:hasUpperIceWaterline ?upperWaterline .
+                ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+                ?upperPoint nltl:longitudinalPosition ?upperXQuantity ;
+                    nltl:verticalCoordinate ?upperYQuantity .
+                ?upperXQuantity qudt:numericValue ?upperX ;
+                    qudt:unit unit:M .
+                ?upperYQuantity qudt:numericValue ?upperY ;
+                    qudt:unit unit:M .
+
+                $this nltl:hasIntendedIceOperatingWaterline ?maximumWaterline .
+                ?maximumWaterline nltl:hasWaterlineProfilePoint ?maximumPoint .
+                ?maximumPoint nltl:longitudinalPosition ?maximumXQuantity ;
+                    nltl:verticalCoordinate ?maximumYQuantity .
+                ?maximumXQuantity qudt:numericValue ?maximumX ;
+                    qudt:unit unit:M .
+                ?maximumYQuantity qudt:numericValue ?maximumY ;
+                    qudt:unit unit:M .
+
+                BIND(IF(ABS(?stationX) > ABS(?upperX), ABS(?stationX), ABS(?upperX)) AS ?stationUpperXScale)
+                BIND(IF(?stationUpperXScale * 0.000001 > 0.000000001,
+                        ?stationUpperXScale * 0.000001,
+                        0.000000001) AS ?stationUpperXTolerance)
+                BIND(IF(ABS(?stationX) > ABS(?maximumX), ABS(?stationX), ABS(?maximumX)) AS ?stationMaximumXScale)
+                BIND(IF(?stationMaximumXScale * 0.000001 > 0.000000001,
+                        ?stationMaximumXScale * 0.000001,
+                        0.000000001) AS ?stationMaximumXTolerance)
+                BIND(IF(ABS(?upperY) > ABS(?maximumY), ABS(?upperY), ABS(?maximumY)) AS ?upperMaximumYScale)
+                BIND(IF(?upperMaximumYScale * 0.000001 > 0.000000001,
+                        ?upperMaximumYScale * 0.000001,
+                        0.000000001) AS ?upperMaximumYTolerance)
+
+                FILTER(ABS(?stationX - ?upperX) <= ?stationUpperXTolerance)
+                FILTER(ABS(?stationX - ?maximumX) <= ?stationMaximumXTolerance)
+                FILTER(ABS(?upperY - ?maximumY) <= ?upperMaximumYTolerance)
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasIntendedIceOperatingWaterline ?higherWaterline .
+                    ?higherWaterline nltl:hasWaterlineProfilePoint ?higherPoint .
+                    ?higherPoint nltl:longitudinalPosition ?higherXQuantity ;
+                        nltl:verticalCoordinate ?higherYQuantity .
+                    ?higherXQuantity qudt:numericValue ?higherX ;
+                        qudt:unit unit:M .
+                    ?higherYQuantity qudt:numericValue ?higherY ;
+                        qudt:unit unit:M .
+
+                    BIND(IF(ABS(?stationX) > ABS(?higherX), ABS(?stationX), ABS(?higherX)) AS ?higherXScale)
+                    BIND(IF(?higherXScale * 0.000001 > 0.000000001,
+                            ?higherXScale * 0.000001,
+                            0.000000001) AS ?higherXTolerance)
+
+                    FILTER(ABS(?stationX - ?higherX) <= ?higherXTolerance)
+                    FILTER(?higherY > ?maximumY)
+                }
+            }
+        }
+        ||
+        EXISTS {
+            $this nltl:hasUpperIceWaterline ?suppliedUpperWaterline .
+            ?suppliedUpperWaterline nltl:hasWaterlineProfilePoint ?suppliedUpperPoint .
+            ?suppliedUpperPoint nltl:longitudinalPosition ?suppliedUpperXQuantity ;
+                nltl:verticalCoordinate ?suppliedUpperYQuantity .
+            ?suppliedUpperXQuantity qudt:numericValue ?suppliedUpperX ;
+                qudt:unit unit:M .
+            ?suppliedUpperYQuantity qudt:numericValue ?suppliedUpperY ;
+                qudt:unit unit:M .
+
+            FILTER NOT EXISTS {
+                $this nltl:hasIntendedIceOperatingWaterline ?correspondingWaterline .
+                ?correspondingWaterline nltl:hasWaterlineProfilePoint ?correspondingPoint .
+                ?correspondingPoint nltl:longitudinalPosition ?correspondingXQuantity ;
+                    nltl:verticalCoordinate ?correspondingYQuantity .
+                ?correspondingXQuantity qudt:numericValue ?correspondingX ;
+                    qudt:unit unit:M .
+                ?correspondingYQuantity qudt:numericValue ?correspondingY ;
+                    qudt:unit unit:M .
+
+                BIND(IF(ABS(?suppliedUpperX) > ABS(?correspondingX), ABS(?suppliedUpperX), ABS(?correspondingX)) AS ?correspondingXScale)
+                BIND(IF(?correspondingXScale * 0.000001 > 0.000000001,
+                        ?correspondingXScale * 0.000001,
+                        0.000000001) AS ?correspondingXTolerance)
+                BIND(IF(ABS(?suppliedUpperY) > ABS(?correspondingY), ABS(?suppliedUpperY), ABS(?correspondingY)) AS ?correspondingYScale)
+                BIND(IF(?correspondingYScale * 0.000001 > 0.000000001,
+                        ?correspondingYScale * 0.000001,
+                        0.000000001) AS ?correspondingYTolerance)
+
+                FILTER(ABS(?suppliedUpperX - ?correspondingX) <= ?correspondingXTolerance)
+                FILTER(ABS(?suppliedUpperY - ?correspondingY) <= ?correspondingYTolerance)
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasIntendedIceOperatingWaterline ?otherWaterline .
+                    ?otherWaterline nltl:hasWaterlineProfilePoint ?otherPoint .
+                    ?otherPoint nltl:longitudinalPosition ?otherXQuantity ;
+                        nltl:verticalCoordinate ?otherYQuantity .
+                    ?otherXQuantity qudt:numericValue ?otherX ;
+                        qudt:unit unit:M .
+                    ?otherYQuantity qudt:numericValue ?otherY ;
+                        qudt:unit unit:M .
+
+                    BIND(IF(ABS(?suppliedUpperX) > ABS(?otherX), ABS(?suppliedUpperX), ABS(?otherX)) AS ?otherXScale)
+                    BIND(IF(?otherXScale * 0.000001 > 0.000000001,
+                            ?otherXScale * 0.000001,
+                            0.000000001) AS ?otherXTolerance)
+
+                    FILTER(ABS(?suppliedUpperX - ?otherX) <= ?otherXTolerance)
+                    FILTER(?otherY > ?correspondingY)
+                }
+            }
+        }
+    )
+}
+"""
+    ] .
+
+gen:IceWaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:WaterlineProfilePointShape ;
+        sh:minCount 1 ;
+        sh:message "Each ice waterline shall provide at least one profile point."
+    ] .
+
+gen:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:class qudt:QuantityValue ;
+        sh:node gen:MetreQuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each waterline profile point shall have exactly one longitudinal position."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:class qudt:QuantityValue ;
+        sh:node gen:MetreQuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each waterline profile point shall have exactly one vertical coordinate."
+    ] .
+
+gen:MetreQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity shall have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity shall have exactly one unit, metre."
+    ] .
+<END_SHACL>

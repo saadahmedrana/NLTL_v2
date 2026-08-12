@@ -1,0 +1,350 @@
+PROMPT_ID: NLTL-SEMANTIC-VALIDATOR-0.1.2
+
+You review a candidate maritime SHACL graph. You do not determine whether a
+ship complies and you do not execute RDF data. Deterministic parser, SHACL
+structure, vocabulary, datatype, range, and unit reports are supplied to you.
+
+Check whether the candidate faithfully encodes the verified requirement with
+the correct applicability, targets, paths, alternatives, comparison direction,
+thresholds, formula operands, readiness/evidence boundary, datatypes, and
+units. Be strict about accidental pass logic, invented terms, and checks that
+target the wrong entity.
+
+The complete locked vocabulary is enforced by the deterministic report and is
+not repeated in this prompt. Review the retrieved relevant terms, the verified
+records for terms actually used by the candidate, and any deterministic
+mismatch candidates. Do not infer that an absent full-registry entry is
+unavailable: rely on the deterministic unknown/out-of-scope lists.
+
+Set activate_variable_matcher to true only when the repair requires locating a
+canonical term that was absent, misspelled, invented, or not supplied in the
+generator's scoped vocabulary. Activate it even when no candidate was supplied;
+the deterministic search will run after your decision. Ordinary semantic or
+SHACL corrections do not activate the matcher.
+
+Set accept to true only when deterministicValidation.valid is true and the
+candidate is semantically faithful enough to freeze for later RDF evaluation.
+If accept is true, activate_variable_matcher must be false.
+
+Return exactly one physical line of JSON with exactly these keys:
+{"accept":false,"activate_variable_matcher":false,"feedback":"Concrete repair instruction."}
+
+The first two values must be JSON booleans. feedback must be a JSON string.
+Do not return Markdown, analysis, additional keys, or additional lines.
+
+
+--- USER INPUT ---
+{
+  "candidateShacl": "@prefix gen: <urn:nltl:generated-shape:> .\n@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\ngen:DecimalMegaPAValueShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:datatype xsd:decimal ;\n        sh:minCount 1 ;\n        sh:message \"The quantity must have a decimal numeric value.\"\n    ] ;\n    sh:property [\n        sh:path qudt:unit ;\n        sh:hasValue unit:MegaPA ;\n        sh:message \"The quantity must be expressed in MPa.\"\n    ] .\n\ngen:CombinedBendingShearStressShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:shipComponent ;\n    sh:property [\n        sh:path nltl:combinedBendingShearStress ;\n        sh:minCount 1 ;\n        sh:node gen:DecimalMegaPAValueShape ;\n        sh:message \"Combined bending and shear stress is required.\"\n    ] ;\n    sh:property [\n        sh:path nltl:yieldPoint ;\n        sh:minCount 1 ;\n        sh:node gen:DecimalMegaPAValueShape ;\n        sh:message \"Yield point is required.\"\n    ] ;\n    sh:property [\n        sh:path nltl:beamTheoryUsed ;\n        sh:datatype xsd:boolean\n    ] ;\n    sh:property [\n        sh:path nltl:allowableShearStress ;\n        sh:node gen:DecimalMegaPAValueShape\n    ] ;\n    sh:property [\n        sh:path nltl:yieldShearStress ;\n        sh:node gen:DecimalMegaPAValueShape\n    ] ;\n    sh:sparql [\n        sh:message \"Combined bending and shear stress must be lower than the yield point.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n            PREFIX unit: <http://qudt.org/vocab/unit/>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT DISTINCT $this\n            WHERE {\n                $this nltl:combinedBendingShearStress ?combined ;\n                      nltl:yieldPoint ?yield .\n                ?combined qudt:numericValue ?combinedValue ;\n                          qudt:unit unit:MegaPA .\n                ?yield qudt:numericValue ?yieldValue ;\n                       qudt:unit unit:MegaPA .\n                FILTER (?combinedValue >= ?yieldValue)\n            }\n        \"\"\"\n    ] ;\n    sh:sparql [\n        sh:message \"Beam-theory calculation requires allowable shear stress and yield shear stress in MPa.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n            PREFIX unit: <http://qudt.org/vocab/unit/>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT DISTINCT $this\n            WHERE {\n                $this nltl:beamTheoryUsed \"true\"^^xsd:boolean .\n                FILTER (\n                    NOT EXISTS {\n                        $this nltl:allowableShearStress ?allowable .\n                        ?allowable qudt:numericValue ?allowableValue ;\n                                   qudt:unit unit:MegaPA .\n                    }\n                    ||\n                    NOT EXISTS {\n                        $this nltl:yieldShearStress ?tau .\n                        ?tau qudt:numericValue ?tauValue ;\n                             qudt:unit unit:MegaPA .\n                    }\n                )\n            }\n        \"\"\"\n    ] ;\n    sh:sparql [\n        sh:message \"For beam-theory calculation, allowable shear stress must not exceed 0.9 times yield shear stress.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n            PREFIX unit: <http://qudt.org/vocab/unit/>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT DISTINCT $this\n            WHERE {\n                $this nltl:beamTheoryUsed \"true\"^^xsd:boolean ;\n                      nltl:allowableShearStress ?allowable ;\n                      nltl:yieldShearStress ?tau .\n                ?allowable qudt:numericValue ?allowableValue ;\n                           qudt:unit unit:MegaPA .\n                ?tau qudt:numericValue ?tauValue ;\n                     qudt:unit unit:MegaPA .\n                FILTER (?allowableValue > (0.9 * ?tauValue))\n            }\n        \"\"\"\n    ] ;\n    sh:sparql [\n        sh:message \"For beam-theory calculation, yield shear stress must equal yield point divided by the square root of 3.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n            PREFIX unit: <http://qudt.org/vocab/unit/>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT DISTINCT $this\n            WHERE {\n                $this nltl:beamTheoryUsed \"true\"^^xsd:boolean ;\n                      nltl:yieldShearStress ?tau ;\n                      nltl:yieldPoint ?yield .\n                ?tau qudt:numericValue ?tauValue ;\n                     qudt:unit unit:MegaPA .\n                ?yield qudt:numericValue ?yieldValue ;\n                       qudt:unit unit:MegaPA .\n                FILTER (\n                    ?tauValue < 0 ||\n                    ?yieldValue < 0 ||\n                    (3 * ?tauValue * ?tauValue) != (?yieldValue * ?yieldValue)\n                )\n            }\n        \"\"\"\n    ] .\n",
+  "candidateUsedCanonicalTerms": [
+    {
+      "aliases": [
+        "allowableShearStress"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#allowableShearStress",
+      "kind": "QuantityProperty",
+      "label": "Allowable shear stress",
+      "localName": "allowableShearStress",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA"
+    },
+    {
+      "aliases": [
+        "beamTheoryUsed"
+      ],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#beamTheoryUsed",
+      "kind": "DatatypeProperty",
+      "label": "Beam theory used",
+      "localName": "beamTheoryUsed",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [
+        "combinedBendingShearStress"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#combinedBendingShearStress",
+      "kind": "QuantityProperty",
+      "label": "Combined bending shear stress",
+      "localName": "combinedBendingShearStress",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "kind": "Class",
+      "label": "Ship component",
+      "localName": "shipComponent",
+      "range": "",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [
+        "yieldPoint"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#yieldPoint",
+      "kind": "QuantityProperty",
+      "label": "Yield point",
+      "localName": "yieldPoint",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#yieldShearStress",
+      "kind": "QuantityProperty",
+      "label": "Yield shear stress",
+      "localName": "yieldShearStress",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA"
+    }
+  ],
+  "deterministicValidation": {
+    "datatype_unit_valid": true,
+    "errors": [],
+    "extraction_valid": true,
+    "meta_shacl_valid": true,
+    "out_of_scope_canonical_iris": [],
+    "shacl_structure_valid": true,
+    "suspicious_external_iris": [],
+    "target_path_valid": true,
+    "turtle_valid": true,
+    "unknown_canonical_iris": [],
+    "used_canonical_iris": [
+      "https://w3id.org/nltl-benchmark/vocab#allowableShearStress",
+      "https://w3id.org/nltl-benchmark/vocab#beamTheoryUsed",
+      "https://w3id.org/nltl-benchmark/vocab#combinedBendingShearStress",
+      "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "https://w3id.org/nltl-benchmark/vocab#yieldPoint",
+      "https://w3id.org/nltl-benchmark/vocab#yieldShearStress"
+    ],
+    "valid": true,
+    "vocabulary_valid": true,
+    "warnings": []
+  },
+  "importantBoundary": "No ship graph or expected RDF outcome is part of this review.",
+  "mismatchCandidates": [],
+  "registryBoundary": "The complete locked registry was checked deterministically but is intentionally not embedded. Treat unknown/out-of-scope findings as authoritative. Activate the vocabulary matcher whenever a repair requires locating a canonical term or controlled value absent from the scoped context, even when no deterministic candidate was supplied yet.",
+  "requirement": {
+    "activeStatus": "Stage 2 candidate - direct/deterministic",
+    "anchorMapField": "No direct AnchorMap term found; propose a code-safe alias during SHACL design",
+    "canonicalVariables": "No explicit data variable identified",
+    "category": "Static Calculation",
+    "clause": "4.1",
+    "codability": "Medium",
+    "conceptIds": "VOC-0029; VOC-0078; VOC-0149; VOC-0205; VOC-0799; VOC-0820",
+    "coverageStatus": "Covered by candidate concepts",
+    "edition": "TRAFICOM/68863/03.04.01.00/2021",
+    "encodingPattern": "Formula-derived constraint",
+    "figureDependent": "No",
+    "id": "TRF-031",
+    "normalizedRequirement": "The acceptance criterion for designs is that the combined stresses from bending and shear, when using the von Mises yield criterion, are lower than the yield point sigmay. When the direct calculation is based on beam theory, the allowable shear stress must be no larger than 0.9*tauy, where tauy = sigmay/sqrt3.",
+    "page": 12,
+    "requiredInputs": "No explicit data variable identified",
+    "section": "General",
+    "source": "Ice Class Regulations and the Application Thereof",
+    "sourceSheet": "TRAFICOM",
+    "sourceText": "The acceptance criterion for designs is that the combined stresses from bending and shear, when using the von Mises yield criterion, are lower than the yield point sigmay. When the direct calculation is based on beam theory, the allowable shear stress must be no larger than 0.9*tauy, where tauy = sigmay/sqrt3.",
+    "sourceUrl": "https://www.finlex.fi/en/authorities/regulations/traficom-transport-maritime/2021/47238"
+  },
+  "retrievedRelevantVocabulary": [
+    {
+      "aliases": [
+        "allowableShearStress"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for allowableShearStress derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#allowableShearStress",
+      "kind": "QuantityProperty",
+      "label": "Allowable shear stress",
+      "localName": "allowableShearStress",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "core",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "PressureOrStress",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-031 | TRAFICOM p.12 | 4.1",
+      "unitSymbol": "MPa"
+    },
+    {
+      "aliases": [
+        "beamTheoryUsed"
+      ],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Stage 1): candidate concept for beamTheoryUsed derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#beamTheoryUsed",
+      "kind": "DatatypeProperty",
+      "label": "Beam theory used",
+      "localName": "beamTheoryUsed",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "core",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-031 | TRAFICOM p.12 | 4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "kind": "Class",
+      "label": "Benchmark entity",
+      "localName": "benchmarkEntity",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "baseline target infrastructure",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "combinedBendingShearStress"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for combinedBendingShearStress derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#combinedBendingShearStress",
+      "kind": "QuantityProperty",
+      "label": "Combined bending shear stress",
+      "localName": "combinedBendingShearStress",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "core",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "PressureOrStress",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-031 | TRAFICOM p.12 | 4.1",
+      "unitSymbol": "MPa"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasComponent",
+      "kind": "ObjectProperty",
+      "label": "has component",
+      "localName": "hasComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "recommendedUnit": null,
+      "selectionReason": "component-path dependency inferred from the linked term module",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ship",
+      "kind": "Class",
+      "label": "Ship",
+      "localName": "ship",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "baseline target infrastructure",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "kind": "Class",
+      "label": "Ship component",
+      "localName": "shipComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "component-path dependency inferred from the linked term module",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "vonMisesYieldCriterion"
+      ],
+      "datatype": "xsd:string",
+      "definition": "NORMALIZED (Stage 1): candidate concept for vonMisesYieldCriterion derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#vonMisesYieldCriterion",
+      "kind": "DatatypeProperty",
+      "label": "Von mises yield criterion",
+      "localName": "vonMisesYieldCriterion",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "core",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#string",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-031 | TRAFICOM p.12 | 4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "yieldPoint"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for yieldPoint derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#yieldPoint",
+      "kind": "QuantityProperty",
+      "label": "Yield point",
+      "localName": "yieldPoint",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "core",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "PressureOrStress",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-031 | TRAFICOM p.12 | 4.1",
+      "unitSymbol": "MPa"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Yield shear stress is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#yieldShearStress",
+      "kind": "QuantityProperty",
+      "label": "Yield shear stress",
+      "localName": "yieldShearStress",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": "Pressure",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-031 | TRAFICOM p.12 | 4.1",
+      "unitSymbol": "MPa"
+    }
+  ],
+  "task": "Review one candidate SHACL graph for freezing before later RDF evaluation"
+}

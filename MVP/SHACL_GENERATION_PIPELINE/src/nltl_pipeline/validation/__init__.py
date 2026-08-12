@@ -1,0 +1,2 @@
+"""Deterministic generated-SHACL validation."""
+

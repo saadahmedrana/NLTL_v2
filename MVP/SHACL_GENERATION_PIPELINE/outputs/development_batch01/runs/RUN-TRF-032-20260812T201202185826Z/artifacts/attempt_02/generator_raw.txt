@@ -1,0 +1,124 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ScantlingQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A scantling quantity must have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A scantling quantity must have exactly one IRI unit."
+    ] .
+
+gen:ScantlingSelectionShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:benchmarkEntity ;
+    sh:property [
+        sh:path nltl:iceStrengtheningStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one boolean ice-strengthening status is required."
+    ] ;
+    sh:property [
+        sh:path nltl:regulationRequiredScantling ;
+        sh:node gen:ScantlingQuantityShape ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:classificationSocietyRequiredScantling ;
+        sh:node gen:ScantlingQuantityShape ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:selectedDesignScantling ;
+        sh:node gen:ScantlingQuantityShape ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a ship that is not ice strengthened, regulation and classification scantlings must be available in the same unit; if the regulation scantling is lower, the selected scantling must be at least the classification scantling in that unit." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceStrengtheningStatus ?iceStatus .
+    FILTER (?iceStatus = "false"^^xsd:boolean)
+
+    OPTIONAL {
+        $this nltl:regulationRequiredScantling ?regulationQuantity .
+        OPTIONAL {
+            ?regulationQuantity qudt:numericValue ?regulationValue .
+        }
+        OPTIONAL {
+            ?regulationQuantity qudt:unit ?regulationUnit .
+        }
+    }
+
+    OPTIONAL {
+        $this nltl:classificationSocietyRequiredScantling ?classificationQuantity .
+        OPTIONAL {
+            ?classificationQuantity qudt:numericValue ?classificationValue .
+        }
+        OPTIONAL {
+            ?classificationQuantity qudt:unit ?classificationUnit .
+        }
+    }
+
+    OPTIONAL {
+        $this nltl:selectedDesignScantling ?selectedQuantity .
+        OPTIONAL {
+            ?selectedQuantity qudt:numericValue ?selectedValue .
+        }
+        OPTIONAL {
+            ?selectedQuantity qudt:unit ?selectedUnit .
+        }
+    }
+
+    FILTER (
+        !BOUND(?regulationQuantity) ||
+        !BOUND(?regulationValue) ||
+        !BOUND(?regulationUnit) ||
+        !BOUND(?classificationQuantity) ||
+        !BOUND(?classificationValue) ||
+        !BOUND(?classificationUnit) ||
+        (
+            BOUND(?regulationUnit) &&
+            BOUND(?classificationUnit) &&
+            ?regulationUnit != ?classificationUnit
+        ) ||
+        (
+            BOUND(?regulationValue) &&
+            BOUND(?classificationValue) &&
+            BOUND(?regulationUnit) &&
+            BOUND(?classificationUnit) &&
+            ?regulationUnit = ?classificationUnit &&
+            ?regulationValue < ?classificationValue &&
+            (
+                !BOUND(?selectedQuantity) ||
+                !BOUND(?selectedValue) ||
+                !BOUND(?selectedUnit) ||
+                ?selectedUnit != ?classificationUnit ||
+                ?selectedValue < ?classificationValue
+            )
+        )
+    )
+}
+"""
+    ] .
+<END_SHACL>

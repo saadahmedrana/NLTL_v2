@@ -1,0 +1,210 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1
+    ] .
+
+gen:TRF014Shape
+    a sh:NodeShape ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT ?this
+            WHERE {
+                ?this a nltl:ship ;
+                      nltl:iceClass ?iceClass .
+            }
+        """
+    ] ;
+    sh:property [
+        sh:path nltl:hasIceDraughtRestrictionDocument ;
+        sh:class nltl:iceDraughtRestrictionDocument ;
+        sh:minCount 1 ;
+        sh:message "Draught restrictions for operation in ice must be documented."
+    ] ;
+    sh:property [
+        sh:path nltl:retainedOnBoard ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:message "The ice draught restriction documentation must be retained on board."
+    ] ;
+    sh:property [
+        sh:path nltl:readilyAvailableToMaster ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:message "The ice draught restriction documentation must be readily available to the master."
+    ] ;
+    sh:property [
+        sh:path nltl:hasClassCertificate ;
+        sh:class nltl:classCertificate ;
+        sh:minCount 1 ;
+        sh:message "A class certificate indicating the ice class draughts is required."
+    ] ;
+    sh:property [
+        sh:path nltl:maximumIceClassDraughtFore ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:maximumIceClassDraughtAmidships ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:maximumIceClassDraughtAft ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:minimumIceClassDraughtFore ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:minimumIceClassDraughtAmidships ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:minimumIceClassDraughtAft ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:summerLoadLineFreshWaterDraught ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape ;
+        sh:message "The summer load line fresh-water draught is required to determine marking applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape ;
+        sh:message "The upper ice waterline draught is required to determine marking applicability."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the summer fresh-water load-line draught exceeds the UIWL draught, construction-date readiness, the required warning triangle and ice-class draught mark, the maximum amidships mark value, and the applicable pre-2007 dry-docking information must conform. Mark-value comparison uses relative tolerance 1e-6 with absolute fallback 1e-9 metres." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:summerLoadLineFreshWaterDraught ?summerQuantity ;
+                      nltl:upperIceWaterlineDraught ?uiwlQuantity .
+
+                ?summerQuantity qudt:numericValue ?summerValue ;
+                                qudt:unit unit:M .
+                ?uiwlQuantity qudt:numericValue ?uiwlValue ;
+                              qudt:unit unit:M .
+
+                FILTER(
+                    datatype(?summerValue) = xsd:decimal &&
+                    datatype(?uiwlValue) = xsd:decimal &&
+                    ?summerValue > ?uiwlValue &&
+                    (
+                        NOT EXISTS {
+                            $this nltl:constructionDate ?constructionDate .
+                            FILTER(datatype(?constructionDate) = xsd:date)
+                        }
+                        ||
+                        NOT EXISTS {
+                            $this nltl:warningTrianglePresent ?warningPresent .
+                            FILTER(
+                                datatype(?warningPresent) = xsd:boolean &&
+                                ?warningPresent = "true"^^xsd:boolean
+                            )
+                        }
+                        ||
+                        NOT EXISTS {
+                            $this nltl:iceClassDraughtMarkPresent ?markPresent .
+                            FILTER(
+                                datatype(?markPresent) = xsd:boolean &&
+                                ?markPresent = "true"^^xsd:boolean
+                            )
+                        }
+                        ||
+                        NOT EXISTS {
+                            $this nltl:iceClassDraughtMarkDraughtAmidships ?markQuantity ;
+                                  nltl:maximumIceClassDraughtAmidships ?maximumQuantity .
+
+                            ?markQuantity qudt:numericValue ?markValue ;
+                                          qudt:unit unit:M .
+                            ?maximumQuantity qudt:numericValue ?maximumValue ;
+                                             qudt:unit unit:M .
+
+                            FILTER(
+                                datatype(?markValue) = xsd:decimal &&
+                                datatype(?maximumValue) = xsd:decimal &&
+                                ABS(?markValue - ?maximumValue) <=
+                                    IF(
+                                        ABS(?maximumValue) * 0.000001 > 0.000000001,
+                                        ABS(?maximumValue) * 0.000001,
+                                        0.000000001
+                                    )
+                            )
+                        }
+                        ||
+                        (
+                            EXISTS {
+                                $this nltl:constructionDate ?oldConstructionDate .
+                                FILTER(
+                                    datatype(?oldConstructionDate) = xsd:date &&
+                                    (
+                                        YEAR(?oldConstructionDate) < 2007 ||
+                                        (
+                                            YEAR(?oldConstructionDate) = 2007 &&
+                                            MONTH(?oldConstructionDate) < 7
+                                        )
+                                    )
+                                )
+                            }
+                            &&
+                            NOT EXISTS {
+                                $this nltl:firstScheduledDryDockingDate ?dryDockingDate .
+                                FILTER(
+                                    datatype(?dryDockingDate) = xsd:date &&
+                                    (
+                                        YEAR(?dryDockingDate) > 2007 ||
+                                        (
+                                            YEAR(?dryDockingDate) = 2007 &&
+                                            (
+                                                MONTH(?dryDockingDate) > 7 ||
+                                                (
+                                                    MONTH(?dryDockingDate) = 7 &&
+                                                    DAY(?dryDockingDate) > 1
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            }
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

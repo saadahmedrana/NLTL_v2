@@ -1,0 +1,238 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:VerticalFramingIceStrengtheningShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperBowIceBeltRequired ;
+        sh:datatype xsd:boolean ;
+        sh:message "The upper-bow-ice-belt applicability value must be boolean when provided."
+    ] ;
+    sh:property [
+        sh:path nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted ;
+        sh:datatype xsd:boolean ;
+        sh:message "The adjacent-boundary termination value must be boolean when provided."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Ice class is required to select the applicable Table 4-6 row." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    FILTER NOT EXISTS {
+        $this nltl:iceClass ?iceClass .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable ice-class ship requires a component identified with a Table 4-6 hull region." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:iceClass ?iceClass .
+    FILTER (
+        ?iceClass IN (
+            nltl:iceClassIaSuper,
+            nltl:iceClassIa,
+            nltl:iceClassIb,
+            nltl:iceClassIc
+        )
+    )
+    FILTER NOT EXISTS {
+        $this nltl:hasComponent ?component .
+        ?component nltl:hullRegion ?region .
+        FILTER (
+            ?region IN (
+                nltl:bowRegion,
+                nltl:midbodyRegion,
+                nltl:sternRegion
+            )
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Framing ice strengthening above the upper ice waterline is missing, malformed, in the wrong unit, or below the applicable Table 4-6 minimum without the permitted adjacent-boundary termination alternative." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?component
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:hasComponent ?component .
+    ?component nltl:hullRegion ?region .
+    FILTER (
+        ?region IN (
+            nltl:bowRegion,
+            nltl:midbodyRegion,
+            nltl:sternRegion
+        )
+    )
+    FILTER (
+        ?iceClass IN (
+            nltl:iceClassIaSuper,
+            nltl:iceClassIa,
+            nltl:iceClassIb,
+            nltl:iceClassIc
+        )
+    )
+    BIND(
+        IF(
+            ?iceClass = nltl:iceClassIaSuper,
+            "0.6"^^xsd:decimal,
+            IF(
+                ?iceClass = nltl:iceClassIa,
+                "0.5"^^xsd:decimal,
+                "0.4"^^xsd:decimal
+            )
+        ) AS ?minimum
+    )
+    FILTER (
+        NOT EXISTS {
+            ?component nltl:framingIceStrengtheningAboveUpperIceWaterline ?quantity .
+            ?quantity qudt:numericValue ?actual ;
+                      qudt:unit unit:M .
+            FILTER (
+                datatype(?actual) = xsd:decimal &&
+                ?actual >= ?minimum
+            )
+        }
+        &&
+        NOT EXISTS {
+            ?component nltl:extensionBeyondAdjacentDeckOrTankBoundary ?overrun .
+            ?overrun qudt:numericValue ?overrunValue ;
+                     qudt:unit unit:MilliM .
+            FILTER (
+                datatype(?overrunValue) = xsd:decimal &&
+                ?overrunValue <= "250"^^xsd:decimal
+            )
+            {
+                ?component nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted true .
+            }
+            UNION
+            {
+                $this nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted true .
+            }
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Framing ice strengthening below the lower ice waterline is missing, malformed, in the wrong unit, or below the applicable Table 4-6 minimum without the permitted adjacent-boundary termination alternative." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?component
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:hasComponent ?component .
+    ?component nltl:hullRegion ?region .
+    FILTER (
+        ?region IN (
+            nltl:bowRegion,
+            nltl:midbodyRegion,
+            nltl:sternRegion
+        )
+    )
+    FILTER (
+        ?iceClass IN (
+            nltl:iceClassIaSuper,
+            nltl:iceClassIa,
+            nltl:iceClassIb,
+            nltl:iceClassIc
+        )
+    )
+    BIND(
+        IF(
+            ?iceClass = nltl:iceClassIaSuper,
+            "1.2"^^xsd:decimal,
+            IF(
+                ?iceClass = nltl:iceClassIa,
+                "1.0"^^xsd:decimal,
+                "0.8"^^xsd:decimal
+            )
+        ) AS ?minimum
+    )
+    FILTER (
+        NOT EXISTS {
+            ?component nltl:framingIceStrengtheningBelowLowerIceWaterline ?quantity .
+            ?quantity qudt:numericValue ?actual ;
+                      qudt:unit unit:M .
+            FILTER (
+                datatype(?actual) = xsd:decimal &&
+                ?actual >= ?minimum
+            )
+        }
+        &&
+        NOT EXISTS {
+            ?component nltl:extensionBeyondAdjacentDeckOrTankBoundary ?overrun .
+            ?overrun qudt:numericValue ?overrunValue ;
+                     qudt:unit unit:MilliM .
+            FILTER (
+                datatype(?overrunValue) = xsd:decimal &&
+                ?overrunValue <= "250"^^xsd:decimal
+            )
+            {
+                ?component nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted true .
+            }
+            UNION
+            {
+                $this nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted true .
+            }
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When an upper bow ice belt is required, a bow-region framing component must be represented." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:upperBowIceBeltRequired true .
+    FILTER NOT EXISTS {
+        $this nltl:hasComponent ?component .
+        ?component nltl:hullRegion nltl:bowRegion .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When an upper bow ice belt is required, each represented bow-region framing component must reach the top of that belt." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?component
+WHERE {
+    $this nltl:upperBowIceBeltRequired true ;
+          nltl:hasComponent ?component .
+    ?component nltl:hullRegion nltl:bowRegion .
+    FILTER NOT EXISTS {
+        ?component nltl:reachesUpperBowIceBeltTop true .
+    }
+}
+"""
+    ] .

@@ -1,0 +1,267 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF025Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:not [
+                sh:and (
+                    [
+                        sh:property [
+                            sh:path nltl:iceClass ;
+                            sh:hasValue nltl:iceClassIaSuper
+                        ]
+                    ]
+                    [
+                        sh:property [
+                            sh:path nltl:bulbousBowPresent ;
+                            sh:hasValue false
+                        ]
+                    ]
+                )
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipBreadth ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NonZeroMetreQuantityShape ;
+                sh:message "Applicable ships require one nonzero breadth B in metres."
+            ] ;
+            sh:property [
+                sh:path nltl:shipLength ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:PositiveMetreQuantityShape ;
+                sh:message "Applicable ships require one positive length L in metres."
+            ] ;
+            sh:property [
+                sh:path nltl:iceClassDraught ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:MetreQuantityShape ;
+                sh:message "Applicable ships require one ice-class draught T in metres."
+            ] ;
+            sh:property [
+                sh:path nltl:coefficientF1 ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NewtonPerSquareMetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:coefficientF2 ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NewtonPerMetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:coefficientF3 ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NewtonPerMetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:coefficientF4 ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NewtonPerSquareMetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:coefficientG1 ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NewtonQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:coefficientG2 ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NewtonPerMetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:coefficientG3 ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NewtonPerMetrePowerOnePointFiveQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:brashIceResistanceCoefficientC1 ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NewtonQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:brashIceResistanceCoefficientC2 ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:NewtonQuantityShape
+            ] ;
+            sh:sparql [
+                sh:message "C1 and C2 must satisfy the IA Super ship-without-bulb formulas within relative tolerance 1e-6 and absolute fallback 1e-9; the C2 check uses the sign-preserving squared form that avoids a non-portable square-root function." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:iceClass nltl:iceClassIaSuper ;
+                              nltl:bulbousBowPresent false ;
+                              nltl:shipBreadth/qudt:numericValue ?B ;
+                              nltl:shipLength/qudt:numericValue ?L ;
+                              nltl:iceClassDraught/qudt:numericValue ?T ;
+                              nltl:coefficientF1/qudt:numericValue ?f1 ;
+                              nltl:coefficientF2/qudt:numericValue ?f2 ;
+                              nltl:coefficientF3/qudt:numericValue ?f3 ;
+                              nltl:coefficientF4/qudt:numericValue ?f4 ;
+                              nltl:coefficientG1/qudt:numericValue ?g1 ;
+                              nltl:coefficientG2/qudt:numericValue ?g2 ;
+                              nltl:coefficientG3/qudt:numericValue ?g3 ;
+                              nltl:brashIceResistanceCoefficientC1/qudt:numericValue ?c1 ;
+                              nltl:brashIceResistanceCoefficientC2/qudt:numericValue ?c2 .
+                        FILTER (?B != 0 && ?L > 0)
+                        BIND(
+                            ?f1 * (?B * ?L) / (2 * ?T / ?B + 1)
+                            + 1.84 * (?f2 * ?B + ?f3 * ?L + ?f4 * ?B * ?L)
+                            AS ?expectedC1
+                        )
+                        BIND(?c1 - ?expectedC1 AS ?c1Error)
+                        BIND(3.52 * (?g1 + ?g2 * ?B) AS ?c2Base)
+                        BIND(?c2 - ?c2Base AS ?c2Remainder)
+                        BIND(?g3 * (1 + 1.2 * ?T / ?B) * ?B * ?B AS ?c2Numerator)
+                        BIND(
+                            ?c2Remainder * ?c2Remainder * ?L
+                            - ?c2Numerator * ?c2Numerator
+                            AS ?c2SquaredError
+                        )
+                        FILTER (
+                            (
+                                ABS(?c1Error) > 0.000001 * ABS(?expectedC1)
+                                && ABS(?c1Error) > 0.000000001
+                            )
+                            ||
+                            (
+                                (?c2Remainder < 0 && ?c2Numerator >= 0)
+                                || (?c2Remainder > 0 && ?c2Numerator <= 0)
+                            )
+                            ||
+                            (
+                                ABS(?c2SquaredError)
+                                    > 0.000001 * ABS(?c2Numerator * ?c2Numerator)
+                                && ABS(?c2SquaredError) > 0.000000001
+                            )
+                        )
+                    }
+                """
+            ]
+        ]
+    ) .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:NonZeroMetreQuantityShape
+    a sh:NodeShape ;
+    sh:node gen:MetreQuantityShape ;
+    sh:not [
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:hasValue 0.0
+        ]
+    ] .
+
+gen:PositiveMetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:NewtonQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:N
+    ] .
+
+gen:NewtonPerMetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:N-PER-M
+    ] .
+
+gen:NewtonPerSquareMetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:N-PER-M2
+    ] .
+
+gen:NewtonPerMetrePowerOnePointFiveQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue nltl:newtonPerMetreToPowerOnePointFiveUnit
+    ] .
+<END_SHACL>

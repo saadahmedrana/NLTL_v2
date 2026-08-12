@@ -1,0 +1,165 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IceNavigationLoadingShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:benchmarkEntity ;
+    sh:property [
+        sh:path nltl:navigatingInIce ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:intendedRouteSeaWaterSalinity ;
+        sh:minCount 1 ;
+        sh:message "Intended-route sea-water salinity is required for the loading calculation." ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:hasValue nltl:gramPerKilogramSalinityUnit
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:loadingCalculationSeaWaterSalinity ;
+        sh:minCount 1 ;
+        sh:message "Loading-calculation sea-water salinity is required." ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:hasValue nltl:gramPerKilogramSalinityUnit
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "The loading-calculation salinity must match the intended-route salinity within a relative tolerance of 1e-6 or an absolute tolerance of 1e-9 g/kg near zero." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:intendedRouteSeaWaterSalinity ?routeQuantity ;
+          nltl:loadingCalculationSeaWaterSalinity ?loadingQuantity .
+    ?routeQuantity qudt:numericValue ?routeSalinity ;
+                   qudt:unit nltl:gramPerKilogramSalinityUnit .
+    ?loadingQuantity qudt:numericValue ?loadingSalinity ;
+                     qudt:unit nltl:gramPerKilogramSalinityUnit .
+    FILTER(
+        datatype(?routeSalinity) = xsd:decimal &&
+        datatype(?loadingSalinity) = xsd:decimal
+    )
+    FILTER(
+        ABS(?loadingSalinity - ?routeSalinity) >
+        IF(
+            ABS(?routeSalinity) * "0.000001"^^xsd:decimal >
+                "0.000000001"^^xsd:decimal,
+            ABS(?routeSalinity) * "0.000001"^^xsd:decimal,
+            "0.000000001"^^xsd:decimal
+        )
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "When navigating in ice, operating draught, upper ice waterline draught, operating trim, and maximum permitted ice trim must be available as decimal metre quantities." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:navigatingInIce "true"^^xsd:boolean .
+    FILTER(
+        NOT EXISTS {
+            $this nltl:operatingDraught ?operatingDraught .
+            ?operatingDraught qudt:numericValue ?operatingDraughtValue ;
+                              qudt:unit unit:M .
+            FILTER(datatype(?operatingDraughtValue) = xsd:decimal)
+        } ||
+        NOT EXISTS {
+            $this nltl:upperIceWaterlineDraught ?upperDraught .
+            ?upperDraught qudt:numericValue ?upperDraughtValue ;
+                          qudt:unit unit:M .
+            FILTER(datatype(?upperDraughtValue) = xsd:decimal)
+        } ||
+        NOT EXISTS {
+            $this nltl:operatingTrim ?operatingTrim .
+            ?operatingTrim qudt:numericValue ?operatingTrimValue ;
+                           qudt:unit unit:M .
+            FILTER(datatype(?operatingTrimValue) = xsd:decimal)
+        } ||
+        NOT EXISTS {
+            $this nltl:maximumPermittedIceTrim ?maximumTrim .
+            ?maximumTrim qudt:numericValue ?maximumTrimValue ;
+                         qudt:unit unit:M .
+            FILTER(datatype(?maximumTrimValue) = xsd:decimal)
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "When navigating in ice, operating draught must not exceed the upper ice waterline draught." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:navigatingInIce "true"^^xsd:boolean ;
+          nltl:operatingDraught ?operatingDraught ;
+          nltl:upperIceWaterlineDraught ?upperDraught .
+    ?operatingDraught qudt:numericValue ?operatingDraughtValue ;
+                      qudt:unit unit:M .
+    ?upperDraught qudt:numericValue ?upperDraughtValue ;
+                  qudt:unit unit:M .
+    FILTER(
+        datatype(?operatingDraughtValue) = xsd:decimal &&
+        datatype(?upperDraughtValue) = xsd:decimal &&
+        ?operatingDraughtValue > ?upperDraughtValue
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "When navigating in ice, operating trim must not exceed the maximum permitted ice trim." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:navigatingInIce "true"^^xsd:boolean ;
+          nltl:operatingTrim ?operatingTrim ;
+          nltl:maximumPermittedIceTrim ?maximumTrim .
+    ?operatingTrim qudt:numericValue ?operatingTrimValue ;
+                   qudt:unit unit:M .
+    ?maximumTrim qudt:numericValue ?maximumTrimValue ;
+                 qudt:unit unit:M .
+    FILTER(
+        datatype(?operatingTrimValue) = xsd:decimal &&
+        datatype(?maximumTrimValue) = xsd:decimal &&
+        ?operatingTrimValue > ?maximumTrimValue
+    )
+}
+"""
+    ] .

@@ -3,7 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FileBlob, SpreadsheetFile, Workbook } from "@oai/artifact-tool";
 
-const stage2 = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
+const stage2 = process.env.NLTL_STAGE2_DIR
+  ? path.resolve(process.env.NLTL_STAGE2_DIR)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const evidence = JSON.parse(await fs.readFile(path.join(stage2, "evidence/stage1_approved.json"), "utf8"));
 const manifest = JSON.parse(await fs.readFile(path.join(stage2, "stage2_manifest.json"), "utf8"));
 const terms = JSON.parse(await fs.readFile(path.join(stage2, "registry/term_registry.json"), "utf8"));
@@ -14,7 +16,9 @@ const validation = JSON.parse(await fs.readFile(path.join(stage2, "validation/va
 const profileNames = ["master", "traficom", "iacs_ur_i2", "imo_polar_code", "imo_amend_2026", "direct_deterministic", "evidence_and_deferred"];
 const profiles = Object.fromEntries(await Promise.all(profileNames.map(async name => [name, JSON.parse(await fs.readFile(path.join(stage2, `profiles/${name}.json`), "utf8"))])));
 
-const outputPath = path.join(stage2, "benchmark_vocabulary_stage2.xlsx");
+const outputPath = process.env.NLTL_STAGE2_WORKBOOK
+  ? path.resolve(process.env.NLTL_STAGE2_WORKBOOK)
+  : path.join(stage2, "benchmark_vocabulary_stage2.xlsx");
 const qaDir = path.join(stage2, "qa_workbook");
 await fs.mkdir(qaDir, { recursive: true });
 
@@ -80,7 +84,7 @@ function addDataSheet(name, headers, rows, widths = {}) {
 const readme = wb.worksheets.add("README");
 readme.showGridLines = false;
 readme.getRange("A1:H1").merge();
-readme.getRange("A1").values = [["NLTL Benchmark Controlled Vocabulary - Stage 2"]];
+readme.getRange("A1").values = [[`NLTL Benchmark Controlled Vocabulary - Stage 2 ${manifest.revision || "R1"}`]];
 readme.getRange("A1:H1").format = { fill: navy, font: { bold: true, color: "#FFFFFF", size: 18, name: "Aptos Display" }, rowHeight: 36 };
 readme.getRange("A3:B15").values = [
   ["Status", "COMPLETE - validation passed"],
@@ -124,15 +128,19 @@ const guide = [
   ["NODE_PATTERNS", "Canonical RDF/SHACL node and value patterns."],
   ["CONTROLLED_VALUES", "Regulation-defined classes/categories plus evidence/compliance lifecycle values."],
   ["NAMING_REFINEMENTS", "Stage 1 to Stage 2 name refinements and the exact semantic merge."],
-  ["RETIRED_CANDIDATE", "The rejected multi-dimension generic term and requirement-specific redirects."],
+  ["RETIRED_CANDIDATE", "Retired or remodelled candidates and their requirement-specific redirects."],
   ["EXTERNAL_URI_REGISTER", "Verified QUDT and W3C namespace evidence."],
   ["VALIDATION", "All automated validation checks and details."],
   ["DECISIONS_LIMITATIONS", "Adopted engineering decisions and non-blocking publication limitations."],
   ["SOURCE_LINEAGE", "Read-only Stage 1 source inventory carried forward for provenance."],
 ];
+if (manifest.revision === "R2") guide.push([
+  "R2_REVISIONS",
+  "Pilot-discovered IMO-057 vocabulary repair, replacement path, new terms, evidence, and rationale.",
+]);
 writeMatrix(readme, 25, 0, guide);
-readme.getRange("A26:A37").format = { fill: pale, font: { bold: true, color: navy } };
-readme.getRange("A26:B37").format.wrapText = true;
+readme.getRange(`A26:A${25 + guide.length}`).format = { fill: pale, font: { bold: true, color: navy } };
+readme.getRange(`A26:B${25 + guide.length}`).format.wrapText = true;
 readme.getRange("A:A").format.columnWidth = 34;
 readme.getRange("B:B").format.columnWidth = 95;
 readme.freezePanes.freezeRows(1);
@@ -208,19 +216,51 @@ const decisionRows = [
   ["LIM-S2-01", "Non-blocking", "Publication namespace", "w3id redirect not registered", "Register or replace before public release."],
   ["LIM-S2-02", "Non-blocking", "ISO 19848", "Normative text unavailable", "No ISO-specific definition or identifier is claimed."],
 ];
+if (manifest.revision === "R2") decisionRows.push([
+  "DEC-S2-R2-01",
+  "Adopted",
+  "IMO-057 relationship repair",
+  "Retire string-valued containingCompartment; add hasContainingCompartment plus explicit compartment and pump classes",
+  "The verified clause requires traversal from each named pump category to a compartment whose maintained temperature is above freezing; a string cannot support that SHACL path.",
+]);
 addDataSheet("DECISIONS_LIMITATIONS", ["Item_ID", "Status", "Topic", "Decision_or_Limitation", "Engineering_Rationale_or_Treatment"], decisionRows, {0:16,1:18,2:30,3:72,4:90});
+
+if (manifest.revision === "R2") {
+  const r2Names = new Set(["compartment", "hasContainingCompartment", "emergencyFirePump", "waterMistPump", "waterSprayPump"]);
+  const r2Rows = terms.filter(t => r2Names.has(t.localName)).map(t => [
+    "IMO-057",
+    t.sourceConceptIds.join("; "),
+    t.localName,
+    t.iri,
+    t.kind,
+    t.parentOrRange,
+    t.aliases.join("; "),
+    t.sourceRefs,
+    t.evidenceExcerpt,
+    t.normalizedDefinition,
+  ]);
+  addDataSheet(
+    "R2_REVISIONS",
+    ["Requirement_ID", "Concept_ID", "Canonical_Local_Name", "Canonical_URI", "Kind", "Parent_or_Range", "Aliases", "Source_Reference", "Verified_Evidence", "Normalized_Rationale"],
+    r2Rows,
+    {0:16,1:18,2:42,3:72,4:20,5:65,6:42,7:48,8:95,9:95},
+  );
+}
 
 const sourceRows = evidence.manifest.map(x => [x.sourceId, x.path, x.filename, x.role, x.versionDate, x.pageCount, x.sha256, x.status, x.notes]);
 addDataSheet("SOURCE_LINEAGE", ["Source_ID", "Exact_Path", "Filename", "Content_Role", "Version_Date", "Page_Count", "SHA256", "Status", "Notes"], sourceRows, {0:12,1:70,2:48,3:36,4:32,5:12,6:68,7:30,8:70});
 
 const inspections = [];
-for (const [sheetName, range] of [["README","A1:H37"],["MASTER_TERMS","A1:M16"],["MASTER_TERMS","N1:Y16"],["PROFILE_SUMMARY","A1:I9"],["PROFILE_MEMBERSHIP","A1:K16"],["REQUIREMENT_PROFILE","A1:O12"],["NODE_PATTERNS","A1:D8"],["CONTROLLED_VALUES","A1:D30"],["NAMING_REFINEMENTS","A1:D13"],["RETIRED_CANDIDATE","A1:F5"],["EXTERNAL_URI_REGISTER","A1:F34"],["VALIDATION","A1:C43"],["DECISIONS_LIMITATIONS","A1:E13"],["SOURCE_LINEAGE","A1:I21"]]) {
+const inspectionSpecs = [["README", manifest.revision === "R2" ? "A1:H38" : "A1:H37"],["MASTER_TERMS","A1:M16"],["MASTER_TERMS","N1:Y16"],["PROFILE_SUMMARY","A1:I9"],["PROFILE_MEMBERSHIP","A1:K16"],["REQUIREMENT_PROFILE","A1:O12"],["NODE_PATTERNS","A1:D8"],["CONTROLLED_VALUES","A1:D30"],["NAMING_REFINEMENTS", manifest.revision === "R2" ? "A1:D14" : "A1:D13"],["RETIRED_CANDIDATE","A1:F5"],["EXTERNAL_URI_REGISTER","A1:F34"],["VALIDATION", manifest.revision === "R2" ? "A1:C46" : "A1:C43"],["DECISIONS_LIMITATIONS","A1:E13"],["SOURCE_LINEAGE","A1:I21"]];
+if (manifest.revision === "R2") inspectionSpecs.push(["R2_REVISIONS", "A1:J6"]);
+for (const [sheetName, range] of inspectionSpecs) {
   inspections.push((await wb.inspect({ kind: "table", range: `${sheetName}!${range}`, include: "values,formulas", tableMaxRows: 40, tableMaxCols: 25, maxChars: 12000 })).ndjson);
 }
 inspections.push((await wb.inspect({ kind: "match", searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A", options: { useRegex: true, maxResults: 300 }, summary: "final formula error scan", maxChars: 4000 })).ndjson);
 await fs.writeFile(path.join(qaDir, "workbook_inspection.ndjson"), inspections.join("\n"), "utf8");
 
-const renderSpecs = [["README","A1:H37"],["MASTER_TERMS","A1:M18"],["MASTER_TERMS","N1:Y18"],["PROFILE_SUMMARY","A1:I9"],["PROFILE_MEMBERSHIP","A1:K18"],["REQUIREMENT_PROFILE","A1:H16"],["REQUIREMENT_PROFILE","I1:O16"],["NODE_PATTERNS","A1:D8"],["CONTROLLED_VALUES","A1:D30"],["NAMING_REFINEMENTS","A1:D13"],["RETIRED_CANDIDATE","A1:F5"],["EXTERNAL_URI_REGISTER","A1:F34"],["VALIDATION","A1:C43"],["DECISIONS_LIMITATIONS","A1:E13"],["SOURCE_LINEAGE","A1:I21"]];
+const renderSpecs = [["README",manifest.revision === "R2" ? "A1:H38" : "A1:H37"],["MASTER_TERMS","A1:M18"],["MASTER_TERMS","N1:Y18"],["PROFILE_SUMMARY","A1:I9"],["PROFILE_MEMBERSHIP","A1:K18"],["REQUIREMENT_PROFILE","A1:H16"],["REQUIREMENT_PROFILE","I1:O16"],["NODE_PATTERNS","A1:D8"],["CONTROLLED_VALUES","A1:D30"],["NAMING_REFINEMENTS",manifest.revision === "R2" ? "A1:D14" : "A1:D13"],["RETIRED_CANDIDATE","A1:F5"],["EXTERNAL_URI_REGISTER","A1:F34"],["VALIDATION",manifest.revision === "R2" ? "A1:C46" : "A1:C43"],["DECISIONS_LIMITATIONS","A1:E13"],["SOURCE_LINEAGE","A1:I21"]];
+if (manifest.revision === "R2") renderSpecs.push(["R2_REVISIONS", "A1:J6"]);
 for (let i = 0; i < renderSpecs.length; i++) {
   const [sheetName, range] = renderSpecs[i];
   const blob = await wb.render({ sheetName, range, scale: 1.15, format: "png" });
@@ -236,4 +276,4 @@ postExport.push((await saved.inspect({ kind: "table", range: "README!A1:B15", in
 postExport.push((await saved.inspect({ kind: "table", range: "MASTER_TERMS!A1:M12", include: "values,formulas", tableMaxRows: 12, tableMaxCols: 13, maxChars: 8000 })).ndjson);
 postExport.push((await saved.inspect({ kind: "match", searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A", options: { useRegex: true, maxResults: 300 }, summary: "post-export formula error scan", maxChars: 4000 })).ndjson);
 await fs.writeFile(path.join(qaDir, "post_export_inspection.ndjson"), postExport.join("\n"), "utf8");
-console.log(JSON.stringify({ outputPath, sheets: 13, terms: terms.length, requirements: requirementRows.length, renders: renderSpecs.length }, null, 2));
+console.log(JSON.stringify({ outputPath, sheets: wb.worksheets.items.length, terms: terms.length, requirements: requirementRows.length, renders: renderSpecs.length }, null, 2));

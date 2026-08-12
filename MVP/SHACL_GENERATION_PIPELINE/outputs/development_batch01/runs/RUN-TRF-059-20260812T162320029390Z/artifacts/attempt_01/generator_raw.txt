@@ -1,0 +1,148 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF059Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "A component subject to the web-frame shear-area calculation must provide decimal values for required shear area, maximum calculated shear force, alpha, f13, and positive yield strength in their required units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasComponent ?component .
+                FILTER (
+                    EXISTS { ?component nltl:requiredShearArea ?applicableValue }
+                    || EXISTS { ?component nltl:maximumCalculatedShearForce ?applicableValue }
+                    || EXISTS { ?component nltl:webFrameShearFactorAlpha ?applicableValue }
+                    || EXISTS { ?component nltl:webFrameShearDistributionFactorF13 ?applicableValue }
+                )
+                FILTER (
+                    NOT EXISTS {
+                        ?component nltl:requiredShearArea ?areaNode .
+                        ?areaNode a qudt:QuantityValue ;
+                            qudt:numericValue ?area ;
+                            qudt:unit unit:CentiM2 .
+                        FILTER (datatype(?area) = xsd:decimal)
+                    }
+                    || NOT EXISTS {
+                        ?component nltl:maximumCalculatedShearForce ?forceNode .
+                        ?forceNode a qudt:QuantityValue ;
+                            qudt:numericValue ?force ;
+                            qudt:unit unit:KiloN .
+                        FILTER (datatype(?force) = xsd:decimal)
+                    }
+                    || NOT EXISTS {
+                        ?component nltl:webFrameShearFactorAlpha ?alphaNode .
+                        ?alphaNode a qudt:QuantityValue ;
+                            qudt:numericValue ?alpha ;
+                            qudt:unit unit:UNITLESS .
+                        FILTER (datatype(?alpha) = xsd:decimal)
+                    }
+                    || NOT EXISTS {
+                        ?component nltl:webFrameShearDistributionFactorF13 ?f13Node .
+                        ?f13Node a qudt:QuantityValue ;
+                            qudt:numericValue ?f13 ;
+                            qudt:unit unit:UNITLESS .
+                        FILTER (datatype(?f13) = xsd:decimal)
+                    }
+                    || NOT EXISTS {
+                        ?component nltl:yieldStrength ?yieldNode .
+                        ?yieldNode a qudt:QuantityValue ;
+                            qudt:numericValue ?yieldStrength ;
+                            qudt:unit unit:MegaPA .
+                        FILTER (
+                            datatype(?yieldStrength) = xsd:decimal
+                            && ?yieldStrength > 0
+                        )
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The web-frame shear distribution factor f13 must equal 1.1." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasComponent ?component .
+                ?component nltl:webFrameShearDistributionFactorF13 ?f13Node .
+                ?f13Node a qudt:QuantityValue ;
+                    qudt:numericValue ?f13 ;
+                    qudt:unit unit:UNITLESS .
+                FILTER (
+                    datatype(?f13) = xsd:decimal
+                    && ?f13 != "1.1"^^xsd:decimal
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Required shear area must satisfy A = sqrt(3) * alpha * f13 * Q / yieldStrength * 10^4, with Q converted from kilonewtons to meganewtons." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasComponent ?component .
+
+                ?component nltl:requiredShearArea ?areaNode ;
+                    nltl:maximumCalculatedShearForce ?forceNode ;
+                    nltl:webFrameShearFactorAlpha ?alphaNode ;
+                    nltl:webFrameShearDistributionFactorF13 ?f13Node ;
+                    nltl:yieldStrength ?yieldNode .
+
+                ?areaNode a qudt:QuantityValue ;
+                    qudt:numericValue ?area ;
+                    qudt:unit unit:CentiM2 .
+                ?forceNode a qudt:QuantityValue ;
+                    qudt:numericValue ?force ;
+                    qudt:unit unit:KiloN .
+                ?alphaNode a qudt:QuantityValue ;
+                    qudt:numericValue ?alpha ;
+                    qudt:unit unit:UNITLESS .
+                ?f13Node a qudt:QuantityValue ;
+                    qudt:numericValue ?f13 ;
+                    qudt:unit unit:UNITLESS .
+                ?yieldNode a qudt:QuantityValue ;
+                    qudt:numericValue ?yieldStrength ;
+                    qudt:unit unit:MegaPA .
+
+                FILTER (
+                    datatype(?area) = xsd:decimal
+                    && datatype(?force) = xsd:decimal
+                    && datatype(?alpha) = xsd:decimal
+                    && datatype(?f13) = xsd:decimal
+                    && datatype(?yieldStrength) = xsd:decimal
+                    && ?yieldStrength > 0
+                )
+                FILTER (
+                    (?area * ?area * ?yieldStrength * ?yieldStrength)
+                    !=
+                    (
+                        "3"^^xsd:decimal
+                        * ?alpha * ?alpha
+                        * ?f13 * ?f13
+                        * (?force / "1000"^^xsd:decimal)
+                        * (?force / "1000"^^xsd:decimal)
+                        * "100000000"^^xsd:decimal
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

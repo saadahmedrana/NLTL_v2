@@ -1,0 +1,132 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PowerQuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "The power quantity requires a decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:in ( unit:KiloW ) ;
+        sh:minCount 1 ;
+        sh:message "The power quantity must be expressed in kilowatts."
+    ] .
+
+gen:EngineOutputShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:minCount 1 ;
+        sh:node gen:PowerQuantityValueShape ;
+        sh:message "Engine output P must be recorded as a power quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:propulsionMachineryContinuousOutput ;
+        sh:node gen:PowerQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:restrictedPropulsionOutput ;
+        sh:node gen:PowerQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:additionalPropulsionPower ;
+        sh:node gen:PowerQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:propulsionOutputRestrictionApplies ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Continuous propulsion output is required unless an output restriction applies; when one applies, restricted propulsion output is required." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    FILTER (
+        (
+            EXISTS {
+                $this nltl:propulsionOutputRestrictionApplies true .
+            }
+            &&
+            NOT EXISTS {
+                $this nltl:restrictedPropulsionOutput ?restrictedOutput .
+            }
+        )
+        ||
+        (
+            NOT EXISTS {
+                $this nltl:propulsionOutputRestrictionApplies true .
+            }
+            &&
+            NOT EXISTS {
+                $this nltl:propulsionMachineryContinuousOutput ?continuousOutput .
+            }
+        )
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Engine output P must equal the applicable continuous or restricted propulsion output plus all recorded additional propulsion power." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    {
+        SELECT $this (COALESCE(SUM(?additionalValue), "0"^^xsd:decimal) AS ?additionalTotal)
+        WHERE {
+            OPTIONAL {
+                $this nltl:additionalPropulsionPower ?additionalQuantity .
+                ?additionalQuantity
+                    qudt:numericValue ?additionalValue ;
+                    qudt:unit unit:KiloW .
+                FILTER(DATATYPE(?additionalValue) = xsd:decimal)
+            }
+        }
+        GROUP BY $this
+    }
+
+    $this nltl:maximumContinuousRatingPower ?engineOutputQuantity .
+    ?engineOutputQuantity
+        qudt:numericValue ?engineOutputValue ;
+        qudt:unit unit:KiloW .
+    FILTER(DATATYPE(?engineOutputValue) = xsd:decimal)
+
+    {
+        $this nltl:propulsionOutputRestrictionApplies true ;
+              nltl:restrictedPropulsionOutput ?applicableOutputQuantity .
+    }
+    UNION
+    {
+        FILTER NOT EXISTS {
+            $this nltl:propulsionOutputRestrictionApplies true .
+        }
+        $this nltl:propulsionMachineryContinuousOutput ?applicableOutputQuantity .
+    }
+
+    ?applicableOutputQuantity
+        qudt:numericValue ?applicableOutputValue ;
+        qudt:unit unit:KiloW .
+    FILTER(DATATYPE(?applicableOutputValue) = xsd:decimal)
+    FILTER(?engineOutputValue != (?applicableOutputValue + ?additionalTotal))
+}
+"""
+    ] .
+<END_SHACL>

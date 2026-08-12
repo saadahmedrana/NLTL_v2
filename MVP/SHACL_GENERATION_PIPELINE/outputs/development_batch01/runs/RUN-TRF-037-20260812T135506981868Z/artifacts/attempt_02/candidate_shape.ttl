@@ -1,0 +1,195 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:PowerValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloW
+    ] .
+
+gs:MassValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:TON_Metric
+    ] .
+
+gs:UnitlessValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gs:PressureValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gs:IcePressureCalculationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:minCount 1 ;
+        sh:node gs:PowerValueShape ;
+        sh:message "Maximum continuous rating power in kW is required for the ice-pressure calculation."
+    ] ;
+    sh:property [
+        sh:path nltl:waterlineDisplacement ;
+        sh:minCount 1 ;
+        sh:node gs:MassValueShape ;
+        sh:message "Waterline displacement in metric tonnes is required to derive k."
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientK ;
+        sh:minCount 1 ;
+        sh:node gs:UnitlessValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientA ;
+        sh:minCount 1 ;
+        sh:node gs:UnitlessValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientB ;
+        sh:minCount 1 ;
+        sh:node gs:UnitlessValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputFactorCd ;
+        sh:minCount 1 ;
+        sh:node gs:UnitlessValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassFactorCp ;
+        sh:minCount 1 ;
+        sh:node gs:UnitlessValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadAreaFactorCa ;
+        sh:minCount 1 ;
+        sh:node gs:UnitlessValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:nominalIcePressureP0 ;
+        sh:minCount 1 ;
+        sh:node gs:PressureValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:minCount 1 ;
+        sh:node gs:PressureValueShape
+    ] ;
+    sh:sparql [
+        sh:message "Coefficient k must be non-negative and satisfy k squared equals maximum continuous rating power divided by waterline displacement." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:maximumContinuousRatingPower ?powerQuantity ;
+                      nltl:waterlineDisplacement ?displacementQuantity ;
+                      nltl:shipSizeEngineOutputCoefficientK ?kQuantity .
+                ?powerQuantity qudt:numericValue ?power ;
+                               qudt:unit unit:KiloW .
+                ?displacementQuantity qudt:numericValue ?displacement ;
+                                      qudt:unit unit:TON_Metric .
+                ?kQuantity qudt:numericValue ?k ;
+                           qudt:unit unit:UNITLESS .
+                FILTER (
+                    ?displacement <= 0 ||
+                    ?k < 0 ||
+                    (?k * ?k) != (?power / ?displacement)
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Factor c_d must equal (a*k + b)/1000, capped at 1." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:shipSizeEngineOutputCoefficientA ?aQuantity ;
+                      nltl:shipSizeEngineOutputCoefficientB ?bQuantity ;
+                      nltl:shipSizeEngineOutputCoefficientK ?kQuantity ;
+                      nltl:shipSizeEngineOutputFactorCd ?cdQuantity .
+                ?aQuantity qudt:numericValue ?a ;
+                           qudt:unit unit:UNITLESS .
+                ?bQuantity qudt:numericValue ?b ;
+                           qudt:unit unit:UNITLESS .
+                ?kQuantity qudt:numericValue ?k ;
+                           qudt:unit unit:UNITLESS .
+                ?cdQuantity qudt:numericValue ?cd ;
+                            qudt:unit unit:UNITLESS .
+                BIND ((?a * ?k + ?b) / 1000 AS ?uncappedCd)
+                BIND (IF(?uncappedCd > 1, 1, ?uncappedCd) AS ?expectedCd)
+                FILTER (?cd != ?expectedCd)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Design ice pressure must equal c_d multiplied by c_p, c_a, and nominal ice pressure p_0." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:shipSizeEngineOutputFactorCd ?cdQuantity ;
+                      nltl:iceClassFactorCp ?cpQuantity ;
+                      nltl:iceLoadAreaFactorCa ?caQuantity ;
+                      nltl:nominalIcePressureP0 ?p0Quantity ;
+                      nltl:icePressure ?pressureQuantity .
+                ?cdQuantity qudt:numericValue ?cd ;
+                            qudt:unit unit:UNITLESS .
+                ?cpQuantity qudt:numericValue ?cp ;
+                            qudt:unit unit:UNITLESS .
+                ?caQuantity qudt:numericValue ?ca ;
+                            qudt:unit unit:UNITLESS .
+                ?p0Quantity qudt:numericValue ?p0 ;
+                            qudt:unit unit:MegaPA .
+                ?pressureQuantity qudt:numericValue ?pressure ;
+                                  qudt:unit unit:MegaPA .
+                FILTER (?pressure != (?cd * ?cp * ?ca * ?p0))
+            }
+        """
+    ] .

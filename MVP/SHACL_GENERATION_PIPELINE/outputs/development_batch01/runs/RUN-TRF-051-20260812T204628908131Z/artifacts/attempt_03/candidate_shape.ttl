@@ -1,0 +1,219 @@
+@prefix g: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+g:MillimetreQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM
+    ] .
+
+g:PositiveMillimetreQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0 ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM
+    ] .
+
+g:NonnegativeMegapascalQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+g:OrdinaryFrameWebThicknessShape a sh:NodeShape ;
+    sh:targetSubjectsOf nltl:frameProfileType ;
+    sh:targetSubjectsOf nltl:frameWebThickness ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:minCount 1 ;
+        sh:in (
+            nltl:profileSection
+            nltl:flatBarSection
+        ) ;
+        sh:message "A frame must identify whether it uses a profile section or a flat-bar section."
+    ] ;
+    sh:property [
+        sh:path nltl:frameWebThickness ;
+        sh:minCount 1 ;
+        sh:node g:MillimetreQuantityShape ;
+        sh:message "Frame web thickness must be supplied in millimetres."
+    ] ;
+    sh:property [
+        sh:path nltl:adjacentFrameHeight ;
+        sh:minCount 1 ;
+        sh:node g:PositiveMillimetreQuantityShape ;
+        sh:message "A positive adjacent frame height must be supplied in millimetres."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node g:NonnegativeMegapascalQuantityShape ;
+        sh:message "Yield strength must be supplied in megapascals."
+    ] ;
+    sh:property [
+        sh:path nltl:netShellPlatingThickness ;
+        sh:minCount 1 ;
+        sh:node g:MillimetreQuantityShape ;
+        sh:message "Net shell-plating thickness must be supplied in millimetres."
+    ] ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:minCount 1 ;
+        sh:node g:MillimetreQuantityShape ;
+        sh:message "The corrosion and abrasion addition must be supplied in millimetres."
+    ] ;
+    sh:sparql [
+        sh:message "Frame web thickness must be at least h_w*sqrt(sigma_y)/C, (t-t_c)/2, and 9 mm, with C = 805 for profiles and C = 282 for flat bars." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:frameProfileType ?profile ;
+                      nltl:frameWebThickness ?webQuantity ;
+                      nltl:adjacentFrameHeight ?heightQuantity ;
+                      nltl:yieldStrength ?yieldQuantity ;
+                      nltl:netShellPlatingThickness ?netQuantity ;
+                      nltl:corrosionAbrasionAddition ?corrosionQuantity .
+
+                ?webQuantity qudt:numericValue ?web ;
+                             qudt:unit unit:MilliM .
+                ?heightQuantity qudt:numericValue ?height ;
+                                qudt:unit unit:MilliM .
+                ?yieldQuantity qudt:numericValue ?yield ;
+                               qudt:unit unit:MegaPA .
+                ?netQuantity qudt:numericValue ?net ;
+                             qudt:unit unit:MilliM .
+                ?corrosionQuantity qudt:numericValue ?corrosion ;
+                                   qudt:unit unit:MilliM .
+
+                FILTER (?profile IN (nltl:profileSection, nltl:flatBarSection))
+                FILTER (?height > 0 && ?yield >= 0)
+                BIND(IF(?profile = nltl:flatBarSection, 282.0, 805.0) AS ?coefficient)
+
+                FILTER (
+                    ?web < 9.0 ||
+                    ?web < ((?net - ?corrosion) / 2.0) ||
+                    ((?web * ?coefficient) * (?web * ?coefficient)) <
+                        ((?height * ?height) * ?yield)
+                )
+            }
+        """
+    ] .
+
+g:InLieuPlateThicknessShape a sh:NodeShape ;
+    sh:targetClass nltl:deckStructure ;
+    sh:targetClass nltl:tankTop ;
+    sh:targetClass nltl:tankBottom ;
+    sh:targetClass nltl:bulkhead ;
+    sh:sparql [
+        sh:message "A structure used in lieu of a frame requires plate thickness in metres, positive adjacent frame height in millimetres, yield strength in megapascals, net shell-plating thickness in millimetres, and corrosion and abrasion addition in millimetres." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:inLieuOfFrame true .
+                FILTER (NOT EXISTS {
+                    $this nltl:thickness ?plateQuantity ;
+                          nltl:adjacentFrameHeight ?heightQuantity ;
+                          nltl:yieldStrength ?yieldQuantity ;
+                          nltl:netShellPlatingThickness ?netQuantity ;
+                          nltl:corrosionAbrasionAddition ?corrosionQuantity .
+
+                    ?plateQuantity qudt:numericValue ?plate ;
+                                   qudt:unit unit:M .
+                    ?heightQuantity qudt:numericValue ?height ;
+                                    qudt:unit unit:MilliM .
+                    ?yieldQuantity qudt:numericValue ?yield ;
+                                   qudt:unit unit:MegaPA .
+                    ?netQuantity qudt:numericValue ?net ;
+                                 qudt:unit unit:MilliM .
+                    ?corrosionQuantity qudt:numericValue ?corrosion ;
+                                       qudt:unit unit:MilliM .
+
+                    FILTER (
+                        datatype(?plate) = xsd:decimal &&
+                        datatype(?height) = xsd:decimal &&
+                        datatype(?yield) = xsd:decimal &&
+                        datatype(?net) = xsd:decimal &&
+                        datatype(?corrosion) = xsd:decimal &&
+                        ?height > 0 &&
+                        ?yield >= 0
+                    )
+                })
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Plate thickness for a structure used in lieu of a frame must be at least h_w*sqrt(sigma_y)/805, (t-t_c)/2, and 9 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:inLieuOfFrame true ;
+                      nltl:thickness ?plateQuantity ;
+                      nltl:adjacentFrameHeight ?heightQuantity ;
+                      nltl:yieldStrength ?yieldQuantity ;
+                      nltl:netShellPlatingThickness ?netQuantity ;
+                      nltl:corrosionAbrasionAddition ?corrosionQuantity .
+
+                ?plateQuantity qudt:numericValue ?plateMetres ;
+                               qudt:unit unit:M .
+                ?heightQuantity qudt:numericValue ?height ;
+                                qudt:unit unit:MilliM .
+                ?yieldQuantity qudt:numericValue ?yield ;
+                               qudt:unit unit:MegaPA .
+                ?netQuantity qudt:numericValue ?net ;
+                             qudt:unit unit:MilliM .
+                ?corrosionQuantity qudt:numericValue ?corrosion ;
+                                   qudt:unit unit:MilliM .
+
+                FILTER (
+                    datatype(?plateMetres) = xsd:decimal &&
+                    datatype(?height) = xsd:decimal &&
+                    datatype(?yield) = xsd:decimal &&
+                    datatype(?net) = xsd:decimal &&
+                    datatype(?corrosion) = xsd:decimal &&
+                    ?height > 0 &&
+                    ?yield >= 0
+                )
+
+                BIND((?plateMetres * 1000.0) AS ?plateMillimetres)
+
+                FILTER (
+                    ?plateMillimetres < 9.0 ||
+                    ?plateMillimetres < ((?net - ?corrosion) / 2.0) ||
+                    ((?plateMillimetres * 805.0) * (?plateMillimetres * 805.0)) <
+                        ((?height * ?height) * ?yield)
+                )
+            }
+        """
+    ] .

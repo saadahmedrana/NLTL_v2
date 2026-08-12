@@ -1,0 +1,146 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF016ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerHighestPointSubmerged ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:message "The highest point of the propeller must be submerged."
+    ] ;
+    sh:property [
+        sh:path nltl:forwardDraught ;
+        sh:minCount 1 ;
+        sh:message "Forward draught is required for the minimum-draught calculation." ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:levelIceThickness ;
+        sh:minCount 1 ;
+        sh:message "Level ice thickness is required for the minimum-draught calculation." ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:class nltl:iceWaterline ;
+        sh:message "An upper ice waterline with displacement data is required." ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path nltl:waterlineDisplacement ;
+                sh:minCount 1 ;
+                sh:node [
+                    a sh:NodeShape ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:TON_Metric
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "Forward draught must be at least the lesser of (2 + 0.00025 times UIWL displacement) times level ice thickness and four times level ice thickness." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:forwardDraught ?forwardQuantity ;
+                      nltl:levelIceThickness ?iceQuantity .
+
+                ?forwardQuantity qudt:numericValue ?forwardValue ;
+                                 qudt:unit unit:M .
+                ?iceQuantity qudt:numericValue ?iceValue ;
+                             qudt:unit unit:M .
+
+                {
+                    SELECT $this (MAX(xsd:decimal(?displacementValue)) AS ?greatestDisplacement)
+                    WHERE {
+                        $this nltl:hasUpperIceWaterline ?waterline .
+                        ?waterline nltl:waterlineDisplacement ?displacementQuantity .
+                        ?displacementQuantity
+                            qudt:numericValue ?displacementValue ;
+                            qudt:unit unit:TON_Metric .
+                    }
+                    GROUP BY $this
+                }
+
+                BIND(
+                    (xsd:decimal(2) +
+                     xsd:decimal("0.00025") * ?greatestDisplacement) *
+                    xsd:decimal(?iceValue)
+                    AS ?displacementBound
+                )
+                BIND(
+                    xsd:decimal(4) * xsd:decimal(?iceValue)
+                    AS ?fourThicknessBound
+                )
+                BIND(
+                    IF(
+                        ?displacementBound <= ?fourThicknessBound,
+                        ?displacementBound,
+                        ?fourThicknessBound
+                    )
+                    AS ?requiredForwardDraught
+                )
+                FILTER(xsd:decimal(?forwardValue) < ?requiredForwardDraught)
+            }
+        """
+    ] .
+
+gen:TRF016BallastTankShape
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasBallastTank ;
+    sh:sparql [
+        sh:message "A ballast tank above the lower ice waterline and needed to reach that waterline must have freezing prevention." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this
+                    nltl:situatedAboveLowerIceWaterline "true"^^xsd:boolean ;
+                    nltl:usedToReachLowerIceWaterline "true"^^xsd:boolean .
+                FILTER NOT EXISTS {
+                    $this nltl:freezingPreventionPresent "true"^^xsd:boolean .
+                }
+            }
+        """
+    ] .

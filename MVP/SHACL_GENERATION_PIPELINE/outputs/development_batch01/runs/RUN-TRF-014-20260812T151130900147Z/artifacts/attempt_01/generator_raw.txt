@@ -1,0 +1,167 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MeterQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1
+    ] .
+
+gen:IceClassDraughtRequirementShape
+    a sh:NodeShape ;
+    sh:targetSubjectsOf nltl:iceClass ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:firstScheduledDryDockingDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:summerLoadLineFreshWaterDraught ;
+        sh:node gen:MeterQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:node gen:MeterQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasIceDraughtRestrictionDocument ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedValueShape [
+            sh:class nltl:iceDraughtRestrictionDocument ;
+            sh:property [
+                sh:path nltl:retainedOnBoard ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:readilyAvailableToMaster ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:message "Draught restrictions for operation in ice must be documented, retained on board, and readily available to the master."
+    ] ;
+    sh:property [
+        sh:path nltl:hasClassCertificate ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedValueShape [
+            sh:class nltl:classCertificate ;
+            sh:property [
+                sh:path nltl:maximumIceClassDraughtFore ;
+                sh:node gen:MeterQuantityShape ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:maximumIceClassDraughtAmidships ;
+                sh:node gen:MeterQuantityShape ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:maximumIceClassDraughtAft ;
+                sh:node gen:MeterQuantityShape ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:minimumIceClassDraughtFore ;
+                sh:node gen:MeterQuantityShape ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:minimumIceClassDraughtAmidships ;
+                sh:node gen:MeterQuantityShape ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:minimumIceClassDraughtAft ;
+                sh:node gen:MeterQuantityShape ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:message "A class certificate must indicate the maximum and minimum ice-class draughts fore, amidships, and aft in metres."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the summer load line in fresh water is above the upper ice waterline and the marking deadline applies, a warning triangle and an ice-class draught mark at the maximum permissible ice-class draught amidships are required." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:constructionDate ?built ;
+          nltl:summerLoadLineFreshWaterDraught ?summerQuantity ;
+          nltl:upperIceWaterlineDraught ?uiwlQuantity .
+
+    ?summerQuantity a qudt:QuantityValue ;
+                    qudt:numericValue ?summerValue ;
+                    qudt:unit unit:M .
+    ?uiwlQuantity a qudt:QuantityValue ;
+                  qudt:numericValue ?uiwlValue ;
+                  qudt:unit unit:M .
+
+    FILTER(datatype(?built) = xsd:date)
+    FILTER(datatype(?summerValue) = xsd:decimal)
+    FILTER(datatype(?uiwlValue) = xsd:decimal)
+    FILTER(?summerValue > ?uiwlValue)
+
+    FILTER(
+        ?built >= "2007-07-01"^^xsd:date ||
+        (
+            ?built < "2007-07-01"^^xsd:date &&
+            EXISTS {
+                $this nltl:firstScheduledDryDockingDate ?dryDockingDate .
+                FILTER(datatype(?dryDockingDate) = xsd:date)
+                FILTER(?dryDockingDate > "2007-07-01"^^xsd:date)
+                FILTER(
+                    ?dryDockingDate <=
+                    xsd:date(SUBSTR(STR(NOW()), 1, 10))
+                )
+            }
+        )
+    )
+
+    FILTER(
+        NOT EXISTS {
+            $this nltl:warningTrianglePresent true .
+        } ||
+        NOT EXISTS {
+            $this nltl:iceClassDraughtMarkPresent true .
+        } ||
+        NOT EXISTS {
+            $this nltl:iceClassDraughtMarkDraughtAmidships ?markQuantity ;
+                  nltl:hasClassCertificate ?certificate .
+            ?markQuantity a qudt:QuantityValue ;
+                          qudt:numericValue ?markValue ;
+                          qudt:unit unit:M .
+            ?certificate nltl:maximumIceClassDraughtAmidships ?maximumQuantity .
+            ?maximumQuantity a qudt:QuantityValue ;
+                             qudt:numericValue ?maximumValue ;
+                             qudt:unit unit:M .
+            FILTER(datatype(?markValue) = xsd:decimal)
+            FILTER(datatype(?maximumValue) = xsd:decimal)
+            FILTER(?markValue = ?maximumValue)
+        }
+    )
+}
+"""
+    ] .
+<END_SHACL>

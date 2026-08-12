@@ -1,0 +1,129 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:UnitlessQuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:PressureQuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:TRF037IcePressureShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientA ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientB ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientK ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputFactorCd ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassFactorCp ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadAreaFactorCa ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:nominalIcePressureP0 ;
+        sh:minCount 1 ;
+        sh:node gen:PressureQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:minCount 1 ;
+        sh:node gen:PressureQuantityValueShape
+    ] ;
+    sh:sparql [
+        sh:message "Ship size engine output factor cd must equal min((a*k + b)/1000, 1)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipSizeEngineOutputCoefficientA/qudt:numericValue ?aValue ;
+                      nltl:shipSizeEngineOutputCoefficientB/qudt:numericValue ?bValue ;
+                      nltl:shipSizeEngineOutputCoefficientK/qudt:numericValue ?kValue ;
+                      nltl:shipSizeEngineOutputFactorCd/qudt:numericValue ?cdValue .
+                BIND(
+                    (xsd:decimal(?aValue) * xsd:decimal(?kValue)
+                     + xsd:decimal(?bValue)) / xsd:decimal("1000")
+                    AS ?uncappedCd
+                )
+                BIND(
+                    IF(
+                        ?uncappedCd > xsd:decimal("1"),
+                        xsd:decimal("1"),
+                        ?uncappedCd
+                    )
+                    AS ?expectedCd
+                )
+                FILTER(xsd:decimal(?cdValue) != ?expectedCd)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Design ice pressure must equal cd*cp*ca*p0." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipSizeEngineOutputFactorCd/qudt:numericValue ?cdValue ;
+                      nltl:iceClassFactorCp/qudt:numericValue ?cpValue ;
+                      nltl:iceLoadAreaFactorCa/qudt:numericValue ?caValue ;
+                      nltl:nominalIcePressureP0/qudt:numericValue ?p0Value ;
+                      nltl:icePressure/qudt:numericValue ?pressureValue .
+                BIND(
+                    xsd:decimal(?cdValue)
+                    * xsd:decimal(?cpValue)
+                    * xsd:decimal(?caValue)
+                    * xsd:decimal(?p0Value)
+                    AS ?expectedPressure
+                )
+                FILTER(xsd:decimal(?pressureValue) != ?expectedPressure)
+            }
+        """
+    ] .

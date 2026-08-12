@@ -1,0 +1,254 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF043FramingVerticalExtensionShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+
+    sh:property [
+        sh:path nltl:framingIceStrengtheningAboveUpperIceWaterline ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:in ( unit:M )
+            ]
+        ]
+    ] ;
+
+    sh:property [
+        sh:path nltl:framingIceStrengtheningBelowLowerIceWaterline ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:in ( unit:M )
+            ]
+        ]
+    ] ;
+
+    sh:property [
+        sh:path nltl:extensionBeyondAdjacentDeckOrTankBoundary ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:in ( unit:MilliM )
+            ]
+        ]
+    ] ;
+
+    sh:property [
+        sh:path nltl:upperBowIceBeltRequired ;
+        sh:datatype xsd:boolean
+    ] ;
+
+    sh:property [
+        sh:path nltl:reachesUpperBowIceBeltTop ;
+        sh:datatype xsd:boolean
+    ] ;
+
+    sh:property [
+        sh:path nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted ;
+        sh:datatype xsd:boolean
+    ] ;
+
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Framing above the upper ice waterline is less than the Table 4-6 minimum or is missing." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass .
+    FILTER (?iceClass IN (
+        nltl:iceClassIaSuper,
+        nltl:iceClassIa,
+        nltl:iceClassIb,
+        nltl:iceClassIc
+    ))
+    BIND(
+        IF(
+            ?iceClass = nltl:iceClassIaSuper,
+            xsd:decimal("1.2"),
+            xsd:decimal("1.0")
+        ) AS ?minimum
+    )
+    OPTIONAL {
+        $this nltl:framingIceStrengtheningAboveUpperIceWaterline ?quantity .
+        ?quantity qudt:numericValue ?value ;
+                  qudt:unit unit:M .
+        FILTER (datatype(?value) = xsd:decimal)
+    }
+    FILTER (!BOUND(?value) || ?value < ?minimum)
+}
+"""
+    ] ;
+
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Applicable framing lacks the hull region needed to select its Table 4-6 lower extent." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass .
+    FILTER (?iceClass IN (
+        nltl:iceClassIaSuper,
+        nltl:iceClassIa,
+        nltl:iceClassIb,
+        nltl:iceClassIc
+    ))
+    FILTER NOT EXISTS {
+        $this nltl:hullRegion ?region .
+        FILTER (?region IN (
+            nltl:bowRegion,
+            nltl:midbodyRegion,
+            nltl:sternRegion
+        ))
+    }
+}
+"""
+    ] ;
+
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Framing below the lower ice waterline is less than the applicable Table 4-6 minimum or is missing." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:hullRegion ?region .
+
+    FILTER (
+        (
+            ?iceClass = nltl:iceClassIaSuper &&
+            ?region IN (nltl:midbodyRegion, nltl:sternRegion)
+        ) ||
+        (
+            ?iceClass IN (
+                nltl:iceClassIa,
+                nltl:iceClassIb,
+                nltl:iceClassIc
+            ) &&
+            ?region IN (
+                nltl:bowRegion,
+                nltl:midbodyRegion,
+                nltl:sternRegion
+            )
+        )
+    )
+
+    BIND(
+        IF(
+            ?iceClass = nltl:iceClassIaSuper &&
+            ?region = nltl:midbodyRegion,
+            xsd:decimal("2.0"),
+            IF(
+                ?iceClass = nltl:iceClassIaSuper &&
+                ?region = nltl:sternRegion,
+                xsd:decimal("1.6"),
+                IF(
+                    ?region = nltl:bowRegion,
+                    xsd:decimal("1.6"),
+                    IF(
+                        ?region = nltl:midbodyRegion,
+                        xsd:decimal("1.3"),
+                        xsd:decimal("1.0")
+                    )
+                )
+            )
+        ) AS ?minimum
+    )
+
+    OPTIONAL {
+        $this nltl:framingIceStrengtheningBelowLowerIceWaterline ?quantity .
+        ?quantity qudt:numericValue ?value ;
+                  qudt:unit unit:M .
+        FILTER (datatype(?value) = xsd:decimal)
+    }
+    FILTER (!BOUND(?value) || ?value < ?minimum)
+}
+"""
+    ] ;
+
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Framing required to reach the upper bow ice-belt top does not record that it reaches that top." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:upperBowIceBeltRequired ?required .
+    FILTER (
+        datatype(?required) = xsd:boolean &&
+        ?required = true
+    )
+    FILTER NOT EXISTS {
+        $this nltl:reachesUpperBowIceBeltTop ?reaches .
+        FILTER (
+            datatype(?reaches) = xsd:boolean &&
+            ?reaches = true
+        )
+    }
+}
+"""
+    ] ;
+
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Termination at the adjacent boundary is not recorded as permitted when the extension is no more than 250 mm." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:extensionBeyondAdjacentDeckOrTankBoundary ?quantity .
+    ?quantity qudt:numericValue ?extension ;
+              qudt:unit unit:MilliM .
+    FILTER (
+        datatype(?extension) = xsd:decimal &&
+        ?extension <= xsd:decimal("250")
+    )
+    FILTER NOT EXISTS {
+        $this nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted ?permitted .
+        FILTER (
+            datatype(?permitted) = xsd:boolean &&
+            ?permitted = true
+        )
+    }
+}
+"""
+    ] .
+<END_SHACL>

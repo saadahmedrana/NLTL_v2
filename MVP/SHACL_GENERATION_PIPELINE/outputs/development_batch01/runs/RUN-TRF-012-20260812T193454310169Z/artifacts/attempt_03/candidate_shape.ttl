@@ -1,0 +1,130 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:LowerIceWaterlineShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must identify exactly one lower ice waterline."
+    ] ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:message "At least one intended ice operating waterline is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each lower-waterline profile position must be covered by every intended waterline, and its ordinate must not exceed the lowest interpolated intended-waterline ordinate." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?lowerPoint
+WHERE {
+    $this nltl:hasLowerIceWaterline ?lowerLine ;
+          nltl:hasIntendedIceOperatingWaterline ?intendedLine .
+
+    ?lowerLine nltl:hasWaterlineProfilePoint ?lowerPoint .
+    ?lowerPoint nltl:longitudinalPosition/qudt:numericValue ?lowerXValue ;
+                nltl:verticalCoordinate/qudt:numericValue ?lowerYValue .
+
+    BIND(xsd:decimal(?lowerXValue) AS ?lowerX)
+    BIND(xsd:decimal(?lowerYValue) AS ?lowerY)
+
+    OPTIONAL {
+        ?intendedLine nltl:hasWaterlineProfilePoint ?segmentStart ;
+                      nltl:hasWaterlineProfilePoint ?segmentEnd .
+
+        ?segmentStart nltl:longitudinalPosition/qudt:numericValue ?startXValue ;
+                      nltl:verticalCoordinate/qudt:numericValue ?startYValue .
+        ?segmentEnd nltl:longitudinalPosition/qudt:numericValue ?endXValue ;
+                    nltl:verticalCoordinate/qudt:numericValue ?endYValue .
+
+        BIND(xsd:decimal(?startXValue) AS ?startX)
+        BIND(xsd:decimal(?startYValue) AS ?startY)
+        BIND(xsd:decimal(?endXValue) AS ?endX)
+        BIND(xsd:decimal(?endYValue) AS ?endY)
+
+        FILTER(?startX < ?endX)
+        FILTER(?startX <= ?lowerX && ?lowerX <= ?endX)
+
+        FILTER NOT EXISTS {
+            ?intendedLine nltl:hasWaterlineProfilePoint ?intermediatePoint .
+            ?intermediatePoint
+                nltl:longitudinalPosition/qudt:numericValue ?intermediateXValue .
+            BIND(xsd:decimal(?intermediateXValue) AS ?intermediateX)
+            FILTER(?startX < ?intermediateX && ?intermediateX < ?endX)
+        }
+
+        BIND(
+            ?startY +
+            ((?lowerX - ?startX) * (?endY - ?startY) /
+             (?endX - ?startX))
+            AS ?interpolatedY
+        )
+        BIND(?intendedLine AS ?coveredIntendedLine)
+    }
+}
+GROUP BY $this ?lowerPoint ?lowerX ?lowerY
+HAVING(
+    COUNT(DISTINCT ?coveredIntendedLine) < COUNT(DISTINCT ?intendedLine)
+    ||
+    ?lowerY > MIN(?interpolatedY)
+)
+"""
+    ] .
+
+gs:IceWaterlineProfileShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 2 ;
+        sh:message "An ice-waterline profile requires at least two profile points."
+    ] .
+
+gs:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MetreQuantityValueShape ;
+        sh:message "Each profile point requires one longitudinal position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MetreQuantityValueShape ;
+        sh:message "Each profile point requires one vertical coordinate in metres."
+    ] .
+
+gs:MetreQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

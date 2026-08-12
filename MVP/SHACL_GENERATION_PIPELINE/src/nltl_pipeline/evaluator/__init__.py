@@ -1,0 +1,2 @@
+"""Separate bulk RDF evaluator."""
+

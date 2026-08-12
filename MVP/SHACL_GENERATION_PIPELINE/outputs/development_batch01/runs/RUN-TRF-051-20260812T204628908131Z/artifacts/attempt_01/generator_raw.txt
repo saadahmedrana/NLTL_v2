@@ -1,0 +1,114 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM
+    ] .
+
+gen:MegapascalQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:FrameWebThicknessShape
+    a sh:NodeShape ;
+    sh:targetSubjectsOf nltl:frameProfileType ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:minCount 1 ;
+        sh:in (
+            nltl:profileSection
+            nltl:flatBarSection
+        ) ;
+        sh:message "Frame profile type must identify a profile section or flat bar section."
+    ] ;
+    sh:property [
+        sh:path nltl:frameWebThickness ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape ;
+        sh:message "Frame web thickness in millimetres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:adjacentFrameHeight ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape ;
+        sh:message "Adjacent frame height in millimetres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node gen:MegapascalQuantityShape ;
+        sh:message "Yield strength in megapascals is required."
+    ] ;
+    sh:property [
+        sh:path nltl:netShellPlatingThickness ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape ;
+        sh:message "Net shell-plating thickness in millimetres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape ;
+        sh:message "Corrosion and abrasion addition in millimetres is required."
+    ] ;
+    sh:sparql [
+        sh:message "Frame web thickness must be at least the maximum calculated minimum, including 9 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameProfileType ?profile ;
+                      nltl:frameWebThickness ?webQuantity ;
+                      nltl:adjacentFrameHeight ?heightQuantity ;
+                      nltl:yieldStrength ?yieldQuantity ;
+                      nltl:netShellPlatingThickness ?shellQuantity ;
+                      nltl:corrosionAbrasionAddition ?additionQuantity .
+
+                ?webQuantity qudt:numericValue ?web .
+                ?heightQuantity qudt:numericValue ?height .
+                ?yieldQuantity qudt:numericValue ?yieldStrength .
+                ?shellQuantity qudt:numericValue ?shellThickness .
+                ?additionQuantity qudt:numericValue ?addition .
+
+                FILTER (?profile IN (nltl:profileSection, nltl:flatBarSection))
+                BIND(
+                    IF(?profile = nltl:profileSection, 805.0, 282.0)
+                    AS ?coefficient
+                )
+                FILTER (
+                    ?yieldStrength < 0.0 ||
+                    ?web < 9.0 ||
+                    ?web < ((?shellThickness - ?addition) / 2.0) ||
+                    (
+                        ?height > 0.0 &&
+                        ((?web * ?coefficient) * (?web * ?coefficient))
+                            < (?height * ?height * ?yieldStrength)
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

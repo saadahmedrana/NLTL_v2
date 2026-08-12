@@ -1,0 +1,402 @@
+PROMPT_ID: NLTL-SEMANTIC-VALIDATOR-0.1.3
+
+You review a candidate maritime SHACL graph. You do not determine whether a
+ship complies and you do not execute RDF data. Deterministic parser, SHACL
+structure, vocabulary, datatype, range, and unit reports are supplied to you.
+
+Check whether the candidate faithfully encodes the verified requirement with
+the correct applicability, targets, paths, alternatives, comparison direction,
+thresholds, formula operands, readiness/evidence boundary, datatypes, and
+units. Be strict about accidental pass logic, invented terms, and checks that
+target the wrong entity.
+
+The complete locked vocabulary is enforced by the deterministic report and is
+not repeated in this prompt. Review the retrieved relevant terms, the verified
+records for terms actually used by the candidate, and any deterministic
+mismatch candidates. Do not infer that an absent full-registry entry is
+unavailable: rely on the deterministic unknown/out-of-scope lists.
+
+Set activate_variable_matcher to true only when the repair requires locating a
+canonical term that was absent, misspelled, invented, or not supplied in the
+generator's scoped vocabulary. Activate it even when no candidate was supplied;
+the deterministic search will run after your decision. Ordinary semantic or
+SHACL corrections do not activate the matcher.
+
+Set accept to true only when deterministicValidation.valid is true and the
+candidate is semantically faithful enough to freeze for later RDF evaluation.
+If accept is true, activate_variable_matcher must be false.
+
+Also reject: a property placed on an entity incompatible with its supplied
+canonical domain; exact equality for a derived decimal formula result; dynamic
+xsd:date(CONCAT(...)) construction; needless ship/component indirection; or a
+combinatorial SPARQL query where SHACL Core plus one bounded formula query is
+sufficient. Do not request a convenience applicability boolean when the
+verified date/class inputs already determine applicability.
+
+Return exactly one physical line of JSON with exactly these keys:
+{"accept":false,"activate_variable_matcher":false,"feedback":"Concrete repair instruction."}
+
+The first two values must be JSON booleans. feedback must be a JSON string.
+Do not return Markdown, analysis, additional keys, or additional lines.
+
+
+--- USER INPUT ---
+{
+  "candidateShacl": "@prefix gs: <urn:nltl:generated-shape:> .\n@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\ngs:LowerIceWaterlineShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:ship ;\n    sh:property [\n        sh:path nltl:hasLowerIceWaterline ;\n        sh:nodeKind sh:IRI ;\n        sh:class nltl:iceWaterline ;\n        sh:node gs:ProfiledIceWaterlineShape ;\n        sh:minCount 1 ;\n        sh:message \"A lower ice waterline with a usable waterline profile is required.\"\n    ] ;\n    sh:property [\n        sh:path nltl:hasIntendedIceOperatingWaterline ;\n        sh:nodeKind sh:IRI ;\n        sh:class nltl:iceWaterline ;\n        sh:node gs:ProfiledIceWaterlineShape ;\n        sh:minCount 1 ;\n        sh:message \"At least one intended ice operating waterline with a usable profile is required to determine the lower envelope.\"\n    ] ;\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        sh:message \"Each sampled longitudinal position on an intended ice operating waterline must be represented on the lower ice waterline; positions are matched with relative tolerance 1e-6 and absolute fallback 1e-9 m.\" ;\n        sh:select \"\"\"\nPREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\nPREFIX qudt: <http://qudt.org/schema/qudt/>\nPREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\nSELECT DISTINCT $this\nWHERE {\n    $this nltl:hasIntendedIceOperatingWaterline ?intendedLine .\n    ?intendedLine nltl:hasWaterlineProfilePoint ?intendedPoint .\n    ?intendedPoint nltl:longitudinalPosition ?intendedPosition .\n    ?intendedPosition qudt:numericValue ?intendedX .\n    FILTER(datatype(?intendedX) = xsd:decimal)\n\n    FILTER NOT EXISTS {\n        $this nltl:hasLowerIceWaterline ?lowerLine .\n        ?lowerLine nltl:hasWaterlineProfilePoint ?lowerPoint .\n        ?lowerPoint nltl:longitudinalPosition ?lowerPosition .\n        ?lowerPosition qudt:numericValue ?lowerX .\n        FILTER(datatype(?lowerX) = xsd:decimal)\n        FILTER(\n            ABS(?lowerX - ?intendedX) <=\n            (0.000001 * IF(ABS(?lowerX) > ABS(?intendedX), ABS(?lowerX), ABS(?intendedX)))\n            + 0.000000001\n        )\n    }\n}\n\"\"\"\n    ] ;\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        sh:message \"Every lower ice waterline profile point must equal the lowest intended operating-waterline point at the same longitudinal position; coordinate matching uses relative tolerance 1e-6 and absolute fallback 1e-9 m.\" ;\n        sh:select \"\"\"\nPREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\nPREFIX qudt: <http://qudt.org/schema/qudt/>\nPREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\nSELECT DISTINCT $this\nWHERE {\n    $this nltl:hasLowerIceWaterline ?lowerLine .\n    ?lowerLine nltl:hasWaterlineProfilePoint ?lowerPoint .\n    ?lowerPoint nltl:longitudinalPosition ?lowerPosition ;\n                nltl:verticalCoordinate ?lowerVertical .\n    ?lowerPosition qudt:numericValue ?lowerX .\n    ?lowerVertical qudt:numericValue ?lowerZ .\n    FILTER(datatype(?lowerX) = xsd:decimal)\n    FILTER(datatype(?lowerZ) = xsd:decimal)\n\n    FILTER NOT EXISTS {\n        $this nltl:hasIntendedIceOperatingWaterline ?candidateLine .\n        ?candidateLine nltl:hasWaterlineProfilePoint ?candidatePoint .\n        ?candidatePoint nltl:longitudinalPosition ?candidatePosition ;\n                        nltl:verticalCoordinate ?candidateVertical .\n        ?candidatePosition qudt:numericValue ?candidateX .\n        ?candidateVertical qudt:numericValue ?candidateZ .\n        FILTER(datatype(?candidateX) = xsd:decimal)\n        FILTER(datatype(?candidateZ) = xsd:decimal)\n        FILTER(\n            ABS(?candidateX - ?lowerX) <=\n            (0.000001 * IF(ABS(?candidateX) > ABS(?lowerX), ABS(?candidateX), ABS(?lowerX)))\n            + 0.000000001\n        )\n        FILTER(\n            ABS(?candidateZ - ?lowerZ) <=\n            (0.000001 * IF(ABS(?candidateZ) > ABS(?lowerZ), ABS(?candidateZ), ABS(?lowerZ)))\n            + 0.000000001\n        )\n        FILTER NOT EXISTS {\n            $this nltl:hasIntendedIceOperatingWaterline ?otherLine .\n            ?otherLine nltl:hasWaterlineProfilePoint ?otherPoint .\n            ?otherPoint nltl:longitudinalPosition ?otherPosition ;\n                        nltl:verticalCoordinate ?otherVertical .\n            ?otherPosition qudt:numericValue ?otherX .\n            ?otherVertical qudt:numericValue ?otherZ .\n            FILTER(datatype(?otherX) = xsd:decimal)\n            FILTER(datatype(?otherZ) = xsd:decimal)\n            FILTER(\n                ABS(?otherX - ?lowerX) <=\n                (0.000001 * IF(ABS(?otherX) > ABS(?lowerX), ABS(?otherX), ABS(?lowerX)))\n                + 0.000000001\n            )\n            FILTER(?otherZ < ?candidateZ)\n        }\n    }\n}\n\"\"\"\n    ] .\n\ngs:ProfiledIceWaterlineShape\n    a sh:NodeShape ;\n    sh:class nltl:iceWaterline ;\n    sh:property [\n        sh:path nltl:hasWaterlineProfilePoint ;\n        sh:nodeKind sh:IRI ;\n        sh:class nltl:waterlineProfilePoint ;\n        sh:node gs:WaterlineProfilePointShape ;\n        sh:minCount 1 ;\n        sh:message \"The ice waterline must have at least one profile point with usable coordinates.\"\n    ] .\n\ngs:WaterlineProfilePointShape\n    a sh:NodeShape ;\n    sh:class nltl:waterlineProfilePoint ;\n    sh:property [\n        sh:path nltl:longitudinalPosition ;\n        sh:node gs:LengthQuantityShape ;\n        sh:minCount 1 ;\n        sh:maxCount 1 ;\n        sh:message \"A waterline profile point must have exactly one longitudinal position.\"\n    ] ;\n    sh:property [\n        sh:path nltl:verticalCoordinate ;\n        sh:node gs:LengthQuantityShape ;\n        sh:minCount 1 ;\n        sh:maxCount 1 ;\n        sh:message \"A waterline profile point must have exactly one vertical coordinate.\"\n    ] .\n\ngs:LengthQuantityShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:datatype xsd:decimal ;\n        sh:minCount 1 ;\n        sh:maxCount 1 ;\n        sh:message \"The length quantity must have exactly one decimal numeric value.\"\n    ] ;\n    sh:property [\n        sh:path qudt:unit ;\n        sh:nodeKind sh:IRI ;\n        sh:hasValue unit:M ;\n        sh:maxCount 1 ;\n        sh:message \"The length quantity must use metre as its unit.\"\n    ] .\n",
+  "candidateUsedCanonicalTerms": [
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasIntendedIceOperatingWaterline",
+      "kind": "ObjectProperty",
+      "label": "Has intended ice operating waterline",
+      "localName": "hasIntendedIceOperatingWaterline",
+      "range": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasLowerIceWaterline",
+      "kind": "ObjectProperty",
+      "label": "Has lower ice waterline",
+      "localName": "hasLowerIceWaterline",
+      "range": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasWaterlineProfilePoint",
+      "kind": "ObjectProperty",
+      "label": "Has waterline profile point",
+      "localName": "hasWaterlineProfilePoint",
+      "range": "https://w3id.org/nltl-benchmark/vocab#waterlineProfilePoint",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "kind": "Class",
+      "label": "Ice waterline",
+      "localName": "iceWaterline",
+      "range": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#longitudinalPosition",
+      "kind": "QuantityProperty",
+      "label": "Longitudinal position",
+      "localName": "longitudinalPosition",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ship",
+      "kind": "Class",
+      "label": "Ship",
+      "localName": "ship",
+      "range": "",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#verticalCoordinate",
+      "kind": "QuantityProperty",
+      "label": "Vertical coordinate",
+      "localName": "verticalCoordinate",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#waterlineProfilePoint",
+      "kind": "Class",
+      "label": "Waterline profile point",
+      "localName": "waterlineProfilePoint",
+      "range": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "recommendedUnit": null
+    }
+  ],
+  "deterministicValidation": {
+    "datatype_unit_valid": true,
+    "errors": [],
+    "extraction_valid": true,
+    "meta_shacl_valid": true,
+    "out_of_scope_canonical_iris": [],
+    "shacl_structure_valid": true,
+    "suspicious_external_iris": [],
+    "target_path_valid": true,
+    "turtle_valid": true,
+    "unknown_canonical_iris": [],
+    "used_canonical_iris": [
+      "https://w3id.org/nltl-benchmark/vocab#hasIntendedIceOperatingWaterline",
+      "https://w3id.org/nltl-benchmark/vocab#hasLowerIceWaterline",
+      "https://w3id.org/nltl-benchmark/vocab#hasWaterlineProfilePoint",
+      "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "https://w3id.org/nltl-benchmark/vocab#longitudinalPosition",
+      "https://w3id.org/nltl-benchmark/vocab#ship",
+      "https://w3id.org/nltl-benchmark/vocab#verticalCoordinate",
+      "https://w3id.org/nltl-benchmark/vocab#waterlineProfilePoint"
+    ],
+    "valid": true,
+    "vocabulary_valid": true,
+    "warnings": []
+  },
+  "importantBoundary": "No ship graph or expected RDF outcome is part of this review.",
+  "mismatchCandidates": [],
+  "registryBoundary": "The complete locked registry was checked deterministically but is intentionally not embedded. Treat unknown/out-of-scope findings as authoritative. Activate the vocabulary matcher whenever a repair requires locating a canonical term or controlled value absent from the scoped context, even when no deterministic candidate was supplied yet.",
+  "requirement": {
+    "activeStatus": "Stage 2 candidate - direct/deterministic",
+    "anchorMapField": "reg:LIWL",
+    "canonicalVariables": "LIWL",
+    "category": "Static",
+    "clause": "2.1",
+    "codability": "High",
+    "conceptIds": "VOC-0438",
+    "coverageStatus": "Covered by candidate concepts",
+    "edition": "TRAFICOM/68863/03.04.01.00/2021",
+    "encodingPattern": "Direct property/presence constraint",
+    "figureDependent": "No",
+    "id": "TRF-012",
+    "normalizedRequirement": "The lower ice waterline (LIWL) shall be the envelope of the lowest points of the waterlines at which the ship is intended to operate in ice. The line may be a broken line.",
+    "page": 6,
+    "requiredInputs": "LIWL",
+    "section": "Upper and lower ice waterlines",
+    "source": "Ice Class Regulations and the Application Thereof",
+    "sourceSheet": "TRAFICOM",
+    "sourceText": "The lower ice waterline (LIWL) shall be the envelope of the lowest points of the waterlines at which the ship is intended to operate in ice. The line may be a broken line.",
+    "sourceUrl": "https://www.finlex.fi/en/authorities/regulations/traficom-transport-maritime/2021/47238"
+  },
+  "retrievedRelevantVocabulary": [
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "kind": "Class",
+      "label": "Benchmark entity",
+      "localName": "benchmarkEntity",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "baseline target infrastructure; range dependency of iceWaterline; range dependency of waterlineProfilePoint",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#ship"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasComponent",
+      "kind": "ObjectProperty",
+      "label": "has component",
+      "localName": "hasComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "recommendedUnit": null,
+      "selectionReason": "component-path dependency inferred from the linked term module",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has intended ice operating waterline is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#ship"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasIntendedIceOperatingWaterline",
+      "kind": "ObjectProperty",
+      "label": "Has intended ice operating waterline",
+      "localName": "hasIntendedIceOperatingWaterline",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-011 | TRAFICOM p.6 | 2.1; TRF-012 | TRAFICOM p.6 | 2.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has lower ice waterline is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#ship"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasLowerIceWaterline",
+      "kind": "ObjectProperty",
+      "label": "Has lower ice waterline",
+      "localName": "hasLowerIceWaterline",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-012 | TRAFICOM p.6 | 2.1; TRF-013 | TRAFICOM p.7 | 2.2",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has waterline profile point is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#iceWaterline"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasWaterlineProfilePoint",
+      "kind": "ObjectProperty",
+      "label": "Has waterline profile point",
+      "localName": "hasWaterlineProfilePoint",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#waterlineProfilePoint",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-011 | TRAFICOM p.6 | 2.1; TRF-012 | TRAFICOM p.6 | 2.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Ice waterline is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#iceWaterline",
+      "kind": "Class",
+      "label": "Ice waterline",
+      "localName": "iceWaterline",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "recommendedUnit": null,
+      "selectionReason": "domain dependency of hasWaterlineProfilePoint; linked by the locked 313-requirement index; range dependency of hasIntendedIceOperatingWaterline; range dependency of hasLowerIceWaterline",
+      "sourceReferences": "TRF-011 | TRAFICOM p.6 | 2.1; TRF-012 | TRAFICOM p.6 | 2.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Longitudinal position is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#waterlineProfilePoint"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#longitudinalPosition",
+      "kind": "QuantityProperty",
+      "label": "Longitudinal position",
+      "localName": "longitudinalPosition",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-011 | TRAFICOM p.6 | 2.1; TRF-012 | TRAFICOM p.6 | 2.1",
+      "unitSymbol": "m"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ship",
+      "kind": "Class",
+      "label": "Ship",
+      "localName": "ship",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "baseline target infrastructure; domain dependency of hasIntendedIceOperatingWaterline; domain dependency of hasLowerIceWaterline",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "kind": "Class",
+      "label": "Ship component",
+      "localName": "shipComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "component-path dependency inferred from the linked term module",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Vertical coordinate is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#waterlineProfilePoint"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#verticalCoordinate",
+      "kind": "QuantityProperty",
+      "label": "Vertical coordinate",
+      "localName": "verticalCoordinate",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-011 | TRAFICOM p.6 | 2.1; TRF-012 | TRAFICOM p.6 | 2.1",
+      "unitSymbol": "m"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Waterline profile point is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#waterlineProfilePoint",
+      "kind": "Class",
+      "label": "Waterline profile point",
+      "localName": "waterlineProfilePoint",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "recommendedUnit": null,
+      "selectionReason": "domain dependency of longitudinalPosition; domain dependency of verticalCoordinate; linked by the locked 313-requirement index; range dependency of hasWaterlineProfilePoint",
+      "sourceReferences": "TRF-011 | TRAFICOM p.6 | 2.1; TRF-012 | TRAFICOM p.6 | 2.1",
+      "unitSymbol": null
+    }
+  ],
+  "task": "Review one candidate SHACL graph for freezing before later RDF evaluation"
+}

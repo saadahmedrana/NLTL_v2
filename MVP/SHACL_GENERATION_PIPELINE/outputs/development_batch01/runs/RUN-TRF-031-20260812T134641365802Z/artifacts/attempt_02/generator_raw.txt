@@ -1,0 +1,154 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:StressQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The stress quantity must have one nonnegative decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The stress quantity must have MegaPA as its single unit."
+    ] .
+
+gen:StressAcceptanceShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:shipComponent ;
+
+    sh:property [
+        sh:path nltl:vonMisesYieldCriterion ;
+        sh:datatype xsd:string ;
+        sh:message "Von Mises yield criterion evidence must be an xsd:string."
+    ] ;
+
+    sh:property [
+        sh:path nltl:beamTheoryUsed ;
+        sh:datatype xsd:boolean ;
+        sh:message "Beam-theory applicability must be an xsd:boolean."
+    ] ;
+
+    sh:or (
+        [
+            sh:not [
+                sh:property [
+                    sh:path nltl:vonMisesYieldCriterion ;
+                    sh:datatype xsd:string ;
+                    sh:minCount 1
+                ]
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:vonMisesYieldCriterion ;
+                sh:datatype xsd:string ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:combinedBendingShearStress ;
+                sh:node gen:StressQuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "A single combined bending and shear stress is required when Von Mises criterion evidence is supplied."
+            ] ;
+            sh:property [
+                sh:path nltl:yieldPoint ;
+                sh:node gen:StressQuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "A single yield point is required when Von Mises criterion evidence is supplied."
+            ]
+        ]
+    ) ;
+
+    sh:or (
+        [
+            sh:not [
+                sh:property [
+                    sh:path nltl:beamTheoryUsed ;
+                    sh:hasValue true
+                ]
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:allowableShearStress ;
+                sh:node gen:StressQuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "A single allowable shear stress is required when beam theory is used."
+            ] ;
+            sh:property [
+                sh:path nltl:yieldPoint ;
+                sh:node gen:StressQuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "A single yield point is required when beam theory is used."
+            ]
+        ]
+    ) ;
+
+    sh:sparql [
+        sh:message "Combined bending and shear stress must be strictly lower than the yield point when Von Mises criterion evidence is supplied." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:vonMisesYieldCriterion ?criterion ;
+                      nltl:combinedBendingShearStress ?combinedQuantity ;
+                      nltl:yieldPoint ?yieldQuantity .
+                FILTER(datatype(?criterion) = xsd:string)
+                ?combinedQuantity qudt:numericValue ?combined ;
+                                  qudt:unit unit:MegaPA .
+                ?yieldQuantity qudt:numericValue ?yieldPoint ;
+                               qudt:unit unit:MegaPA .
+                FILTER(?combined >= ?yieldPoint)
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "When beam theory is used, allowable shear stress must satisfy 3*allowable^2 <= 0.81*yieldPoint^2." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:beamTheoryUsed true ;
+                      nltl:allowableShearStress ?allowableQuantity ;
+                      nltl:yieldPoint ?yieldQuantity .
+                ?allowableQuantity qudt:numericValue ?allowable ;
+                                   qudt:unit unit:MegaPA .
+                ?yieldQuantity qudt:numericValue ?yieldPoint ;
+                               qudt:unit unit:MegaPA .
+                FILTER(
+                    ?allowable >= 0 &&
+                    ?yieldPoint >= 0 &&
+                    (3 * ?allowable * ?allowable) >
+                    (0.81 * ?yieldPoint * ?yieldPoint)
+                )
+            }
+        """
+    ] .
+<END_SHACL>

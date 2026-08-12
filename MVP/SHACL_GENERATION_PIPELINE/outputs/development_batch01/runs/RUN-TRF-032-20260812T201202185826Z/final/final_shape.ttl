@@ -1,0 +1,136 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ScantlingQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:ShipScantlingShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceStrengtheningStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must have one unambiguous boolean ice-strengthening status."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:iceStrengtheningStatus ;
+                sh:hasValue true
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceStrengtheningStatus ;
+                sh:hasValue false
+            ] ;
+            sh:property [
+                sh:path nltl:regulationRequiredScantling ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:ScantlingQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:classificationSocietyRequiredScantling ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:ScantlingQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:selectedDesignScantling ;
+                sh:maxCount 1 ;
+                sh:node gen:ScantlingQuantityShape
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a ship without ice strengthening, regulation and classification scantlings must be comparable; when the regulation value is lower, the selected scantling must be at least the classification value in the same unit." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:iceStrengtheningStatus ?iceStatus .
+    FILTER(?iceStatus = false)
+
+    OPTIONAL {
+        $this nltl:regulationRequiredScantling ?regulationScantling .
+        OPTIONAL {
+            ?regulationScantling qudt:numericValue ?regulationValue .
+        }
+        OPTIONAL {
+            ?regulationScantling qudt:unit ?regulationUnit .
+        }
+    }
+
+    OPTIONAL {
+        $this nltl:classificationSocietyRequiredScantling ?classificationScantling .
+        OPTIONAL {
+            ?classificationScantling qudt:numericValue ?classificationValue .
+        }
+        OPTIONAL {
+            ?classificationScantling qudt:unit ?classificationUnit .
+        }
+    }
+
+    OPTIONAL {
+        $this nltl:selectedDesignScantling ?selectedScantling .
+        OPTIONAL {
+            ?selectedScantling qudt:numericValue ?selectedValue .
+        }
+        OPTIONAL {
+            ?selectedScantling qudt:unit ?selectedUnit .
+        }
+    }
+
+    FILTER(
+        !BOUND(?regulationScantling) ||
+        !BOUND(?regulationValue) ||
+        !BOUND(?regulationUnit) ||
+        !BOUND(?classificationScantling) ||
+        !BOUND(?classificationValue) ||
+        !BOUND(?classificationUnit) ||
+        (
+            BOUND(?regulationUnit) &&
+            BOUND(?classificationUnit) &&
+            ?regulationUnit != ?classificationUnit
+        ) ||
+        (
+            BOUND(?regulationValue) &&
+            BOUND(?regulationUnit) &&
+            BOUND(?classificationValue) &&
+            BOUND(?classificationUnit) &&
+            ?regulationUnit = ?classificationUnit &&
+            ?regulationValue < ?classificationValue &&
+            (
+                !BOUND(?selectedScantling) ||
+                !BOUND(?selectedValue) ||
+                !BOUND(?selectedUnit) ||
+                ?selectedUnit != ?classificationUnit ||
+                ?selectedValue < ?classificationValue
+            )
+        )
+    )
+}
+"""
+    ] .

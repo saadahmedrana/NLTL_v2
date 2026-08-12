@@ -1,0 +1,128 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:UpperIceWaterlineEnvelopeShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineProfileShape ;
+        sh:message "An intended ice operating waterline with profile data is required to establish the upper ice waterline envelope."
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineProfileShape ;
+        sh:message "The ship shall identify an upper ice waterline with profile data."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "At each supplied longitudinal position, the upper ice waterline shall match the highest intended operating waterline point within relative tolerance 1e-6 and absolute fallback 1e-9 metres." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    {
+        SELECT $this ?x (MAX(?z) AS ?maximumZ)
+        WHERE {
+            $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+            ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+            ?intendedPoint
+                nltl:longitudinalPosition ?intendedXQuantity ;
+                nltl:verticalCoordinate ?intendedZQuantity .
+            ?intendedXQuantity
+                qudt:numericValue ?x ;
+                qudt:unit unit:M .
+            ?intendedZQuantity
+                qudt:numericValue ?z ;
+                qudt:unit unit:M .
+            FILTER(datatype(?x) = xsd:decimal)
+            FILTER(datatype(?z) = xsd:decimal)
+        }
+        GROUP BY $this ?x
+    }
+    FILTER NOT EXISTS {
+        $this nltl:hasUpperIceWaterline ?upperWaterline .
+        ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+        ?upperPoint
+            nltl:longitudinalPosition ?upperXQuantity ;
+            nltl:verticalCoordinate ?upperZQuantity .
+        ?upperXQuantity
+            qudt:numericValue ?upperX ;
+            qudt:unit unit:M .
+        ?upperZQuantity
+            qudt:numericValue ?upperZ ;
+            qudt:unit unit:M .
+        FILTER(datatype(?upperX) = xsd:decimal)
+        FILTER(datatype(?upperZ) = xsd:decimal)
+        FILTER(
+            ABS(?upperX - ?x) <=
+                IF(
+                    ABS(?x) > "0.001"^^xsd:decimal,
+                    ABS(?x) * "0.000001"^^xsd:decimal,
+                    "0.000000001"^^xsd:decimal
+                )
+            &&
+            ABS(?upperZ - ?maximumZ) <=
+                IF(
+                    ABS(?maximumZ) > "0.001"^^xsd:decimal,
+                    ABS(?maximumZ) * "0.000001"^^xsd:decimal,
+                    "0.000000001"^^xsd:decimal
+                )
+        )
+    }
+}
+"""
+    ] .
+
+gen:IceWaterlineProfileShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:WaterlineProfilePointShape ;
+        sh:message "A waterline profile point with longitudinal and vertical coordinates is required."
+    ] .
+
+gen:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityValueShape ;
+        sh:message "A longitudinal position in metres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityValueShape ;
+        sh:message "A vertical coordinate in metres is required."
+    ] .
+
+gen:MetreQuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:M
+    ] .

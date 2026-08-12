@@ -1,0 +1,200 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:DirectAnalysisShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path ( nltl:hasComponent nltl:hasDirectAnalysisCase ) ;
+        sh:class nltl:directAnalysisCase ;
+        sh:node gen:DirectAnalysisCaseShape ;
+        sh:minCount 1 ;
+        sh:message "At least one component-linked direct analysis case is required."
+    ] .
+
+gen:DirectAnalysisCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:node gen:MegaPascalQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The section 4.2.2 ice pressure is required in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:appliedIcePressure ;
+        sh:node gen:MegaPascalQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The applied ice pressure is required in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchLength ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:verticalLoadPosition ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 2 ;
+        sh:message "Several vertical load positions must be represented."
+    ] ;
+    sh:property [
+        sh:path nltl:horizontalLoadPosition ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 2 ;
+        sh:message "Several horizontal load positions must be represented."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:span ;
+                sh:node gen:MeterQuantityShape ;
+                sh:minCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:spacing ;
+                sh:node gen:MeterQuantityShape ;
+                sh:minCount 1
+            ]
+        ]
+    ) ;
+    sh:property [
+        sh:path nltl:combinedBendingAndShearEvaluated ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:in ( true ) ;
+        sh:message "Combined bending and shear must be evaluated."
+    ] ;
+    sh:property [
+        sh:path nltl:loadLengthDeterminedFromArrangement ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "It must be recorded whether load length was determined from the arrangement."
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadAreaFactorCa ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:sparql [
+        sh:message "Applied ice pressure must equal 1.8 times the section 4.2.2 ice pressure." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    $this nltl:icePressure ?pressureQuantity ;
+                          nltl:appliedIcePressure ?appliedQuantity .
+                    ?pressureQuantity
+                        qudt:numericValue ?pressure ;
+                        qudt:unit unit:MegaPA .
+                    ?appliedQuantity
+                        qudt:numericValue ?applied ;
+                        qudt:unit unit:MegaPA .
+                    FILTER (
+                        xsd:decimal(?applied) =
+                        (xsd:decimal("1.8") * xsd:decimal(?pressure))
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "When load length cannot be determined from the arrangement, several distinct load-patch lengths must be checked." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:loadLengthDeterminedFromArrangement false .
+                FILTER NOT EXISTS {
+                    $this nltl:loadPatchLength ?lengthQuantity1 ;
+                          nltl:loadPatchLength ?lengthQuantity2 .
+                    ?lengthQuantity1
+                        qudt:numericValue ?length1 ;
+                        qudt:unit unit:M .
+                    ?lengthQuantity2
+                        qudt:numericValue ?length2 ;
+                        qudt:unit unit:M .
+                    FILTER (xsd:decimal(?length1) != xsd:decimal(?length2))
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "When load length cannot be determined from the arrangement, several corresponding distinct ca values must be checked." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:loadLengthDeterminedFromArrangement false .
+                FILTER NOT EXISTS {
+                    $this nltl:iceLoadAreaFactorCa ?factorQuantity1 ;
+                          nltl:iceLoadAreaFactorCa ?factorQuantity2 .
+                    ?factorQuantity1
+                        qudt:numericValue ?factor1 ;
+                        qudt:unit unit:UNITLESS .
+                    ?factorQuantity2
+                        qudt:numericValue ?factor2 ;
+                        qudt:unit unit:UNITLESS .
+                    FILTER (xsd:decimal(?factor1) != xsd:decimal(?factor2))
+                }
+            }
+        """
+    ] .
+
+gen:MegaPascalQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1
+    ] .
+
+gen:MeterQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1
+    ] .

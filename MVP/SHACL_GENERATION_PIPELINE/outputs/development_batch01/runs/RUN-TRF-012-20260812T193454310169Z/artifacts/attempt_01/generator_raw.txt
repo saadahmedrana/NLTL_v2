@@ -1,0 +1,162 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:LowerIceWaterlineShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gs:ProfiledIceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "A lower ice waterline with a usable waterline profile is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gs:ProfiledIceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "At least one intended ice operating waterline with a usable profile is required to determine the lower envelope."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each sampled longitudinal position on an intended ice operating waterline must be represented on the lower ice waterline; positions are matched with relative tolerance 1e-6 and absolute fallback 1e-9 m." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasIntendedIceOperatingWaterline ?intendedLine .
+    ?intendedLine nltl:hasWaterlineProfilePoint ?intendedPoint .
+    ?intendedPoint nltl:longitudinalPosition ?intendedPosition .
+    ?intendedPosition qudt:numericValue ?intendedX .
+    FILTER(datatype(?intendedX) = xsd:decimal)
+
+    FILTER NOT EXISTS {
+        $this nltl:hasLowerIceWaterline ?lowerLine .
+        ?lowerLine nltl:hasWaterlineProfilePoint ?lowerPoint .
+        ?lowerPoint nltl:longitudinalPosition ?lowerPosition .
+        ?lowerPosition qudt:numericValue ?lowerX .
+        FILTER(datatype(?lowerX) = xsd:decimal)
+        FILTER(
+            ABS(?lowerX - ?intendedX) <=
+            (0.000001 * IF(ABS(?lowerX) > ABS(?intendedX), ABS(?lowerX), ABS(?intendedX)))
+            + 0.000000001
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every lower ice waterline profile point must equal the lowest intended operating-waterline point at the same longitudinal position; coordinate matching uses relative tolerance 1e-6 and absolute fallback 1e-9 m." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasLowerIceWaterline ?lowerLine .
+    ?lowerLine nltl:hasWaterlineProfilePoint ?lowerPoint .
+    ?lowerPoint nltl:longitudinalPosition ?lowerPosition ;
+                nltl:verticalCoordinate ?lowerVertical .
+    ?lowerPosition qudt:numericValue ?lowerX .
+    ?lowerVertical qudt:numericValue ?lowerZ .
+    FILTER(datatype(?lowerX) = xsd:decimal)
+    FILTER(datatype(?lowerZ) = xsd:decimal)
+
+    FILTER NOT EXISTS {
+        $this nltl:hasIntendedIceOperatingWaterline ?candidateLine .
+        ?candidateLine nltl:hasWaterlineProfilePoint ?candidatePoint .
+        ?candidatePoint nltl:longitudinalPosition ?candidatePosition ;
+                        nltl:verticalCoordinate ?candidateVertical .
+        ?candidatePosition qudt:numericValue ?candidateX .
+        ?candidateVertical qudt:numericValue ?candidateZ .
+        FILTER(datatype(?candidateX) = xsd:decimal)
+        FILTER(datatype(?candidateZ) = xsd:decimal)
+        FILTER(
+            ABS(?candidateX - ?lowerX) <=
+            (0.000001 * IF(ABS(?candidateX) > ABS(?lowerX), ABS(?candidateX), ABS(?lowerX)))
+            + 0.000000001
+        )
+        FILTER(
+            ABS(?candidateZ - ?lowerZ) <=
+            (0.000001 * IF(ABS(?candidateZ) > ABS(?lowerZ), ABS(?candidateZ), ABS(?lowerZ)))
+            + 0.000000001
+        )
+        FILTER NOT EXISTS {
+            $this nltl:hasIntendedIceOperatingWaterline ?otherLine .
+            ?otherLine nltl:hasWaterlineProfilePoint ?otherPoint .
+            ?otherPoint nltl:longitudinalPosition ?otherPosition ;
+                        nltl:verticalCoordinate ?otherVertical .
+            ?otherPosition qudt:numericValue ?otherX .
+            ?otherVertical qudt:numericValue ?otherZ .
+            FILTER(datatype(?otherX) = xsd:decimal)
+            FILTER(datatype(?otherZ) = xsd:decimal)
+            FILTER(
+                ABS(?otherX - ?lowerX) <=
+                (0.000001 * IF(ABS(?otherX) > ABS(?lowerX), ABS(?otherX), ABS(?lowerX)))
+                + 0.000000001
+            )
+            FILTER(?otherZ < ?candidateZ)
+        }
+    }
+}
+"""
+    ] .
+
+gs:ProfiledIceWaterlineShape
+    a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gs:WaterlineProfilePointShape ;
+        sh:minCount 1 ;
+        sh:message "The ice waterline must have at least one profile point with usable coordinates."
+    ] .
+
+gs:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:node gs:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A waterline profile point must have exactly one longitudinal position."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:node gs:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A waterline profile point must have exactly one vertical coordinate."
+    ] .
+
+gs:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The length quantity must have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:hasValue unit:M ;
+        sh:maxCount 1 ;
+        sh:message "The length quantity must use metre as its unit."
+    ] .
+<END_SHACL>

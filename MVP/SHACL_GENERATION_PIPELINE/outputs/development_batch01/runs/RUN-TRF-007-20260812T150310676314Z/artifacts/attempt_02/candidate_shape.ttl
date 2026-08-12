@@ -1,0 +1,108 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF007Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:message "An ice-class value is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:message "Each ice-class value must be a permitted controlled value."
+    ] ;
+    sh:sparql [
+        sh:message "A valid construction-stage date is required for a ship of ice class IA Super or IA." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass .
+    FILTER (?iceClass IN (nltl:iceClassIaSuper, nltl:iceClassIa))
+    FILTER NOT EXISTS {
+        $this nltl:constructionStageDate ?constructionDate .
+        FILTER (DATATYPE(?constructionDate) = xsd:date)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "A valid delivery date is required when the IA Super or IA ship reached its construction stage before 1 September 2003." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:constructionStageDate ?constructionDate .
+    FILTER (?iceClass IN (nltl:iceClassIaSuper, nltl:iceClassIa))
+    FILTER (DATATYPE(?constructionDate) = xsd:date)
+    FILTER (?constructionDate < "2003-09-01"^^xsd:date)
+    FILTER NOT EXISTS {
+        $this nltl:deliveryDate ?deliveryDate .
+        FILTER (DATATYPE(?deliveryDate) = xsd:date)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "A valid assessment date is required to determine whether the compliance deadline has elapsed." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:constructionStageDate ?constructionDate .
+    FILTER (?iceClass IN (nltl:iceClassIaSuper, nltl:iceClassIa))
+    FILTER (DATATYPE(?constructionDate) = xsd:date)
+    FILTER (?constructionDate < "2003-09-01"^^xsd:date)
+    FILTER NOT EXISTS {
+        $this nltl:assessmentDate ?assessmentDate .
+        FILTER (DATATYPE(?assessmentDate) = xsd:date)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "After the applicable deadline, compliance must use the method in section 3.2.2 or section 3.2.4 of the 2017 Ice Class Regulations." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:constructionStageDate ?constructionDate ;
+          nltl:deliveryDate ?deliveryDate ;
+          nltl:assessmentDate ?assessmentDate .
+    FILTER (?iceClass IN (nltl:iceClassIaSuper, nltl:iceClassIa))
+    FILTER (DATATYPE(?constructionDate) = xsd:date)
+    FILTER (DATATYPE(?deliveryDate) = xsd:date)
+    FILTER (DATATYPE(?assessmentDate) = xsd:date)
+    FILTER (?constructionDate < "2003-09-01"^^xsd:date)
+    BIND((YEAR(?deliveryDate) + 20) AS ?deadlineYear)
+    BIND(xsd:date(CONCAT(STR(?deadlineYear), "-01-01")) AS ?deadline)
+    FILTER (?assessmentDate >= ?deadline)
+    FILTER NOT EXISTS {
+        $this nltl:engineOutputComplianceMethod ?method .
+        FILTER (?method IN (
+            nltl:traficom2017Section3Point2Point2Method,
+            nltl:traficom2017Section3Point2Point4Method
+        ))
+    }
+}
+"""
+    ] .

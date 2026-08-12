@@ -1,0 +1,79 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF009ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "An applicable ship requires valid delivery and assessment dates to determine whether the compliance deadline has elapsed." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:constructionStageDate ?constructionDate .
+    VALUES ?iceClass {
+        nltl:iceClassIaSuper
+        nltl:iceClassIa
+    }
+    FILTER(
+        datatype(?constructionDate) = xsd:date &&
+        ?constructionDate \u003C "2003-09-01"^^xsd:date
+    )
+    FILTER(
+        !EXISTS {
+            $this nltl:deliveryDate ?deliveryDate .
+            FILTER(datatype(?deliveryDate) = xsd:date)
+        } ||
+        !EXISTS {
+            $this nltl:assessmentDate ?assessmentDate .
+            FILTER(datatype(?assessmentDate) = xsd:date)
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "The applicable ship has reached its deadline and must identify compliance by the section 3.2.2 or section 3.2.4 method." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:constructionStageDate ?constructionDate ;
+          nltl:deliveryDate ?deliveryDate ;
+          nltl:assessmentDate ?assessmentDate .
+    VALUES ?iceClass {
+        nltl:iceClassIaSuper
+        nltl:iceClassIa
+    }
+    FILTER(
+        datatype(?constructionDate) = xsd:date &&
+        datatype(?deliveryDate) = xsd:date &&
+        datatype(?assessmentDate) = xsd:date
+    )
+    FILTER(?constructionDate \u003C "2003-09-01"^^xsd:date)
+    BIND(
+        xsd:date(
+            CONCAT(
+                STR(YEAR(?deliveryDate) + 20),
+                "-01-01"
+            )
+        ) AS ?deadline
+    )
+    FILTER(?assessmentDate \u003E= ?deadline)
+    FILTER NOT EXISTS {
+        $this nltl:engineOutputComplianceMethod ?method .
+        VALUES ?method {
+            nltl:traficom2017Section3Point2Point2Method
+            nltl:traficom2017Section3Point2Point4Method
+        }
+    }
+}
+"""
+    ] .
+<END_SHACL>

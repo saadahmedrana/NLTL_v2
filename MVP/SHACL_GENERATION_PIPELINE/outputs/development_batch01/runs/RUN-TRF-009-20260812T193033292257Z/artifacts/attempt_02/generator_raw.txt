@@ -1,0 +1,110 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF009ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:message "Ice class information is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:minCount 1 ;
+        sh:datatype xsd:date ;
+        sh:message "A valid construction-stage date is required to determine applicability."
+    ] ;
+    sh:or (
+        [
+            sh:not [
+                sh:property [
+                    sh:path nltl:iceClass ;
+                    sh:qualifiedValueShape [
+                        sh:in (
+                            nltl:iceClassIaSuper
+                            nltl:iceClassIa
+                        )
+                    ] ;
+                    sh:qualifiedMinCount 1
+                ]
+            ]
+        ]
+        [
+            sh:not [
+                sh:property [
+                    sh:path nltl:constructionStageDate ;
+                    sh:qualifiedValueShape [
+                        sh:datatype xsd:date ;
+                        sh:maxExclusive "2003-09-01"^^xsd:date
+                    ] ;
+                    sh:qualifiedMinCount 1
+                ]
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:deliveryDate ;
+                sh:minCount 1 ;
+                sh:datatype xsd:date
+            ] ;
+            sh:property [
+                sh:path nltl:assessmentDate ;
+                sh:minCount 1 ;
+                sh:datatype xsd:date
+            ]
+        ]
+    ) ;
+    sh:message "Applicable ships require valid delivery and assessment dates to evaluate the compliance deadline." ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "By the applicable twenty-year deadline, the ship must comply using the section 3.2.2 or section 3.2.4 method." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:constructionStageDate ?constructionDate ;
+          nltl:deliveryDate ?deliveryDate ;
+          nltl:assessmentDate ?assessmentDate .
+
+    FILTER (
+        ?iceClass IN (
+            nltl:iceClassIaSuper,
+            nltl:iceClassIa
+        )
+    )
+    FILTER (
+        datatype(?constructionDate) = xsd:date &&
+        datatype(?deliveryDate) = xsd:date &&
+        datatype(?assessmentDate) = xsd:date
+    )
+    FILTER (
+        YEAR(?constructionDate) < 2003 ||
+        (
+            YEAR(?constructionDate) = 2003 &&
+            MONTH(?constructionDate) < 9
+        )
+    )
+    FILTER (
+        YEAR(?assessmentDate) >= YEAR(?deliveryDate) + 20
+    )
+    FILTER NOT EXISTS {
+        $this nltl:engineOutputComplianceMethod ?method .
+        FILTER (
+            ?method IN (
+                nltl:traficom2017Section3Point2Point2Method,
+                nltl:traficom2017Section3Point2Point4Method
+            )
+        )
+    }
+}
+"""
+    ] .
+<END_SHACL>

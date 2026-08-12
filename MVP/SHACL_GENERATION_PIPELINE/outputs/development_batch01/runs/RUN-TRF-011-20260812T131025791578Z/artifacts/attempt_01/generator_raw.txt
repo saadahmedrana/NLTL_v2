@@ -1,0 +1,153 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:UpperIceWaterlineShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:message "The ship shall identify an upper ice waterline."
+    ] ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:message "An intended ice operating waterline is required to establish the upper ice waterline envelope."
+    ] ;
+    sh:sparql [
+        sh:message "Each linked ice waterline requires typed profile points with decimal longitudinal and vertical coordinates in metres." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?line ?point
+WHERE {
+    VALUES ?relation {
+        nltl:hasUpperIceWaterline
+        nltl:hasIntendedIceOperatingWaterline
+    }
+    $this ?relation ?line .
+    {
+        FILTER NOT EXISTS {
+            ?line nltl:hasWaterlineProfilePoint ?anyPoint .
+        }
+    }
+    UNION
+    {
+        ?line nltl:hasWaterlineProfilePoint ?point .
+        FILTER NOT EXISTS {
+            ?point a nltl:waterlineProfilePoint ;
+                nltl:longitudinalPosition ?longitudinalQuantity ;
+                nltl:verticalCoordinate ?verticalQuantity .
+            ?longitudinalQuantity
+                qudt:numericValue ?longitudinalValue ;
+                qudt:unit unit:M .
+            ?verticalQuantity
+                qudt:numericValue ?verticalValue ;
+                qudt:unit unit:M .
+            FILTER(
+                datatype(?longitudinalValue) = xsd:decimal &&
+                datatype(?verticalValue) = xsd:decimal
+            )
+        }
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "At each represented intended-operating longitudinal position, the upper ice waterline shall equal the highest represented intended-operating waterline point." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?upperWaterline ?longitudinalValue
+WHERE {
+    $this nltl:hasUpperIceWaterline ?upperWaterline ;
+        nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+
+    ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+    ?intendedPoint a nltl:waterlineProfilePoint ;
+        nltl:longitudinalPosition ?intendedLongitudinalQuantity ;
+        nltl:verticalCoordinate ?intendedVerticalQuantity .
+    ?intendedLongitudinalQuantity
+        qudt:numericValue ?longitudinalValue ;
+        qudt:unit unit:M .
+    ?intendedVerticalQuantity
+        qudt:numericValue ?intendedVerticalValue ;
+        qudt:unit unit:M .
+
+    FILTER(
+        datatype(?longitudinalValue) = xsd:decimal &&
+        datatype(?intendedVerticalValue) = xsd:decimal
+    )
+
+    FILTER NOT EXISTS {
+        ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+        ?upperPoint a nltl:waterlineProfilePoint ;
+            nltl:longitudinalPosition ?upperLongitudinalQuantity ;
+            nltl:verticalCoordinate ?upperVerticalQuantity .
+        ?upperLongitudinalQuantity
+            qudt:numericValue ?upperLongitudinalValue ;
+            qudt:unit unit:M .
+        ?upperVerticalQuantity
+            qudt:numericValue ?upperVerticalValue ;
+            qudt:unit unit:M .
+
+        FILTER(
+            datatype(?upperLongitudinalValue) = xsd:decimal &&
+            datatype(?upperVerticalValue) = xsd:decimal &&
+            ?upperLongitudinalValue = ?longitudinalValue
+        )
+
+        $this nltl:hasIntendedIceOperatingWaterline ?envelopeWaterline .
+        ?envelopeWaterline nltl:hasWaterlineProfilePoint ?envelopePoint .
+        ?envelopePoint a nltl:waterlineProfilePoint ;
+            nltl:longitudinalPosition ?envelopeLongitudinalQuantity ;
+            nltl:verticalCoordinate ?envelopeVerticalQuantity .
+        ?envelopeLongitudinalQuantity
+            qudt:numericValue ?envelopeLongitudinalValue ;
+            qudt:unit unit:M .
+        ?envelopeVerticalQuantity
+            qudt:numericValue ?envelopeVerticalValue ;
+            qudt:unit unit:M .
+
+        FILTER(
+            datatype(?envelopeLongitudinalValue) = xsd:decimal &&
+            datatype(?envelopeVerticalValue) = xsd:decimal &&
+            ?envelopeLongitudinalValue = ?longitudinalValue &&
+            ?upperVerticalValue = ?envelopeVerticalValue
+        )
+
+        FILTER NOT EXISTS {
+            $this nltl:hasIntendedIceOperatingWaterline ?higherWaterline .
+            ?higherWaterline nltl:hasWaterlineProfilePoint ?higherPoint .
+            ?higherPoint a nltl:waterlineProfilePoint ;
+                nltl:longitudinalPosition ?higherLongitudinalQuantity ;
+                nltl:verticalCoordinate ?higherVerticalQuantity .
+            ?higherLongitudinalQuantity
+                qudt:numericValue ?higherLongitudinalValue ;
+                qudt:unit unit:M .
+            ?higherVerticalQuantity
+                qudt:numericValue ?higherVerticalValue ;
+                qudt:unit unit:M .
+
+            FILTER(
+                datatype(?higherLongitudinalValue) = xsd:decimal &&
+                datatype(?higherVerticalValue) = xsd:decimal &&
+                ?higherLongitudinalValue = ?longitudinalValue &&
+                ?higherVerticalValue > ?upperVerticalValue
+            )
+        }
+    }
+}
+"""
+    ] .
+<END_SHACL>

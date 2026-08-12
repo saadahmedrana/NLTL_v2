@@ -1,0 +1,815 @@
+PROMPT_ID: NLTL-SEMANTIC-VALIDATOR-0.1.3
+
+You review a candidate maritime SHACL graph. You do not determine whether a
+ship complies and you do not execute RDF data. Deterministic parser, SHACL
+structure, vocabulary, datatype, range, and unit reports are supplied to you.
+
+Check whether the candidate faithfully encodes the verified requirement with
+the correct applicability, targets, paths, alternatives, comparison direction,
+thresholds, formula operands, readiness/evidence boundary, datatypes, and
+units. Be strict about accidental pass logic, invented terms, and checks that
+target the wrong entity.
+
+The complete locked vocabulary is enforced by the deterministic report and is
+not repeated in this prompt. Review the retrieved relevant terms, the verified
+records for terms actually used by the candidate, and any deterministic
+mismatch candidates. Do not infer that an absent full-registry entry is
+unavailable: rely on the deterministic unknown/out-of-scope lists.
+
+Set activate_variable_matcher to true only when the repair requires locating a
+canonical term that was absent, misspelled, invented, or not supplied in the
+generator's scoped vocabulary. Activate it even when no candidate was supplied;
+the deterministic search will run after your decision. Ordinary semantic or
+SHACL corrections do not activate the matcher.
+
+Set accept to true only when deterministicValidation.valid is true and the
+candidate is semantically faithful enough to freeze for later RDF evaluation.
+If accept is true, activate_variable_matcher must be false.
+
+Also reject: a property placed on an entity incompatible with its supplied
+canonical domain; exact equality for a derived decimal formula result; dynamic
+xsd:date(CONCAT(...)) construction; needless ship/component indirection; or a
+combinatorial SPARQL query where SHACL Core plus one bounded formula query is
+sufficient. Do not request a convenience applicability boolean when the
+verified date/class inputs already determine applicability.
+
+Return exactly one physical line of JSON with exactly these keys:
+{"accept":false,"activate_variable_matcher":false,"feedback":"Concrete repair instruction."}
+
+The first two values must be JSON booleans. feedback must be a JSON string.
+Do not return Markdown, analysis, additional keys, or additional lines.
+
+
+--- USER INPUT ---
+{
+  "candidateShacl": "@prefix gen: <urn:nltl:generated-shape:> .\n@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\ngen:FrameAttachmentShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:frame ;\n    sh:targetClass nltl:longitudinalFrame ;\n    sh:targetClass nltl:transverseFrame ;\n    sh:sparql [\n        sh:message \"A frame within the ice-strengthened area must have effective attachment confirmed.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT $this\n            WHERE {\n                $this nltl:withinIceStrengthenedArea true .\n                OPTIONAL {\n                    $this nltl:effectiveAttachmentConfirmed ?confirmed .\n                }\n                FILTER (\n                    !BOUND(?confirmed) ||\n                    DATATYPE(?confirmed) != xsd:boolean ||\n                    ?confirmed != true\n                )\n            }\n        \"\"\"\n    ] ;\n    sh:sparql [\n        sh:message \"A frame passing through a supporting structure must have both web-plate sides connected.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT $this\n            WHERE {\n                $this nltl:passesThroughSupportingStructure true .\n                OPTIONAL {\n                    $this nltl:webPlateConnectionSideCount ?sideCount .\n                }\n                FILTER (\n                    !BOUND(?sideCount) ||\n                    DATATYPE(?sideCount) != xsd:integer ||\n                    ?sideCount != 2\n                )\n            }\n        \"\"\"\n    ] .\n\ngen:LongitudinalFrameBracketShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:longitudinalFrame ;\n    sh:sparql [\n        sh:message \"A longitudinal frame within the ice-strengthened area and having a supporting web frame or bulkhead must have a connection bracket associated through its own frame attachment.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT DISTINCT $this\n            WHERE {\n                $this nltl:withinIceStrengthenedArea true ;\n                      (nltl:hasSupportingWebFrame|nltl:hasSupportingBulkhead) ?support .\n                FILTER NOT EXISTS {\n                    $this nltl:hasFrameAttachment ?attachment .\n                    ?attachment nltl:hasConnectionBracket ?bracket .\n                    ?bracket a nltl:connectionBracket .\n                }\n            }\n        \"\"\"\n    ] .\n\ngen:TransverseTerminatingBracketShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:transverseFrame ;\n    sh:sparql [\n        sh:message \"A connection bracket recorded for a terminating transverse frame must be associated through that frame's own attachment and typed as a connection bracket.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT DISTINCT $this\n            WHERE {\n                $this nltl:withinIceStrengthenedArea true ;\n                      nltl:terminatesAtDeckOrIceStringer true ;\n                      nltl:hasFrameAttachment ?attachment .\n                ?attachment nltl:hasConnectionBracket ?bracket .\n                FILTER NOT EXISTS {\n                    ?bracket a nltl:connectionBracket .\n                }\n            }\n        \"\"\"\n    ] .\n\ngen:InstalledConnectionBracketShape\n    a sh:NodeShape ;\n    sh:targetObjectsOf nltl:hasConnectionBracket ;\n    sh:class nltl:connectionBracket ;\n    sh:property [\n        sh:path nltl:bracketEdgeStiffened ;\n        sh:datatype xsd:boolean ;\n        sh:hasValue true ;\n        sh:message \"An installed connection bracket must have its edge stiffened against buckling.\"\n    ] ;\n    sh:property [\n        sh:path nltl:bracketThickness ;\n        sh:minCount 1 ;\n        sh:node [\n            sh:property [\n                sh:path qudt:numericValue ;\n                sh:minCount 1 ;\n                sh:datatype xsd:decimal\n            ] ;\n            sh:property [\n                sh:path qudt:unit ;\n                sh:hasValue unit:MilliM\n            ]\n        ] ;\n        sh:message \"An installed connection bracket must have a decimal thickness expressed in millimetres.\"\n    ] ;\n    sh:sparql [\n        sh:message \"Connection-bracket thickness must be at least the associated frame-web thickness, with both values expressed in millimetres.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n            PREFIX unit: <http://qudt.org/vocab/unit/>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT DISTINCT $this\n            WHERE {\n                $this nltl:bracketThickness ?bracketQuantity .\n                ?bracketQuantity qudt:numericValue ?bracketThickness ;\n                                 qudt:unit unit:MilliM .\n                OPTIONAL {\n                    ?frame nltl:hasFrameAttachment ?attachment .\n                    ?attachment nltl:hasConnectionBracket $this .\n                    OPTIONAL {\n                        ?frame nltl:frameWebThickness ?frameQuantity .\n                        ?frameQuantity qudt:numericValue ?frameWebThickness ;\n                                       qudt:unit unit:MilliM .\n                        FILTER (DATATYPE(?frameWebThickness) = xsd:decimal)\n                    }\n                }\n                FILTER (\n                    !BOUND(?frame) ||\n                    !BOUND(?frameWebThickness) ||\n                    ?bracketThickness < ?frameWebThickness\n                )\n            }\n        \"\"\"\n    ] .\n",
+  "candidateUsedCanonicalTerms": [
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#bracketEdgeStiffened",
+      "kind": "DatatypeProperty",
+      "label": "Bracket edge stiffened",
+      "localName": "bracketEdgeStiffened",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#bracketThickness",
+      "kind": "QuantityProperty",
+      "label": "Bracket thickness",
+      "localName": "bracketThickness",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MilliM"
+    },
+    {
+      "aliases": [
+        "connectionBracket"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#connectionBracket",
+      "kind": "Class",
+      "label": "Connection bracket",
+      "localName": "connectionBracket",
+      "range": "https://w3id.org/nltl-benchmark/vocab#hullStructure",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#effectiveAttachmentConfirmed",
+      "kind": "DatatypeProperty",
+      "label": "Effective attachment confirmed",
+      "localName": "effectiveAttachmentConfirmed",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [
+        "frame"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#frame",
+      "kind": "Class",
+      "label": "Frame",
+      "localName": "frame",
+      "range": "https://w3id.org/nltl-benchmark/vocab#hullStructure",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#frameWebThickness",
+      "kind": "QuantityProperty",
+      "label": "Frame web thickness",
+      "localName": "frameWebThickness",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MilliM"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasConnectionBracket",
+      "kind": "ObjectProperty",
+      "label": "Has connection bracket",
+      "localName": "hasConnectionBracket",
+      "range": "https://w3id.org/nltl-benchmark/vocab#connectionBracket",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasFrameAttachment",
+      "kind": "ObjectProperty",
+      "label": "Has frame attachment",
+      "localName": "hasFrameAttachment",
+      "range": "https://w3id.org/nltl-benchmark/vocab#frameAttachment",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasSupportingBulkhead",
+      "kind": "ObjectProperty",
+      "label": "Has supporting bulkhead",
+      "localName": "hasSupportingBulkhead",
+      "range": "https://w3id.org/nltl-benchmark/vocab#supportingStructure",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasSupportingWebFrame",
+      "kind": "ObjectProperty",
+      "label": "Has supporting web frame",
+      "localName": "hasSupportingWebFrame",
+      "range": "https://w3id.org/nltl-benchmark/vocab#supportingStructure",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#longitudinalFrame",
+      "kind": "Class",
+      "label": "Longitudinal frame",
+      "localName": "longitudinalFrame",
+      "range": "https://w3id.org/nltl-benchmark/vocab#frame",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#passesThroughSupportingStructure",
+      "kind": "DatatypeProperty",
+      "label": "Passes through supporting structure",
+      "localName": "passesThroughSupportingStructure",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#terminatesAtDeckOrIceStringer",
+      "kind": "DatatypeProperty",
+      "label": "Terminates at deck or ice stringer",
+      "localName": "terminatesAtDeckOrIceStringer",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [
+        "transverseFrame"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#transverseFrame",
+      "kind": "Class",
+      "label": "Transverse frame",
+      "localName": "transverseFrame",
+      "range": "https://w3id.org/nltl-benchmark/vocab#hullStructure",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:integer",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#webPlateConnectionSideCount",
+      "kind": "DatatypeProperty",
+      "label": "Web plate connection side count",
+      "localName": "webPlateConnectionSideCount",
+      "range": "http://www.w3.org/2001/XMLSchema#integer",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#withinIceStrengthenedArea",
+      "kind": "DatatypeProperty",
+      "label": "Within ice strengthened area",
+      "localName": "withinIceStrengthenedArea",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    }
+  ],
+  "deterministicValidation": {
+    "datatype_unit_valid": true,
+    "errors": [],
+    "extraction_valid": true,
+    "meta_shacl_valid": true,
+    "out_of_scope_canonical_iris": [],
+    "shacl_structure_valid": true,
+    "suspicious_external_iris": [],
+    "target_path_valid": true,
+    "turtle_valid": true,
+    "unknown_canonical_iris": [],
+    "used_canonical_iris": [
+      "https://w3id.org/nltl-benchmark/vocab#bracketEdgeStiffened",
+      "https://w3id.org/nltl-benchmark/vocab#bracketThickness",
+      "https://w3id.org/nltl-benchmark/vocab#connectionBracket",
+      "https://w3id.org/nltl-benchmark/vocab#effectiveAttachmentConfirmed",
+      "https://w3id.org/nltl-benchmark/vocab#frame",
+      "https://w3id.org/nltl-benchmark/vocab#frameWebThickness",
+      "https://w3id.org/nltl-benchmark/vocab#hasConnectionBracket",
+      "https://w3id.org/nltl-benchmark/vocab#hasFrameAttachment",
+      "https://w3id.org/nltl-benchmark/vocab#hasSupportingBulkhead",
+      "https://w3id.org/nltl-benchmark/vocab#hasSupportingWebFrame",
+      "https://w3id.org/nltl-benchmark/vocab#longitudinalFrame",
+      "https://w3id.org/nltl-benchmark/vocab#passesThroughSupportingStructure",
+      "https://w3id.org/nltl-benchmark/vocab#terminatesAtDeckOrIceStringer",
+      "https://w3id.org/nltl-benchmark/vocab#transverseFrame",
+      "https://w3id.org/nltl-benchmark/vocab#webPlateConnectionSideCount",
+      "https://w3id.org/nltl-benchmark/vocab#withinIceStrengthenedArea"
+    ],
+    "valid": true,
+    "vocabulary_valid": true,
+    "warnings": []
+  },
+  "importantBoundary": "No ship graph or expected RDF outcome is part of this review.",
+  "mismatchCandidates": [],
+  "registryBoundary": "The complete locked registry was checked deterministically but is intentionally not embedded. Treat unknown/out-of-scope findings as authoritative. Activate the vocabulary matcher whenever a repair requires locating a canonical term or controlled value absent from the scoped context, even when no deterministic candidate was supplied yet.",
+  "requirement": {
+    "activeStatus": "Stage 2 candidate - direct/deterministic",
+    "anchorMapField": "No direct AnchorMap term found; propose a code-safe alias during SHACL design",
+    "canonicalVariables": "No explicit data variable identified",
+    "category": "Static Calculation",
+    "clause": "4.4.4.1",
+    "codability": "High",
+    "conceptIds": "VOC-0112; VOC-0159; VOC-0285; VOC-0287; VOC-0294; VOC-0737",
+    "coverageStatus": "Covered by candidate concepts",
+    "edition": "TRAFICOM/68863/03.04.01.00/2021",
+    "encodingPattern": "Formula-derived constraint",
+    "figureDependent": "No",
+    "id": "TRF-049",
+    "normalizedRequirement": "Within the ice-strengthened area, all frames shall be effectively attached to all of the supporting structures. A longitudinal frame shall be attached by brackets to all supporting web frames and bulkheads. When a transversal frame terminates at a stringer or deck, a bracket or similar construction must be fitted. When a frame is running through the supporting structure, both sides of the web plate of the frame must be connected to the structure (by direct welding, collar plate or lug). When a bracket is installed, it must have at least the same thickness as the web plate of the frame and the edge must be appropriately stiffened against buckling.",
+    "page": 21,
+    "requiredInputs": "No explicit data variable identified",
+    "section": "The attachment of frames to supporting structures",
+    "source": "Ice Class Regulations and the Application Thereof",
+    "sourceSheet": "TRAFICOM",
+    "sourceText": "Within the ice-strengthened area, all frames shall be effectively attached to all of the supporting structures. A longitudinal frame shall be attached by brackets to all supporting web frames and bulkheads. When a transversal frame terminates at a stringer or deck, a bracket or similar construction must be fitted. When a frame is running through the supporting structure, both sides of the web plate of the frame must be connected to the structure (by direct welding, collar plate or lug). When a bracket is installed, it must have at least the same thickness as the web plate of the frame and the edge must be appropriately stiffened against buckling.",
+    "sourceUrl": "https://www.finlex.fi/en/authorities/regulations/traficom-transport-maritime/2021/47238"
+  },
+  "retrievedRelevantVocabulary": [
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "kind": "Class",
+      "label": "Benchmark entity",
+      "localName": "benchmarkEntity",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "baseline target infrastructure; domain dependency of bracketEdgeStiffened; domain dependency of bracketThickness; domain dependency of bucklingStiffening; domain dependency of effectiveAttachmentConfirmed; domain dependency of frameAttachment; domain dependency of frameWebThickness; domain dependency of hasSupportingBulkhead; domain dependency of hasSupportingWebFrame; domain dependency of passesThroughSupportingStructure; domain dependency of terminatesAtDeckOrIceStringer; domain dependency of webPlateConnectionSideCount; domain dependency of withinIceStrengthenedArea; range dependency of frameAttachment",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Batch 01 development): Bracket edge stiffened is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#bracketEdgeStiffened",
+      "kind": "DatatypeProperty",
+      "label": "Bracket edge stiffened",
+      "localName": "bracketEdgeStiffened",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Bracket thickness is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#bracketThickness",
+      "kind": "QuantityProperty",
+      "label": "Bracket thickness",
+      "localName": "bracketThickness",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MilliM",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": "mm"
+    },
+    {
+      "aliases": [
+        "bucklingStiffening"
+      ],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Stage 1): candidate concept for bucklingStiffening derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#bucklingStiffening",
+      "kind": "DatatypeProperty",
+      "label": "Buckling stiffening",
+      "localName": "bucklingStiffening",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "connectionBracket"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for connectionBracket derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#connectionBracket",
+      "kind": "Class",
+      "label": "Connection bracket",
+      "localName": "connectionBracket",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#hullStructure",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index; range dependency of hasConnectionBracket; verified vocabulary-matcher addition",
+      "sourceReferences": "I2-026 | IACS_UR_I2 p.10 | I2.5.3; TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Batch 01 development): Effective attachment confirmed is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#effectiveAttachmentConfirmed",
+      "kind": "DatatypeProperty",
+      "label": "Effective attachment confirmed",
+      "localName": "effectiveAttachmentConfirmed",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "frame"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for frame derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#frame",
+      "kind": "Class",
+      "label": "Frame",
+      "localName": "frame",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#hullStructure",
+      "recommendedUnit": null,
+      "selectionReason": "domain dependency of hasFrameAttachment; linked by the locked 313-requirement index; range dependency of longitudinalFrame",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "frameAttachment"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for frameAttachment derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#frameAttachment",
+      "kind": "ObjectProperty",
+      "label": "Frame attachment",
+      "localName": "frameAttachment",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "recommendedUnit": null,
+      "selectionReason": "domain dependency of hasConnectionBracket; linked by the locked 313-requirement index; range dependency of hasFrameAttachment",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Frame end is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#frameEnd",
+      "kind": "Class",
+      "label": "Frame end",
+      "localName": "frameEnd",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#hullStructure",
+      "recommendedUnit": null,
+      "selectionReason": "domain dependency of hasAttachedSupportingStructure",
+      "sourceReferences": "TRF-046 | TRAFICOM p.19 | 4.4.2.2; TRF-047 | TRAFICOM p.20 | 4.4.2.3",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Frame web thickness is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#frameWebThickness",
+      "kind": "QuantityProperty",
+      "label": "Frame web thickness",
+      "localName": "frameWebThickness",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MilliM",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1; TRF-051 | TRAFICOM p.21 | 4.4.4.2",
+      "unitSymbol": "mm"
+    },
+    {
+      "aliases": [
+        "attachedToSupportingStructure"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has attached supporting structure is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#frameEnd"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasAttachedSupportingStructure",
+      "kind": "ObjectProperty",
+      "label": "Has attached supporting structure",
+      "localName": "hasAttachedSupportingStructure",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#supportingStructure",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-046 | TRAFICOM p.19 | 4.4.2.2; TRF-047 | TRAFICOM p.20 | 4.4.2.3",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#ship"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasComponent",
+      "kind": "ObjectProperty",
+      "label": "has component",
+      "localName": "hasComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "recommendedUnit": null,
+      "selectionReason": "component-path dependency inferred from the linked term module",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has connection bracket is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#frameAttachment"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasConnectionBracket",
+      "kind": "ObjectProperty",
+      "label": "Has connection bracket",
+      "localName": "hasConnectionBracket",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#connectionBracket",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has frame attachment is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#frame"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasFrameAttachment",
+      "kind": "ObjectProperty",
+      "label": "Has frame attachment",
+      "localName": "hasFrameAttachment",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#frameAttachment",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has supporting bulkhead is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasSupportingBulkhead",
+      "kind": "ObjectProperty",
+      "label": "Has supporting bulkhead",
+      "localName": "hasSupportingBulkhead",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#supportingStructure",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Has supporting web frame is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasSupportingWebFrame",
+      "kind": "ObjectProperty",
+      "label": "Has supporting web frame",
+      "localName": "hasSupportingWebFrame",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#supportingStructure",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hullStructure",
+      "kind": "Class",
+      "label": "Hull structure",
+      "localName": "hullStructure",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "range dependency of connectionBracket; range dependency of frame; range dependency of supportingStructure; range dependency of transverseFrame",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "NORMALIZED (Batch 01 development): Longitudinal frame is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#longitudinalFrame",
+      "kind": "Class",
+      "label": "Longitudinal frame",
+      "localName": "longitudinalFrame",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#frame",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-048 | TRAFICOM p.20 | 4.4.3; TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Batch 01 development): Passes through supporting structure is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#passesThroughSupportingStructure",
+      "kind": "DatatypeProperty",
+      "label": "Passes through supporting structure",
+      "localName": "passesThroughSupportingStructure",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ship",
+      "kind": "Class",
+      "label": "Ship",
+      "localName": "ship",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "baseline target infrastructure",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "kind": "Class",
+      "label": "Ship component",
+      "localName": "shipComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "selectionReason": "component-path dependency inferred from the linked term module",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "supportingStructure"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for supportingStructure derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#supportingStructure",
+      "kind": "Class",
+      "label": "Supporting structure",
+      "localName": "supportingStructure",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#hullStructure",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index; range dependency of hasAttachedSupportingStructure; range dependency of hasSupportingBulkhead; range dependency of hasSupportingWebFrame",
+      "sourceReferences": "TRF-046 | TRAFICOM p.19 | 4.4.2.2; TRF-047 | TRAFICOM p.20 | 4.4.2.3; TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Batch 01 development): Terminates at deck or ice stringer is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#terminatesAtDeckOrIceStringer",
+      "kind": "DatatypeProperty",
+      "label": "Terminates at deck or ice stringer",
+      "localName": "terminatesAtDeckOrIceStringer",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "transverseFrame"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for transverseFrame derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#transverseFrame",
+      "kind": "Class",
+      "label": "Transverse frame",
+      "localName": "transverseFrame",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#hullStructure",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-046 | TRAFICOM p.19 | 4.4.2.2; TRF-047 | TRAFICOM p.20 | 4.4.2.3",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:integer",
+      "definition": "NORMALIZED (Batch 01 development): Web plate connection side count is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#webPlateConnectionSideCount",
+      "kind": "DatatypeProperty",
+      "label": "Web plate connection side count",
+      "localName": "webPlateConnectionSideCount",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#integer",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Batch 01 development): Within ice strengthened area is the benchmark representation of the linked requirement operand, relationship, evidence role, or controlled value. Exact scope is limited to the cited requirements.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#withinIceStrengthenedArea",
+      "kind": "DatatypeProperty",
+      "label": "Within ice strengthened area",
+      "localName": "withinIceStrengthenedArea",
+      "mappingStatus": "No exact external mapping claimed; benchmark term is grounded only in the linked verified regulation evidence.",
+      "module": "hull",
+      "namingBasis": "Applicable TRAFICOM regulation wording plus explicit engineering node/operand role",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "TRF-049 | TRAFICOM p.21 | 4.4.4.1",
+      "unitSymbol": null
+    }
+  ],
+  "task": "Review one candidate SHACL graph for freezing before later RDF evaluation"
+}

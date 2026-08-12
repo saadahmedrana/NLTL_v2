@@ -1,0 +1,110 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gs:TRF_041_ShellPlatingThicknessShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:benchmarkEntity ;
+    sh:sparql [
+        sh:message "For transverse or longitudinal framing, the required decimal QUDT inputs with prescribed units must be present and the shell plating thickness must satisfy the applicable formula within a relative squared-equation tolerance of 1e-6 and an absolute fallback of 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:platingFramingOrientation ?orientation .
+                FILTER (?orientation IN (
+                    nltl:transverseFramingOrientation,
+                    nltl:longitudinalFramingOrientation
+                ))
+
+                FILTER NOT EXISTS {
+                    $this nltl:requiredShellPlatingThickness ?thicknessQuantity ;
+                          nltl:spacing ?spacingQuantity ;
+                          nltl:yieldStrength ?yieldStrengthQuantity ;
+                          nltl:corrosionAbrasionAddition ?corrosionQuantity .
+
+                    ?thicknessQuantity a qudt:QuantityValue ;
+                        qudt:numericValue ?thickness ;
+                        qudt:unit unit:MilliM .
+                    ?spacingQuantity a qudt:QuantityValue ;
+                        qudt:numericValue ?spacing ;
+                        qudt:unit unit:M .
+                    ?yieldStrengthQuantity a qudt:QuantityValue ;
+                        qudt:numericValue ?yieldStrength ;
+                        qudt:unit unit:MegaPA .
+                    ?corrosionQuantity a qudt:QuantityValue ;
+                        qudt:numericValue ?corrosionAddition ;
+                        qudt:unit unit:MilliM .
+
+                    OPTIONAL {
+                        $this nltl:transversePlatingFactorF1 ?f1Quantity ;
+                              nltl:platingPressure ?platingPressureQuantity .
+                        ?f1Quantity a qudt:QuantityValue ;
+                            qudt:numericValue ?f1 ;
+                            qudt:unit unit:UNITLESS .
+                        ?platingPressureQuantity a qudt:QuantityValue ;
+                            qudt:numericValue ?platingPressure ;
+                            qudt:unit unit:MegaPA .
+                    }
+
+                    OPTIONAL {
+                        $this nltl:longitudinalPlatingFactorF2 ?f2Quantity ;
+                              nltl:icePressure ?icePressureQuantity .
+                        ?f2Quantity a qudt:QuantityValue ;
+                            qudt:numericValue ?f2 ;
+                            qudt:unit unit:UNITLESS .
+                        ?icePressureQuantity a qudt:QuantityValue ;
+                            qudt:numericValue ?icePressure ;
+                            qudt:unit unit:MegaPA .
+                    }
+
+                    FILTER (
+                        datatype(?thickness) = xsd:decimal &&
+                        datatype(?spacing) = xsd:decimal &&
+                        datatype(?yieldStrength) = xsd:decimal &&
+                        datatype(?corrosionAddition) = xsd:decimal
+                    )
+
+                    FILTER (
+                        (?orientation = nltl:transverseFramingOrientation &&
+                         BOUND(?f1) &&
+                         BOUND(?platingPressure) &&
+                         datatype(?f1) = xsd:decimal &&
+                         datatype(?platingPressure) = xsd:decimal &&
+                         ?yieldStrength != 0)
+                        ||
+                        (?orientation = nltl:longitudinalFramingOrientation &&
+                         BOUND(?f2) &&
+                         BOUND(?icePressure) &&
+                         datatype(?f2) = xsd:decimal &&
+                         datatype(?icePressure) = xsd:decimal &&
+                         (?f2 * ?yieldStrength) != 0)
+                    )
+
+                    BIND((?thickness - ?corrosionAddition) AS ?thicknessDelta)
+                    BIND(
+                        IF(
+                            ?orientation = nltl:transverseFramingOrientation,
+                            (667 * 667 * ?spacing * ?spacing * ?f1 *
+                             ?platingPressure / ?yieldStrength),
+                            (667 * 667 * ?spacing * ?spacing * ?icePressure /
+                             (?f2 * ?yieldStrength))
+                        )
+                        AS ?formulaSquare
+                    )
+
+                    FILTER (?thicknessDelta >= 0)
+                    FILTER (?formulaSquare >= 0)
+                    FILTER (
+                        ABS((?thicknessDelta * ?thicknessDelta) - ?formulaSquare)
+                        <=
+                        ((0.000001 * ABS(?formulaSquare)) + 0.000000001)
+                    )
+                }
+            }
+        """
+    ] .

@@ -1,0 +1,95 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:FrameStrengthenedPartShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frameStrengthenedPart ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The lower end of a main frame strengthened part must be attached to an approved supporting structure." ;
+        sh:select """
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    ?frame rdf:type nltl:mainFrame ;
+           nltl:hasComponent $this .
+    FILTER NOT EXISTS {
+        $this nltl:hasLowerEnd ?end .
+        ?end nltl:hasAttachedSupportingStructure ?support .
+        ?support rdf:type ?supportType .
+        FILTER (
+            ?supportType IN (
+                nltl:deckStructure,
+                nltl:tankBoundaryPlating,
+                nltl:tankTop,
+                nltl:iceStringer
+            )
+        )
+    }
+}
+""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The lower end of an intermediate ice frame strengthened part must be attached to an approved supporting structure or use the permitted horizontal-member alternative connecting at least two distinct strengthened adjacent main frames." ;
+        sh:select """
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    ?frame rdf:type nltl:intermediateIceFrame ;
+           nltl:hasComponent $this .
+
+    FILTER NOT EXISTS {
+        $this nltl:hasLowerEnd ?attachedEnd .
+        ?attachedEnd nltl:hasAttachedSupportingStructure ?attachedSupport .
+        ?attachedSupport rdf:type ?attachedSupportType .
+        FILTER (
+            ?attachedSupportType IN (
+                nltl:deckStructure,
+                nltl:tankBoundaryPlating,
+                nltl:tankTop,
+                nltl:iceStringer
+            )
+        )
+    }
+
+    FILTER NOT EXISTS {
+        $this nltl:hasLowerEnd ?exceptionEnd .
+        ?frame nltl:hasTerminationBelowSupportingStructure ?exceptionSupport .
+        ?exceptionSupport
+            rdf:type ?exceptionSupportType ;
+            nltl:supportingStructureAtOrBelowIceBeltLowerLimit "true"^^xsd:boolean .
+        FILTER (
+            ?exceptionSupportType IN (
+                nltl:deckStructure,
+                nltl:tankBoundaryPlating,
+                nltl:tankTop,
+                nltl:iceStringer
+            )
+        )
+
+        ?exceptionEnd nltl:hasHorizontalConnectionMember ?member .
+        ?member
+            rdf:type nltl:horizontalConnectionMember ;
+            nltl:sameScantlingsAsMainFrame "true"^^xsd:boolean .
+
+        {
+            SELECT ?member
+            WHERE {
+                ?member nltl:connectsToAdjacentMainFrame ?adjacentMainFrame .
+                ?adjacentMainFrame
+                    rdf:type nltl:mainFrame ;
+                    nltl:mainFrameBelowIceBeltStrengthened "true"^^xsd:boolean .
+            }
+            GROUP BY ?member
+            HAVING (COUNT(DISTINCT ?adjacentMainFrame) >= 2)
+        }
+    }
+}
+""" ;
+    ] .

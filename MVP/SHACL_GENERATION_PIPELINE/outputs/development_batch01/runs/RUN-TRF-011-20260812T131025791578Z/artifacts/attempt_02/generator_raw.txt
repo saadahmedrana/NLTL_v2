@@ -1,0 +1,166 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:message "The quantity must have a decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:M ;
+        sh:message "The quantity must use metres."
+    ] .
+
+gen:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape ;
+        sh:message "A waterline profile point must have a longitudinal position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape ;
+        sh:message "A waterline profile point must have a vertical coordinate in metres."
+    ] .
+
+gen:IceWaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:WaterlineProfilePointShape ;
+        sh:message "An ice waterline must identify represented profile points with position and elevation data."
+    ] .
+
+gen:UpperIceWaterlineEnvelopeShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:message "The intended ice-operating waterline data required to determine the envelope is missing or invalid."
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:message "The upper ice waterline is missing or invalid."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "At each represented intended-waterline position, the upper ice waterline must equal the maximum intended-waterline elevation." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?position ?maximumElevation
+WHERE {
+    {
+        SELECT $this ?position (MAX(?intendedElevation) AS ?maximumElevation)
+        WHERE {
+            $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+            ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+            ?intendedPoint
+                nltl:longitudinalPosition ?intendedPositionQuantity ;
+                nltl:verticalCoordinate ?intendedElevationQuantity .
+            ?intendedPositionQuantity
+                qudt:numericValue ?position ;
+                qudt:unit unit:M .
+            ?intendedElevationQuantity
+                qudt:numericValue ?intendedElevation ;
+                qudt:unit unit:M .
+            FILTER(datatype(?position) = xsd:decimal)
+            FILTER(datatype(?intendedElevation) = xsd:decimal)
+        }
+        GROUP BY $this ?position
+    }
+    FILTER NOT EXISTS {
+        $this nltl:hasUpperIceWaterline ?upperWaterline .
+        ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+        ?upperPoint
+            nltl:longitudinalPosition ?upperPositionQuantity ;
+            nltl:verticalCoordinate ?upperElevationQuantity .
+        ?upperPositionQuantity
+            qudt:numericValue ?upperPosition ;
+            qudt:unit unit:M .
+        ?upperElevationQuantity
+            qudt:numericValue ?upperElevation ;
+            qudt:unit unit:M .
+        FILTER(datatype(?upperPosition) = xsd:decimal)
+        FILTER(datatype(?upperElevation) = xsd:decimal)
+        FILTER(?upperPosition = ?position)
+        FILTER(?upperElevation = ?maximumElevation)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every represented upper ice waterline point must equal the maximum intended-waterline elevation at the same longitudinal position." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?upperPoint
+WHERE {
+    $this nltl:hasUpperIceWaterline ?upperWaterline .
+    ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+    ?upperPoint
+        nltl:longitudinalPosition ?upperPositionQuantity ;
+        nltl:verticalCoordinate ?upperElevationQuantity .
+    ?upperPositionQuantity
+        qudt:numericValue ?position ;
+        qudt:unit unit:M .
+    ?upperElevationQuantity
+        qudt:numericValue ?upperElevation ;
+        qudt:unit unit:M .
+    FILTER(datatype(?position) = xsd:decimal)
+    FILTER(datatype(?upperElevation) = xsd:decimal)
+    OPTIONAL {
+        {
+            SELECT $this ?position (MAX(?intendedElevation) AS ?maximumElevation)
+            WHERE {
+                $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+                ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+                ?intendedPoint
+                    nltl:longitudinalPosition ?intendedPositionQuantity ;
+                    nltl:verticalCoordinate ?intendedElevationQuantity .
+                ?intendedPositionQuantity
+                    qudt:numericValue ?position ;
+                    qudt:unit unit:M .
+                ?intendedElevationQuantity
+                    qudt:numericValue ?intendedElevation ;
+                    qudt:unit unit:M .
+                FILTER(datatype(?position) = xsd:decimal)
+                FILTER(datatype(?intendedElevation) = xsd:decimal)
+            }
+            GROUP BY $this ?position
+        }
+    }
+    FILTER(!BOUND(?maximumElevation) || ?upperElevation != ?maximumElevation)
+}
+"""
+    ] .
+<END_SHACL>

@@ -1,0 +1,156 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:FrameWebThicknessShape
+    a sh:NodeShape ;
+    sh:targetSubjectsOf nltl:frameWebThickness ;
+    sh:sparql [
+        sh:message "Frame web thickness inputs, units, profile type, or calculated minimum are non-conforming." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    $this nltl:inLieuOfFrame true ;
+                          a ?structureType .
+                    FILTER (?structureType IN (
+                        nltl:deckStructure,
+                        nltl:tankTop,
+                        nltl:tankBottom,
+                        nltl:bulkhead
+                    ))
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:frameProfileType ?profileType ;
+                          nltl:frameWebThickness ?webQuantity ;
+                          nltl:adjacentFrameHeight ?heightQuantity ;
+                          nltl:yieldStrength ?yieldQuantity ;
+                          nltl:netShellPlatingThickness ?netQuantity ;
+                          nltl:corrosionAbrasionAddition ?corrosionQuantity .
+
+                    FILTER (?profileType IN (
+                        nltl:profileSection,
+                        nltl:flatBarSection
+                    ))
+
+                    ?webQuantity
+                        qudt:numericValue ?webValue ;
+                        qudt:unit unit:MilliM .
+                    ?heightQuantity
+                        qudt:numericValue ?heightValue ;
+                        qudt:unit unit:MilliM .
+                    ?yieldQuantity
+                        qudt:numericValue ?yieldValue ;
+                        qudt:unit unit:MegaPA .
+                    ?netQuantity
+                        qudt:numericValue ?netValue ;
+                        qudt:unit unit:MilliM .
+                    ?corrosionQuantity
+                        qudt:numericValue ?corrosionValue ;
+                        qudt:unit unit:MilliM .
+
+                    FILTER (
+                        datatype(?webValue) = xsd:decimal &&
+                        datatype(?heightValue) = xsd:decimal &&
+                        datatype(?yieldValue) = xsd:decimal &&
+                        datatype(?netValue) = xsd:decimal &&
+                        datatype(?corrosionValue) = xsd:decimal
+                    )
+                    FILTER (?heightValue > 0 && ?yieldValue >= 0)
+                    BIND(
+                        IF(
+                            ?profileType = nltl:profileSection,
+                            805.0,
+                            282.0
+                        ) AS ?coefficient
+                    )
+                    BIND(
+                        (?heightValue * SQRT(?yieldValue)) / ?coefficient
+                        AS ?strengthMinimum
+                    )
+                    BIND(
+                        (?netValue - ?corrosionValue) / 2.0
+                        AS ?shellMinimum
+                    )
+                    FILTER (
+                        ?webValue >= ?strengthMinimum &&
+                        ?webValue >= ?shellMinimum &&
+                        ?webValue >= 9.0
+                    )
+                }
+            }
+        """
+    ] .
+
+gen:InLieuPlateThicknessShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:deckStructure ;
+    sh:targetClass nltl:tankTop ;
+    sh:targetClass nltl:tankBottom ;
+    sh:targetClass nltl:bulkhead ;
+    sh:sparql [
+        sh:message "In-lieu plate thickness inputs, units, or calculated minimum are non-conforming." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:inLieuOfFrame true .
+                FILTER NOT EXISTS {
+                    $this nltl:thickness ?plateQuantity ;
+                          nltl:adjacentFrameHeight ?heightQuantity ;
+                          nltl:yieldStrength ?yieldQuantity ;
+                          nltl:netShellPlatingThickness ?netQuantity ;
+                          nltl:corrosionAbrasionAddition ?corrosionQuantity .
+
+                    ?plateQuantity
+                        qudt:numericValue ?plateValue ;
+                        qudt:unit unit:M .
+                    ?heightQuantity
+                        qudt:numericValue ?heightValue ;
+                        qudt:unit unit:MilliM .
+                    ?yieldQuantity
+                        qudt:numericValue ?yieldValue ;
+                        qudt:unit unit:MegaPA .
+                    ?netQuantity
+                        qudt:numericValue ?netValue ;
+                        qudt:unit unit:MilliM .
+                    ?corrosionQuantity
+                        qudt:numericValue ?corrosionValue ;
+                        qudt:unit unit:MilliM .
+
+                    FILTER (
+                        datatype(?plateValue) = xsd:decimal &&
+                        datatype(?heightValue) = xsd:decimal &&
+                        datatype(?yieldValue) = xsd:decimal &&
+                        datatype(?netValue) = xsd:decimal &&
+                        datatype(?corrosionValue) = xsd:decimal
+                    )
+                    FILTER (?heightValue > 0 && ?yieldValue >= 0)
+                    BIND(
+                        (?heightValue * SQRT(?yieldValue)) / 805.0
+                        AS ?strengthMinimum
+                    )
+                    BIND(
+                        (?netValue - ?corrosionValue) / 2.0
+                        AS ?shellMinimum
+                    )
+                    BIND(
+                        ?plateValue * 1000.0
+                        AS ?plateValueMillimetres
+                    )
+                    FILTER (
+                        ?plateValueMillimetres >= ?strengthMinimum &&
+                        ?plateValueMillimetres >= ?shellMinimum &&
+                        ?plateValueMillimetres >= 9.0
+                    )
+                }
+            }
+        """
+    ] .

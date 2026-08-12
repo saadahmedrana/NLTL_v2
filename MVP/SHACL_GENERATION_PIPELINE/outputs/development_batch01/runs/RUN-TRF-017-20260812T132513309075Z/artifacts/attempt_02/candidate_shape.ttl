@@ -1,0 +1,110 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PowerQuantityValueShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloW ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:EngineOutputShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propulsionOutputRestrictionApplies ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one propulsion-output restriction status is required."
+    ] ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:node gen:PowerQuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one maximum continuous rating power in kilowatts is required."
+    ] ;
+    sh:property [
+        sh:path nltl:propulsionMachineryContinuousOutput ;
+        sh:node gen:PowerQuantityValueShape ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:restrictedPropulsionOutput ;
+        sh:node gen:PowerQuantityValueShape ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:additionalPropulsionPower ;
+        sh:node gen:PowerQuantityValueShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Engine output must equal the applicable propulsion output plus all additional propulsion power; the applicable output value must be present." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+    $this nltl:propulsionOutputRestrictionApplies ?applies ;
+          nltl:maximumContinuousRatingPower ?engineOutputQuantity .
+
+    ?engineOutputQuantity qudt:numericValue ?engineOutput .
+
+    OPTIONAL {
+        $this nltl:propulsionMachineryContinuousOutput ?continuousQuantity .
+        ?continuousQuantity qudt:numericValue ?continuousOutput .
+    }
+    OPTIONAL {
+        $this nltl:restrictedPropulsionOutput ?restrictedQuantity .
+        ?restrictedQuantity qudt:numericValue ?restrictedOutput .
+    }
+    OPTIONAL {
+        $this nltl:additionalPropulsionPower ?additionalQuantity .
+        ?additionalQuantity qudt:numericValue ?additionalOutput .
+    }
+}
+GROUP BY $this ?applies ?engineOutput ?continuousOutput ?restrictedOutput
+HAVING (
+    (
+        ?applies = "true"^^xsd:boolean
+        &&
+        (
+            !BOUND(?restrictedOutput)
+            ||
+            ?engineOutput != (
+                ?restrictedOutput +
+                COALESCE(SUM(xsd:decimal(?additionalOutput)), "0"^^xsd:decimal)
+            )
+        )
+    )
+    ||
+    (
+        ?applies = "false"^^xsd:boolean
+        &&
+        (
+            !BOUND(?continuousOutput)
+            ||
+            ?engineOutput != (
+                ?continuousOutput +
+                COALESCE(SUM(xsd:decimal(?additionalOutput)), "0"^^xsd:decimal)
+            )
+        )
+    )
+)
+"""
+    ] .
