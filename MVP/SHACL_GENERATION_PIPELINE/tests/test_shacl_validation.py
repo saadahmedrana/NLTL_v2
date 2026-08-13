@@ -114,6 +114,61 @@ class ShaclValidationTests(unittest.TestCase):
         self.assertFalse(report.valid)
         self.assertTrue(any("OPTIONAL inside FILTER NOT EXISTS" in item for item in report.errors), report.errors)
 
+    def test_registered_xpath_math_function_executes(self) -> None:
+        config = PipelineConfig.load(
+            PipelineConfig.load().config_path.parent / "pipeline.dev-batch01.json"
+        )
+        vocabulary = VocabularyRepository(config)
+        validator = ShaclStaticValidator(vocabulary)
+        context = vocabulary.build_context_pack("TRF-022")
+        turtle = '''@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+gen:S a sh:NodeShape ; sh:targetClass nltl:ship ; sh:sparql [
+  sh:select """PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+  SELECT $this WHERE { BIND(math:sin(0.0) AS ?result) FILTER(?result != 0.0) }"""
+] .'''
+        report = validator.validate_turtle(turtle, context)
+        self.assertTrue(report.valid, report.errors)
+
+    def test_numeric_has_value_on_qudt_numeric_value_is_rejected(self) -> None:
+        config = PipelineConfig.load(
+            PipelineConfig.load().config_path.parent / "pipeline.dev-batch01.json"
+        )
+        vocabulary = VocabularyRepository(config)
+        validator = ShaclStaticValidator(vocabulary)
+        context = vocabulary.build_context_pack("TRF-022")
+        turtle = '''@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+gen:S a sh:NodeShape ; sh:targetClass nltl:ship ; sh:property [
+  sh:path nltl:coefficientC3 ; sh:node [ sh:property [
+    sh:path qudt:numericValue ; sh:hasValue "845"^^xsd:decimal
+  ] ]
+] .'''
+        report = validator.validate_turtle(turtle, context)
+        self.assertFalse(report.valid)
+        self.assertTrue(any("lexical-form brittle" in item for item in report.errors), report.errors)
+
+    def test_declared_exclusive_property_groups_cannot_be_conjunctive(self) -> None:
+        config = PipelineConfig.load(
+            PipelineConfig.load().config_path.parent / "pipeline.dev-batch01.json"
+        )
+        vocabulary = VocabularyRepository(config)
+        validator = ShaclStaticValidator(vocabulary)
+        context = vocabulary.build_context_pack("TRF-030")
+        turtle = '''@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+gen:S a sh:NodeShape ; sh:targetClass nltl:directAnalysisCase ;
+  sh:property [ sh:path nltl:verticalLoadPosition ; sh:minCount 1 ],
+              [ sh:path nltl:horizontalLoadPosition ; sh:minCount 1 ] .'''
+        report = validator.validate_turtle(turtle, context)
+        self.assertFalse(report.valid)
+        self.assertTrue(any("Mutually exclusive property alternatives" in item for item in report.errors), report.errors)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,214 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PositiveMetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minExclusive 0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:YieldStrengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minExclusive 0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:CorrosionAbrasionQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MilliM
+    ] .
+
+gen:PlatingRequirementShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PositiveMetreQuantityShape ;
+        sh:message "Design ice load height must be a single positive value in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PositiveMetreQuantityShape ;
+        sh:message "Spacing must be a single positive value in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "The longitudinal plating factor f2 must be a single unitless decimal value."
+    ] ;
+    sh:property [
+        sh:path nltl:hullStructuralSteelGrade ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:steelGradeValue ;
+        sh:message "A single hull structural steel grade is required."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:YieldStrengthQuantityShape ;
+        sh:message "Yield strength must be a single positive value in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:CorrosionAbrasionQuantityShape ;
+        sh:message "The corrosion and abrasion addition must be a single non-negative value in millimetres."
+    ] ;
+    sh:property [
+        sh:path nltl:specialSurfaceCoatingMaintained ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:message "Special surface coating maintenance status must be single-valued when provided."
+    ] ;
+    sh:property [
+        sh:path nltl:materialApprovalStatus ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Material approval status must be single-valued when provided."
+    ] ;
+    sh:sparql [
+        sh:message "The ratio h/s must not exceed 1.8, and f2 must match the applicable formula within relative tolerance 1e-6 with absolute fallback 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?heightQuantity ;
+                      nltl:spacing ?spacingQuantity ;
+                      nltl:longitudinalPlatingFactorF2 ?factorQuantity .
+                ?heightQuantity qudt:numericValue ?heightRaw .
+                ?spacingQuantity qudt:numericValue ?spacingRaw .
+                ?factorQuantity qudt:numericValue ?factorRaw .
+                BIND(xsd:decimal(?heightRaw) AS ?height)
+                BIND(xsd:decimal(?spacingRaw) AS ?spacing)
+                BIND(xsd:decimal(?factorRaw) AS ?factor)
+                BIND((?height / ?spacing) AS ?ratio)
+                BIND(
+                    IF(
+                        ?ratio <= 1.0,
+                        (0.4 / ?ratio) + 0.6,
+                        1.4 - (0.4 * ?ratio)
+                    )
+                    AS ?expected
+                )
+                FILTER(
+                    ?ratio > 1.8 ||
+                    ABS(?factor - ?expected) >
+                        ((0.000001 * ABS(?expected)) + 0.000000000001)
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Normal-strength steel requires yield strength 235 MPa; high-strength steel requires at least 315 MPa; another grade requires an approved actual yield value." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hullStructuralSteelGrade ?grade ;
+                      nltl:yieldStrength ?yieldQuantity .
+                ?yieldQuantity qudt:numericValue ?yieldRaw .
+                BIND(xsd:decimal(?yieldRaw) AS ?yield)
+                FILTER(
+                    (?grade = nltl:normalStrengthHullStructuralSteel && ?yield != 235.0) ||
+                    (?grade = nltl:highStrengthHullStructuralSteel && ?yield < 315.0) ||
+                    (
+                        ?grade NOT IN (
+                            nltl:normalStrengthHullStructuralSteel,
+                            nltl:highStrengthHullStructuralSteel
+                        ) &&
+                        NOT EXISTS {
+                            $this nltl:materialApprovalStatus nltl:evidenceStateApproved .
+                        }
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "A corrosion and abrasion addition below 2 mm requires both a maintained special surface coating and approved material status." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:corrosionAbrasionAddition ?additionQuantity .
+                ?additionQuantity qudt:numericValue ?additionRaw .
+                BIND(xsd:decimal(?additionRaw) AS ?addition)
+                FILTER(
+                    ?addition < 2.0 &&
+                    (
+                        NOT EXISTS {
+                            $this nltl:specialSurfaceCoatingMaintained true .
+                        } ||
+                        NOT EXISTS {
+                            $this nltl:materialApprovalStatus nltl:evidenceStateApproved .
+                        }
+                    )
+                )
+            }
+        """
+    ] .

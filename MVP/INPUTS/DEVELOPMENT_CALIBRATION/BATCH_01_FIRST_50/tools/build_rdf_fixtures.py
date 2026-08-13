@@ -13,7 +13,8 @@ from rdflib.namespace import OWL, XSD
 
 MVP = Path(__file__).resolve().parents[4]
 BATCH = Path(__file__).resolve().parents[1]
-DEV = MVP / "BENCHMARK_VOCABULARY" / "DEVELOPMENT" / "DEV_R6_BATCH01"
+DEV = MVP / "BENCHMARK_VOCABULARY" / "DEVELOPMENT" / "DEV_R7_BATCH01"
+DEVELOPMENT_ID = "VOCAB-DEV-2026-08-13-BATCH01-R7"
 OUT = BATCH / "rdf_fixtures"
 BASE = "https://w3id.org/nltl-benchmark/vocab#"
 EX_BASE = "urn:nltl:batch01-fixture:"
@@ -57,13 +58,13 @@ PASS_VALUES: dict[str, dict[str, object]] = {
     "TRF-016": {"navigatingInIce": True, "liwlDraughtAmidships": 5.0, "draughtAmidships": 5.0, "levelIceThickness": 0.8, "waterlineDisplacement": 10000.0, "displacementAtUpperIceWaterline": 10000.0, "forwardDraught": 3.6, "propellerHighestPointSubmerged": True, "freezingPreventionPresent": True, "situatedAboveLowerIceWaterline": True, "usedToReachLowerIceWaterline": True},
     "TRF-017": {"maximumContinuousRatingPower": 5500.0, "propulsionMachineryContinuousOutput": 5500.0, "propulsionOutputRestrictionApplies": False, "restrictedPropulsionOutput": 5500.0},
     "TRF-018": {"iceClass": "iceClassIa", "calculatedRequiredPower": 1000.0, "maximumContinuousRatingPower": 1000.0},
-    "TRF-020": {"iceClass": "iceClassIa", "constructionStageDate": "2003-09-01", "propulsionSystemType": "conventionalPropulsionSystem", "propellerPitchControlType": "controllablePitch", "propellerCount": 1, "engineOutputCoefficientKe": 2.03, "brashIceChannelResistanceRch": 1_000_000.0, "brashIceChannelResistanceAtUpperIceWaterline": 1_000.0, "brashIceChannelResistanceAtLowerIceWaterline": 1_000.0, "propellerDiameter": 5.0, "minimumRequiredPowerAtUpperIceWaterline": 12838.447, "minimumRequiredPowerAtLowerIceWaterline": 12838.447, "maximumContinuousRatingPower": 13000.0},
-    "TRF-022": {"constructionStageDate": "2003-09-01", "shipLength": 100.0, "shipBreadth": 20.0, "iceClassDraught": 5.0, "bowRakeAtQuarterBreadth": 45.0, "waterlineAngleAtQuarterBreadth": 45.0, "flareAngle": 54.73561, "clampedHullGeometryTerm": 5.0, "coefficientC3": 845.0, "coefficientC4": 42.0, "coefficientC5": 825.0},
+    "TRF-020": {"iceClass": "iceClassIa", "constructionStageDate": "2003-09-01", "propulsionSystemType": "conventionalPropulsionSystem", "propellerPitchControlType": "controllablePitch", "propellerCount": 1, "engineOutputCoefficientKe": 2.03, "brashIceChannelResistanceRch": 1_000_000.0, "brashIceChannelResistanceAtUpperIceWaterline": 1_000_000.0, "brashIceChannelResistanceAtLowerIceWaterline": 1_000_000.0, "propellerDiameter": 5.0, "upperIceWaterlineLength": 100.0, "upperIceWaterlineBreadth": 20.0, "minimumRequiredPowerAtUpperIceWaterline": 12838.447, "minimumRequiredPowerAtLowerIceWaterline": 12838.447, "maximumContinuousRatingPower": 13000.0},
+    "TRF-022": {"constructionStageDate": "2003-09-01", "shipLength": 100.0, "shipBreadth": 20.0, "iceClassDraught": 5.0, "bowRakeAtQuarterBreadth": 45.0, "waterlineAngleAtQuarterBreadth": 45.0, "flareAngle": 54.735610317245346, "clampedHullGeometryTerm": 5.0, "coefficientC3": 845, "coefficientC4": 42, "coefficientC5": 825, "coefficientF1": 23, "coefficientF2": 45.8, "coefficientF3": 14.7, "coefficientF4": 29, "coefficientG1": 1530, "coefficientG2": 170, "coefficientG3": 400},
     "TRF-023": {"iceClass": "iceClassIb", "applicableIceClassRegulationEdition": "iceClassRuleEdition1985", "requiredPowerUnder1985Rules": 1200.0, "maximumContinuousRatingPower": 1200.0},
     "TRF-024": {"iceClass": "iceClassIa", "constructionStageDate": "2003-08-31", "deliveryDate": "2001-06-01", "assessmentDate": "2021-01-01", "engineOutputComplianceMethod": "traficom2017Section3Point2Point2Method"},
     "TRF-025": {"iceClass": "iceClassIaSuper", "bulbousBowPresent": False, "shipBreadth": 20.0, "shipLength": 100.0, "iceClassDraught": 5.0, "coefficientF1": 10.3, "coefficientF2": 45.8, "coefficientF3": 2.94, "coefficientF4": 5.8, "coefficientG1": 1530.0, "coefficientG2": 170.0, "coefficientG3": 400.0, "brashIceResistanceCoefficientC1": 37303.733333, "brashIceResistanceCoefficientC2": 38153.6},
     "TRF-026": {"iceClass": "iceClassIaSuper", "bulbousBowPresent": True, "shipBreadth": 20.0, "shipLength": 100.0, "iceClassDraught": 5.0, "coefficientF1": 10.3, "coefficientF2": 45.8, "coefficientF3": 2.94, "coefficientF4": 5.8, "coefficientG1": 1530.0, "coefficientG2": 170.0, "coefficientG3": 400.0, "brashIceResistanceCoefficientC1": 50754.233333, "brashIceResistanceCoefficientC2": 53683.1},
-    "TRF-027": {"iceClass": "iceClassIa", "constructionStageDate": "2003-08-31", "shipLength": 100.0, "shipBreadth": 20.0, "iceClassDraught": 5.0, "clampedHullGeometryTerm": 5.0, "coefficientF1": 10.3, "coefficientF2": 45.8, "coefficientF3": 2.94, "coefficientF4": 5.8, "coefficientG1": 1530.0, "coefficientG2": 170.0, "coefficientG3": 400.0, "coefficientC3": 460.0, "coefficientC4": 18.7, "coefficientC5": 825.0},
+    "TRF-027": {"iceClass": "iceClassIa", "constructionStageDate": "2003-08-31", "shipLength": 100.0, "shipBreadth": 20.0, "iceClassDraught": 5.0, "clampedHullGeometryTerm": 5.0, "coefficientF1": 10.3, "coefficientF2": 45.8, "coefficientF3": 2.94, "coefficientF4": 5.8, "coefficientG1": 1530, "coefficientG2": 170, "coefficientG3": 400, "coefficientC3": 460, "coefficientC4": 18.7, "coefficientC5": 825},
     "TRF-030": {"icePressure": 1.0, "appliedIcePressure": 1.8, "combinedBendingAndShearEvaluated": True, "capacityMinimizingLoadPositionConfirmed": True, "loadLengthDeterminedFromArrangement": False, "iceLoadAreaFactorCa": 0.5, "verticalLoadPosition": 0.0, "horizontalLoadPosition": 0.0, "loadPatchHeight": 0.3, "loadPatchLength": 1.0, "spacing": 0.5, "span": 2.0},
     "TRF-031": {"vonMisesYieldCriterion": True, "beamTheoryUsed": True, "yieldPoint": 235.0, "combinedBendingShearStress": 234.0, "yieldShearStress": 135.677, "allowableShearStress": 122.1093},
     "TRF-032": {"iceStrengtheningStatus": False, "classificationSocietyRequiredScantling": 12.0, "regulationRequiredScantling": 10.0, "selectedDesignScantling": 12.0},
@@ -81,7 +82,7 @@ PASS_VALUES: dict[str, dict[str, object]] = {
     "TRF-048": {"significantlyDifferentBoundaryConditions": False, "icePressure": 1.0, "designIceLoadHeight": 0.3, "spacing": 0.5, "span": 2.0, "longitudinalFrameLoadDistributionFactorF4": 0.88, "longitudinalFrameShearFactorF5": 2.16, "frameMomentFactorM": 13.3, "yieldStrength": 235.0, "sectionModulus": 84.45, "requiredShearArea": 42.0, "grossFrameShearArea": 50.0, "bracketArea": 5.0, "actualFrameShearArea": 45.0},
     "TRF-049": {"withinIceStrengthenedArea": True, "effectiveAttachmentConfirmed": True, "passesThroughSupportingStructure": True, "terminatesAtDeckOrIceStringer": True, "webPlateConnectionSideCount": 2, "bracketThickness": 10.0, "frameWebThickness": 10.0, "bracketEdgeStiffened": True, "bucklingStiffening": True},
     "TRF-050": {"frameShellWeldType": "doubleContinuousWeld", "scallopingPresent": False, "shellPlateButtCrossing": False},
-    "TRF-051": {"frameProfileType": "profileSection", "inLieuOfFrame": True, "adjacentFrameHeight": 400.0, "yieldStrength": 235.0, "netShellPlatingThickness": 12.0, "corrosionAbrasionAddition": 2.0, "frameWebThickness": 9.0, "hullStructuralSteelGrade": "normalStrengthHullStructuralSteel"},
+    "TRF-051": {"frameProfileType": "profileSection", "inLieuOfFrame": False, "adjacentFrameHeight": 400.0, "yieldStrength": 235.0, "netShellPlatingThickness": 12.0, "corrosionAbrasionAddition": 2.0, "frameWebThickness": 9.0, "hullStructuralSteelGrade": "normalStrengthHullStructuralSteel"},
     "TRF-052": {"frameAsymmetrical": True, "frameWebAngleToShell": 80.0, "antitrippingSupportSpacing": 1300.0, "frameSpan": 4.0, "iceClass": "iceClassIa", "equivalentSupportStatusByDirectCalculation": False},
     "TRF-053": {"locatedWithinIceBelt": True, "icePressure": 0.3, "designIceLoadHeight": 0.3, "designLineLoad": 150.0, "span": 2.0, "frameMomentFactorM": 13.3, "iceStringerDistributionFactorF6": 0.9, "iceStringerSafetyFactorF7": 1.8, "iceStringerShearFactorF8": 1.2, "yieldStrength": 235.0, "sectionModulus": 310.69, "requiredShearArea": 21.493},
     "TRF-054": {"locatedOutsideIceBelt": True, "supportsIceStrengthenedFrames": True, "icePressure": 0.3, "designIceLoadHeight": 0.3, "designLineLoad": 150.0, "span": 2.0, "stringerSpan": 2.0, "distanceToIceBelt": 0.4, "distanceToAdjacentIceStringer": 2.0, "outsideIceBeltFactor": 0.8, "frameMomentFactorM": 13.3, "outsideIceBeltDistributionFactorF9": 0.8, "outsideIceBeltSafetyFactorF10": 1.8, "outsideIceBeltShearFactorF11": 1.2, "yieldStrength": 235.0, "sectionModulus": 220.93, "requiredShearArea": 15.284},
@@ -110,7 +111,21 @@ PASS_VALUES["TRF-037"].update({
     "shipSizeEngineOutputFactorCd": _cd37,
     "icePressure": _cd37 * 1.0 * 0.5 * 5.6,
 })
+# Keep formula outputs at calculation precision. Rounded presentation values
+# incorrectly sit outside the generated tolerance even though the intended
+# engineering case is conforming.
+_pmin20 = 2.03 * (1_000_000.0 / 1000.0) ** 1.5 / 5.0
+PASS_VALUES["TRF-020"].update({
+    "minimumRequiredPowerAtUpperIceWaterline": _pmin20,
+    "minimumRequiredPowerAtLowerIceWaterline": _pmin20,
+})
 PASS_VALUES["TRF-041"]["requiredShellPlatingThickness"] = 667.0 * 0.5 * math.sqrt(0.75 / 235.0) + 2.0
+_mt44 = 7.0 * 7.0 / (7.0 - 5.0 * 0.3 / 2.0)
+PASS_VALUES["TRF-044"].update({
+    "frameMomentFactorMt": _mt44,
+    "sectionModulus": 1.0 * 0.5 * 0.3 * 2.0 / (_mt44 * 235.0) * 1_000_000.0,
+    "requiredShearArea": math.sqrt(3.0) * 1.2 * 1.0 * 0.3 * 0.5 / (2.0 * 235.0) * 10_000.0,
+})
 PASS_VALUES["TRF-048"].update({
     "sectionModulus": 0.88 * 1.0 * 0.3 * 2.0**2 / (4.0 * 13.3 * 235.0) * 1_000_000.0,
     "requiredShearArea": math.sqrt(3.0) * 0.88 * 2.16 * 1.0 * 0.3 * 2.0 / (2.0 * 235.0) * 10_000.0,
@@ -120,6 +135,9 @@ PASS_VALUES["TRF-053"].update({
     "requiredShearArea": math.sqrt(3.0) * 0.9 * 1.8 * 1.2 * 0.15 * 2.0 / (2.0 * 235.0) * 10_000.0,
 })
 PASS_VALUES["TRF-054"].update({
+    # Preserve the regulation's exact controlled decimal lexical form because
+    # SHACL sh:hasValue compares RDF terms, not only numerical equivalence.
+    "outsideIceBeltDistributionFactorF9": Decimal("0.80"),
     "sectionModulus": 0.8 * 1.8 * 0.15 * 2.0**2 / (13.3 * 235.0) * 0.8 * 1_000_000.0,
     "requiredShearArea": math.sqrt(3.0) * 0.8 * 1.8 * 1.2 * 0.15 * 2.0 / (2.0 * 235.0) * 0.8 * 10_000.0,
 })
@@ -233,11 +251,12 @@ def build_graph(rid: str, case_kind: str, terms: list[str], registry: dict[str, 
         "TRF-012": {"hasUpperIceWaterline", "hasLowerIceWaterline", "hasIntendedIceOperatingWaterline", "hasWaterlineProfilePoint"},
         "TRF-013": {"hasUpperIceWaterline", "hasLowerIceWaterline", "hasIntendedIceOperatingWaterline", "hasWaterlineProfilePoint"},
         "TRF-016": {"hasUpperIceWaterline", "hasLowerIceWaterline", "hasIntendedIceOperatingWaterline", "hasWaterlineProfilePoint", "waterlineDisplacement", "hasBallastTank"},
-        "TRF-030": {"hasDirectAnalysisCase", "verticalLoadPositionType", "horizontalLoadPositionType"},
+        "TRF-020": {"hasUpperIceWaterline", "hasLowerIceWaterline", "iceWaterline", "upperIceWaterlineLength", "upperIceWaterlineBreadth"},
+        "TRF-030": {"directAnalysisCase", "hasDirectAnalysisCase", "capacityMinimizingLoadPositionConfirmed", "combinedBendingAndShearEvaluated", "verticalLoadPosition", "verticalLoadPositionType", "horizontalLoadPosition", "horizontalLoadPositionType", "loadPatchLength", "iceLoadAreaFactorCa", "upperIceWaterlineReferencePosition", "lowerIceWaterlineReferencePosition"},
         "TRF-034": {"hasClassificationSocietySectionPropertyCalculationEvidence", "hasEffectiveMemberCrossSection", "effectiveMemberCrossSection"},
         "TRF-036": {"hasIceClassDesignParameterSet", "levelIceThickness", "designIceLoadHeight", "iceClassDesignParameterSet"},
         "TRF-044": {"mainTransverseFrame", "intermediateTransverseFrame"},
-        "TRF-046": {"mainFrame", "intermediateIceFrame", "transverseFrame", "frameStrengthenedPart", "supportingStructure", "horizontalConnectionMember", "deckStructure", "tankBoundaryPlating", "iceStringer", "hasUpperEnd", "hasAttachedSupportingStructure", "hasTerminationAboveSupportingStructure", "hasHorizontalConnectionMember", "connectsToAdjacentMainFrame", "ordinaryFrameScantlingsUsed", "sameScantlingsAsMainFrame", "supportingStructureAtOrAboveIceBeltUpperLimit"},
+        "TRF-046": {"mainFrame", "intermediateIceFrame", "transverseFrame", "frameStrengthenedPart", "supportingStructure", "horizontalConnectionMember", "deckStructure", "tankBoundaryPlating", "iceStringer", "hasUpperEnd", "hasStrengthenedPart", "hasAttachedSupportingStructure", "hasTerminationAboveSupportingStructure", "hasHorizontalConnectionMember", "connectsToAdjacentMainFrame", "ordinaryFrameScantlingsUsed", "sameScantlingsAsMainFrame", "supportingStructureAtOrAboveIceBeltUpperLimit"},
         "TRF-047": {"mainFrame", "intermediateIceFrame", "transverseFrame", "frameStrengthenedPart", "supportingStructure", "horizontalConnectionMember", "deckStructure", "tankBoundaryPlating", "tankTop", "iceStringer", "hasLowerEnd", "hasAttachedSupportingStructure", "hasTerminationBelowSupportingStructure", "hasHorizontalConnectionMember", "connectsToAdjacentMainFrame", "ordinaryFrameScantlingsUsed", "sameScantlingsAsMainFrame", "supportingStructureAtOrBelowIceBeltLowerLimit", "mainFrameBelowIceBeltStrengthened"},
         "TRF-049": {"longitudinalFrame", "transverseFrame", "frame", "supportingStructure", "frameAttachment", "connectionBracket", "hasFrameAttachment", "hasAttachedSupportingStructure", "hasConnectionBracket", "hasSupportingWebFrame", "hasSupportingBulkhead", "withinIceStrengthenedArea", "effectiveAttachmentConfirmed", "passesThroughSupportingStructure", "terminatesAtDeckOrIceStringer", "webPlateConnectionSideCount", "bracketThickness", "frameWebThickness", "bracketEdgeStiffened", "bucklingStiffening"},
         "TRF-050": {"frameShellAttachment", "frameShellWeldType", "scallopingPresent", "shellPlateButtCrossing"},
@@ -283,7 +302,14 @@ def build_graph(rid: str, case_kind: str, terms: list[str], registry: dict[str, 
             number = values.get(local, 1.0)
             node = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:q:{local}")
             graph.add((node, RDF.type, QUDT.QuantityValue))
-            graph.add((node, QUDT.numericValue, Literal(Decimal(str(number)), datatype=XSD.decimal)))
+            # Preserve an integer-looking decimal lexical form for controlled
+            # constants. SHACL sh:hasValue compares RDF terms, so "845.0"
+            # and "845" are not interchangeable even with xsd:decimal.
+            if isinstance(number, int) and not isinstance(number, bool):
+                numeric_literal = Literal(str(number), datatype=XSD.decimal, normalize=False)
+            else:
+                numeric_literal = Literal(Decimal(str(number)), datatype=XSD.decimal)
+            graph.add((node, QUDT.numericValue, numeric_literal))
             if item.get("unitIri"):
                 graph.add((node, QUDT.unit, URIRef(item["unitIri"])))
             for subject in property_subjects(local): graph.add((subject, iri, node))
@@ -350,6 +376,31 @@ def build_graph(rid: str, case_kind: str, terms: list[str], registry: dict[str, 
                     graph.add((qnode, QUDT.numericValue, Literal(Decimal(str(number)), datatype=XSD.decimal)))
                     graph.add((qnode, QUDT.unit, URIRef("http://qudt.org/vocab/unit/M")))
                     graph.add((waterline, URIRef(BASE + prop), qnode))
+
+    # Clause 3.2.2 defines L and B at UIWL as operands for both UIWL and LIWL
+    # power calculations; attach those quantities to the UIWL node explicitly.
+    if rid == "TRF-020":
+        uiwl = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:uiwl")
+        liwl = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:liwl")
+        graph.add((uiwl, RDF.type, NLTL.iceWaterline))
+        graph.add((liwl, RDF.type, NLTL.iceWaterline))
+        graph.add((ship, NLTL.hasUpperIceWaterline, uiwl))
+        graph.add((ship, NLTL.hasLowerIceWaterline, liwl))
+        for prop in ("upperIceWaterlineLength", "upperIceWaterlineBreadth"):
+            qnode = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:q:{prop}:uiwl")
+            graph.add((qnode, RDF.type, QUDT.QuantityValue))
+            graph.add((qnode, QUDT.numericValue, Literal(Decimal(str(values[prop])), datatype=XSD.decimal)))
+            graph.add((qnode, QUDT.unit, URIRef("http://qudt.org/vocab/unit/M")))
+            graph.add((uiwl, URIRef(BASE + prop), qnode))
+        # R_CH is expressed in newtons. Earlier fixtures left the two
+        # draught-specific values unitless, which correctly failed generated
+        # unit constraints even though the intended PASS values were sound.
+        for prop in (
+            "brashIceChannelResistanceAtUpperIceWaterline",
+            "brashIceChannelResistanceAtLowerIceWaterline",
+        ):
+            for qnode in graph.objects(ship, URIRef(BASE + prop)):
+                graph.add((qnode, QUDT.unit, URIRef("http://qudt.org/vocab/unit/N")))
 
     if rid == "TRF-032":
         for prop in ("classificationSocietyRequiredScantling", "regulationRequiredScantling", "selectedDesignScantling"):
@@ -424,6 +475,9 @@ def build_graph(rid: str, case_kind: str, terms: list[str], registry: dict[str, 
             support_node = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:support:{index}")
             graph.add((ship, NLTL.hasComponent, frame_node))
             graph.add((frame_node, RDF.type, frame_type))
+            # The target is nltl:frame. State the superclass explicitly so
+            # fixture behavior is independent of subclass inference details.
+            graph.add((frame_node, RDF.type, NLTL.frame))
             strengthened_part = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:strengthened-part:{index}")
             graph.add((strengthened_part, RDF.type, NLTL.frameStrengthenedPart))
             graph.add((frame_node, NLTL.hasStrengthenedPart, strengthened_part))
@@ -438,12 +492,27 @@ def build_graph(rid: str, case_kind: str, terms: list[str], registry: dict[str, 
                 graph.add((end_node, NLTL.hasAttachedSupportingStructure, support_node))
             if frame_type == NLTL.intermediateIceFrame:
                 member = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:horizontal-member")
-                adjacent = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:adjacent-main-frame")
                 graph.add((member, RDF.type, NLTL.horizontalConnectionMember))
-                graph.add((adjacent, RDF.type, NLTL.mainFrame))
                 graph.add((end_node, NLTL.hasHorizontalConnectionMember, member))
-                graph.add((member, NLTL.connectsToAdjacentMainFrame, adjacent))
                 graph.add((member, NLTL.sameScantlingsAsMainFrame, Literal(True, datatype=XSD.boolean)))
+                # The permission alternative is bounded by two different
+                # adjacent main frames. Reuse the compliant main frame above
+                # and create a second fully supported main frame so the helper
+                # nodes are valid targets in their own right.
+                adjacent_frames = [URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:frame:1")]
+                adjacent2 = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:adjacent-main-frame:2")
+                adjacent2_end = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:adjacent-main-frame:2:end")
+                adjacent2_part = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:adjacent-main-frame:2:part")
+                graph.add((adjacent2, RDF.type, NLTL.mainFrame))
+                graph.add((adjacent2, RDF.type, NLTL.frame))
+                graph.add((adjacent2_part, RDF.type, NLTL.frameStrengthenedPart))
+                graph.add((adjacent2, NLTL.hasStrengthenedPart, adjacent2_part))
+                graph.add((adjacent2, NLTL.hasUpperEnd if rid == "TRF-046" else NLTL.hasLowerEnd, adjacent2_end))
+                graph.add((adjacent2_end, RDF.type, NLTL.frameEnd))
+                graph.add((adjacent2_end, NLTL.hasAttachedSupportingStructure, support_node))
+                adjacent_frames.append(adjacent2)
+                for adjacent in adjacent_frames:
+                    graph.add((member, NLTL.connectsToAdjacentMainFrame, adjacent))
 
     if rid == "TRF-049":
         frame_node = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:frame")
@@ -451,6 +520,7 @@ def build_graph(rid: str, case_kind: str, terms: list[str], registry: dict[str, 
         attachment = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:attachment")
         bracket = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:bracket")
         graph.add((frame_node, RDF.type, NLTL.longitudinalFrame))
+        graph.add((frame_node, RDF.type, NLTL.frame))
         graph.add((support_node, RDF.type, NLTL.supportingStructure))
         graph.add((attachment, RDF.type, NLTL.frameAttachment))
         graph.add((bracket, RDF.type, NLTL.connectionBracket))
@@ -469,6 +539,8 @@ def build_graph(rid: str, case_kind: str, terms: list[str], registry: dict[str, 
         bulkhead = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:bulkhead")
         graph.add((bulkhead, RDF.type, NLTL.bulkhead))
         graph.add((frame_node, NLTL.hasSupportingBulkhead, bulkhead))
+        # Each identified support must share the same confirmed attachment.
+        graph.add((bulkhead, NLTL.hasSupportingStructureAttachment, attachment))
         graph.add((bracket, NLTL.bracketEdgeStiffened, Literal(True, datatype=XSD.boolean)))
         graph.add((bracket, NLTL.bucklingStiffening, Literal(True, datatype=XSD.boolean)))
         for owner, prop in ((bracket, "bracketThickness"), (frame_node, "frameWebThickness")):
@@ -541,7 +613,7 @@ def main() -> None:
                 "expectedConforms": expected, "scenarioBasis": scenario, "sourcePage": evidence[rid]["page"],
                 "sourceClause": evidence[rid]["clause"], "sourceFile": "RELEVANT FILES/TRAFICOM.pdf",
                 "rdfFile": str(path.relative_to(MVP)), "rdfSha256": sha256(path), "tripleCount": len(parsed),
-                "developmentVocabularyId": "VOCAB-DEV-2026-08-13-BATCH01-R6",
+                "developmentVocabularyId": DEVELOPMENT_ID,
                 "calibrationOnly": True,
             })
     catalog = {

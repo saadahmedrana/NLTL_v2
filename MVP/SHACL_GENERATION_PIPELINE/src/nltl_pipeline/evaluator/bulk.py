@@ -13,6 +13,10 @@ from rdflib import Graph
 
 from ..config import PipelineConfig
 from ..reporting.tracker import build_excel_from_payload
+from ..validation.sparql_extensions import register_math_functions
+
+
+register_math_functions()
 
 
 def utc_stamp() -> str:

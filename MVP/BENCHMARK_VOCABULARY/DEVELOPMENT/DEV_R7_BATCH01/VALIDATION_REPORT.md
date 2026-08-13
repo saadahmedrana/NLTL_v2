@@ -1,0 +1,10 @@
+# Validation report
+
+Status: **PASS**
+
+- Active registry terms: 1072
+- Batch 01 additions: 247
+- Parsed ontology triples: 19280
+- Indexed Batch 01 requirements: 50
+- Distinct Batch 01 context terms: 325
+- Naming collisions/errors: none

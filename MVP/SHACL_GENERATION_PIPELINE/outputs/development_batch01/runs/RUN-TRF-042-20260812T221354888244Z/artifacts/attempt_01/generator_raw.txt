@@ -1,0 +1,211 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MetreQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M
+    ] .
+
+gen:PositiveMetreQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minExclusive 0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M
+    ] .
+
+gen:UnitlessQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:MegapascalQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:MillimetreQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM
+    ] .
+
+gen:LongitudinalPlatingFactorShape a sh:NodeShape ;
+    sh:targetSubjectsOf nltl:designIceLoadHeight ;
+    sh:targetSubjectsOf nltl:spacing ;
+    sh:targetSubjectsOf nltl:longitudinalPlatingFactorF2 ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape ;
+        sh:message "Design ice load height in metres is required to calculate f2."
+    ] ;
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ;
+        sh:node gen:PositiveMetreQuantityShape ;
+        sh:message "Positive spacing in metres is required to calculate f2."
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "The dimensionless longitudinal plating factor f2 is required."
+    ] ;
+    sh:sparql [
+        sh:message "The h/s ratio must not exceed 1.8, and f2 must satisfy the applicable formula within relative tolerance 1e-6 or absolute tolerance 1e-9 near zero." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:designIceLoadHeight ?heightQuantity ;
+          nltl:spacing ?spacingQuantity ;
+          nltl:longitudinalPlatingFactorF2 ?factorQuantity .
+    ?heightQuantity qudt:numericValue ?height ;
+                    qudt:unit unit:M .
+    ?spacingQuantity qudt:numericValue ?spacing ;
+                     qudt:unit unit:M .
+    ?factorQuantity qudt:numericValue ?factor ;
+                    qudt:unit unit:UNITLESS .
+    FILTER (?spacing > 0)
+    BIND (?height / ?spacing AS ?ratio)
+    BIND (
+        IF(
+            ?ratio <= 1,
+            0.4 / ?ratio + 0.6,
+            IF(?ratio <= 1.8, 1.4 - 0.4 * ?ratio, ?factor)
+        )
+        AS ?expected
+    )
+    BIND (
+        IF(
+            ABS(?expected) > 0.001,
+            ABS(?expected) * 0.000001,
+            0.000000001
+        )
+        AS ?tolerance
+    )
+    FILTER (
+        ?ratio > 1.8 ||
+        ABS(?factor - ?expected) > ?tolerance
+    )
+}
+"""
+    ] .
+
+gen:YieldStrengthShape a sh:NodeShape ;
+    sh:targetSubjectsOf nltl:hullStructuralSteelGrade ;
+    sh:targetSubjectsOf nltl:yieldStrength ;
+    sh:property [
+        sh:path nltl:hullStructuralSteelGrade ;
+        sh:minCount 1 ;
+        sh:message "Hull structural steel grade is required to assess yield strength."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node gen:MegapascalQuantityShape ;
+        sh:message "Yield strength in MPa is required."
+    ] ;
+    sh:sparql [
+        sh:message "Yield strength must be 235 MPa for normal-strength steel or at least 315 MPa for high-strength steel, unless the actual value is approved." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:hullStructuralSteelGrade ?grade ;
+          nltl:yieldStrength ?yieldQuantity .
+    ?yieldQuantity qudt:numericValue ?yieldStrength ;
+                   qudt:unit unit:MegaPA .
+    FILTER (
+        !(
+            (?grade = nltl:normalStrengthHullStructuralSteel &&
+             ?yieldStrength = 235) ||
+            (?grade = nltl:highStrengthHullStructuralSteel &&
+             ?yieldStrength >= 315)
+        ) &&
+        NOT EXISTS {
+            $this nltl:materialApprovalStatus nltl:evidenceStateApproved .
+        }
+    )
+}
+"""
+    ] .
+
+gen:CorrosionAbrasionAdditionShape a sh:NodeShape ;
+    sh:targetSubjectsOf nltl:corrosionAbrasionAddition ;
+    sh:targetSubjectsOf nltl:specialSurfaceCoatingMaintained ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape ;
+        sh:message "Corrosion and abrasion addition in millimetres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:specialSurfaceCoatingMaintained ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        sh:message "The corrosion and abrasion addition must be 2 mm; a lower value requires an approved, maintained special surface coating." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:corrosionAbrasionAddition ?additionQuantity .
+    ?additionQuantity qudt:numericValue ?addition ;
+                      qudt:unit unit:MilliM .
+    FILTER (
+        ?addition != 2 &&
+        !(
+            ?addition < 2 &&
+            EXISTS {
+                $this nltl:specialSurfaceCoatingMaintained "true"^^xsd:boolean ;
+                      nltl:materialApprovalStatus nltl:evidenceStateApproved .
+            }
+        )
+    )
+}
+"""
+    ] .
+<END_SHACL>

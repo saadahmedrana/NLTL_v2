@@ -79,7 +79,7 @@ class RetrievalTests(unittest.TestCase):
             {item["localName"] for item in candidates},
         )
 
-    def test_r6_context_exposes_authoritative_ownership_and_obligations(self) -> None:
+    def test_development_context_exposes_authoritative_ownership_and_obligations(self) -> None:
         config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-batch01.json"
         vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
 
@@ -89,16 +89,50 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(by_name["requiredShearArea"]["requiredOwner"], "webFrame")
 
         envelope_context = vocabulary.build_context_pack("TRF-011")
-        self.assertIn(
-            "Validate that the UIWL is the pointwise upper envelope of all intended ice-operating waterlines; presence alone is insufficient.",
-            envelope_context.selection["semanticObligations"],
+        self.assertTrue(
+            any(
+                "bidirectional pointwise equality" in obligation
+                for obligation in envelope_context.selection["semanticObligations"]
+            )
         )
+
+        resistance_context = vocabulary.build_context_pack("TRF-020")
+        resistance_terms = {term["localName"]: term for term in resistance_context.terms}
+        self.assertEqual(
+            resistance_terms["upperIceWaterlineBreadth"]["requiredOwner"],
+            "iceWaterline",
+        )
+
+        pressure_context = vocabulary.build_context_pack("TRF-025")
+        self.assertIn(
+            "newtonPerMetreToPowerOnePointFiveUnit",
+            {term["localName"] for term in pressure_context.terms},
+        )
+
+        patch_context = vocabulary.build_context_pack("TRF-030")
+        patch_terms = {term["localName"]: term for term in patch_context.terms}
+        self.assertEqual(patch_terms["loadPatchLength"]["requiredOwner"], "directAnalysisCase")
 
         salinity_context = vocabulary.build_context_pack("TRF-015")
         self.assertIn(
             "gramPerKilogramSalinityUnit",
             {term["localName"] for term in salinity_context.terms},
         )
+
+        pressure_context = vocabulary.build_context_pack("TRF-037")
+        pressure_terms = {term["localName"] for term in pressure_context.terms}
+        self.assertIn("hasDirectAnalysisCase", pressure_terms)
+        self.assertEqual(
+            {term["localName"]: term for term in pressure_context.terms}["iceLoadAreaFactorCa"]["requiredOwner"],
+            "directAnalysisCase",
+        )
+
+        plating_context = vocabulary.build_context_pack("TRF-042")
+        self.assertIn("plating", {term["localName"] for term in plating_context.terms})
+        self.assertEqual(plating_context.selection["requiredTargetOwner"], "plating")
+
+        patch_groups = patch_context.selection["exclusivePropertyGroups"]
+        self.assertEqual(patch_groups[0]["id"], "directAnalysisPositionAxis")
 
 
 if __name__ == "__main__":

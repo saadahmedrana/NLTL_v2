@@ -40,6 +40,7 @@ class VocabularyRepository:
         self.requirement_target_owner = dict(self.index_payload.get("requirementTargetOwner", {}))
         self.term_owners = dict(self.index_payload.get("termOwners", {}))
         self.semantic_obligations = dict(self.index_payload.get("semanticObligations", {}))
+        self.exclusive_property_groups = dict(self.index_payload.get("exclusivePropertyGroups", {}))
         if int(self.index_payload.get("requirementCount", -1)) != len(self.requirements):
             raise ConfigurationError("Requirement evidence and requirement-term index counts differ")
 
@@ -192,6 +193,30 @@ class VocabularyRepository:
         for name in INFRASTRUCTURE_DEPENDENCIES:
             reasons[name].append("baseline target infrastructure")
 
+        target_owner = self.requirement_target_owner.get(requirement_id, "ship")
+        reasons[target_owner].append("authoritative requirement target owner")
+        ownership = self.term_owners.get(requirement_id, {})
+        required_owners = {target_owner, *ownership.values()}
+        for owner in required_owners:
+            reasons[owner].append("authoritative required owner class")
+
+        # When a required operand belongs to another node, expose the canonical
+        # object-property path from the target to that owner. This is a general
+        # graph-model expansion and does not encode requirement answer logic.
+        target_iri = NLTL + target_owner
+        for owner in sorted(required_owners - {target_owner}):
+            owner_iri = NLTL + owner
+            for local_name, candidate in self.all_terms.items():
+                if candidate.get("kind") != "ObjectProperty":
+                    continue
+                if str(candidate.get("parentOrRange") or "") != owner_iri:
+                    continue
+                candidate_domains = {str(item) for item in candidate.get("domains", [])}
+                if target_iri in candidate_domains:
+                    reasons[local_name].append(
+                        f"canonical path from target owner {target_owner} to required owner {owner}"
+                    )
+
         indexed_terms = [self.all_terms[name] for name in indexed if name in self.all_terms]
         if any(item.get("module") in {"hull", "machinery"} for item in indexed_terms):
             for name in ("hasComponent", "shipComponent"):
@@ -235,8 +260,6 @@ class VocabularyRepository:
             self._compact(self.all_terms[name], "; ".join(sorted(set(reasons[name]))))
             for name in sorted(reasons)
         ]
-        target_owner = self.requirement_target_owner.get(requirement_id, "ship")
-        ownership = self.term_owners.get(requirement_id, {})
         for term in terms:
             term["requiredOwner"] = ownership.get(term["localName"], target_owner)
         kinds = {item["kind"] for item in terms}
@@ -268,6 +291,7 @@ class VocabularyRepository:
                 "eligibleForGeneration": self.is_generation_eligible(requirement),
                 "requiredTargetOwner": target_owner,
                 "semanticObligations": list(self.semantic_obligations.get(requirement_id, [])),
+                "exclusivePropertyGroups": list(self.exclusive_property_groups.get(requirement_id, [])),
             },
             usage_policy={
                 "useOnlyAllowedCanonicalTerms": True,

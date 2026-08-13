@@ -1,0 +1,154 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LowerIceWaterlineEnvelopeShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:WaterlineShape ;
+        sh:message "At least one intended ice operating waterline with profile data is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:WaterlineShape ;
+        sh:message "A lower ice waterline with profile data is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "At every intended-waterline longitudinal position, each lower ice waterline must have a point whose vertical coordinate equals the lowest intended-waterline coordinate within relative tolerance 1e-6 and absolute fallback 1e-9 m." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?lowerWaterline ?position
+WHERE {
+    $this nltl:hasLowerIceWaterline ?lowerWaterline ;
+          nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+
+    ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+    ?intendedPoint nltl:longitudinalPosition ?positionQuantity .
+    ?positionQuantity qudt:numericValue ?position ;
+                      qudt:unit unit:M .
+
+    FILTER NOT EXISTS {
+        ?lowerWaterline nltl:hasWaterlineProfilePoint ?lowerPoint .
+        ?lowerPoint nltl:longitudinalPosition ?lowerPositionQuantity ;
+                    nltl:verticalCoordinate ?lowerVerticalQuantity .
+        ?lowerPositionQuantity qudt:numericValue ?lowerPosition ;
+                               qudt:unit unit:M .
+        ?lowerVerticalQuantity qudt:numericValue ?lowerVertical ;
+                               qudt:unit unit:M .
+
+        $this nltl:hasIntendedIceOperatingWaterline ?minimumWaterline .
+        ?minimumWaterline nltl:hasWaterlineProfilePoint ?minimumPoint .
+        ?minimumPoint nltl:longitudinalPosition ?minimumPositionQuantity ;
+                      nltl:verticalCoordinate ?minimumVerticalQuantity .
+        ?minimumPositionQuantity qudt:numericValue ?minimumPosition ;
+                                 qudt:unit unit:M .
+        ?minimumVerticalQuantity qudt:numericValue ?minimumVertical ;
+                                 qudt:unit unit:M .
+
+        FILTER(
+            ABS(xsd:decimal(?lowerPosition) - xsd:decimal(?position))
+            <= IF(
+                ABS(xsd:decimal(?position)) * 0.000001 > 0.000000001,
+                ABS(xsd:decimal(?position)) * 0.000001,
+                0.000000001
+            )
+        )
+        FILTER(
+            ABS(xsd:decimal(?minimumPosition) - xsd:decimal(?position))
+            <= IF(
+                ABS(xsd:decimal(?position)) * 0.000001 > 0.000000001,
+                ABS(xsd:decimal(?position)) * 0.000001,
+                0.000000001
+            )
+        )
+        FILTER NOT EXISTS {
+            $this nltl:hasIntendedIceOperatingWaterline ?otherWaterline .
+            ?otherWaterline nltl:hasWaterlineProfilePoint ?otherPoint .
+            ?otherPoint nltl:longitudinalPosition ?otherPositionQuantity ;
+                        nltl:verticalCoordinate ?otherVerticalQuantity .
+            ?otherPositionQuantity qudt:numericValue ?otherPosition ;
+                                   qudt:unit unit:M .
+            ?otherVerticalQuantity qudt:numericValue ?otherVertical ;
+                                   qudt:unit unit:M .
+            FILTER(
+                ABS(xsd:decimal(?otherPosition) - xsd:decimal(?position))
+                <= IF(
+                    ABS(xsd:decimal(?position)) * 0.000001 > 0.000000001,
+                    ABS(xsd:decimal(?position)) * 0.000001,
+                    0.000000001
+                )
+            )
+            FILTER(xsd:decimal(?otherVertical) < xsd:decimal(?minimumVertical))
+        }
+        FILTER(
+            ABS(xsd:decimal(?lowerVertical) - xsd:decimal(?minimumVertical))
+            <= IF(
+                ABS(xsd:decimal(?minimumVertical)) * 0.000001 > 0.000000001,
+                ABS(xsd:decimal(?minimumVertical)) * 0.000001,
+                0.000000001
+            )
+        )
+    }
+}
+"""
+    ] .
+
+gen:WaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:WaterlineProfilePointShape ;
+        sh:message "A waterline must provide at least one profile point."
+    ] .
+
+gen:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape ;
+        sh:message "Each waterline profile point must have exactly one longitudinal position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape ;
+        sh:message "Each waterline profile point must have exactly one vertical coordinate in metres."
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:message "A length quantity must have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:message "Waterline coordinates must use metres."
+    ] .
+<END_SHACL>

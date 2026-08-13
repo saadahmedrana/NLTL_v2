@@ -8,13 +8,16 @@ const batchRoot = process.argv[2]
 const batch = JSON.parse(await fs.readFile(path.join(batchRoot, "batch_definition.json"), "utf8"));
 const preflight = JSON.parse(await fs.readFile(path.join(batchRoot, "engineering_preflight.json"), "utf8"));
 const projectRoot = path.resolve(batchRoot, "../../..");
-const devRoot = path.join(projectRoot, "BENCHMARK_VOCABULARY", "DEVELOPMENT", "DEV_R6_BATCH01");
+const devRoot = path.join(projectRoot, "BENCHMARK_VOCABULARY", "DEVELOPMENT", "DEV_R8_STABILIZATION");
 const devManifest = JSON.parse(await fs.readFile(path.join(devRoot, "development_manifest.json"), "utf8"));
 const devRegistry = JSON.parse(await fs.readFile(path.join(devRoot, "registry", "term_registry.json"), "utf8"));
 const devIndex = JSON.parse(await fs.readFile(path.join(devRoot, "requirement_term_index.json"), "utf8"));
 const fixtureCatalog = JSON.parse(await fs.readFile(path.join(batchRoot, "rdf_fixtures", "fixture_catalog.json"), "utf8"));
 const fixtureValidation = JSON.parse(await fs.readFile(path.join(batchRoot, "rdf_fixtures", "validation_report.json"), "utf8"));
-const calibrationAnalysis = JSON.parse(await fs.readFile(path.join(batchRoot, "r3_calibration_analysis.json"), "utf8"));
+const calibrationAnalysis = JSON.parse(await fs.readFile(path.join(batchRoot, "r7_calibration_analysis.json"), "utf8"));
+const evaluationPath = path.join(projectRoot, "SHACL_GENERATION_PIPELINE", "outputs", "development_batch01", "evaluations", "EVAL-BATCH01-R7-ACCEPTED-SHAPES-20260813T070815332270Z", "evaluation_results.jsonl");
+const evaluationRows = (await fs.readFile(evaluationPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+const evaluationByCase = new Map(evaluationRows.map((row) => [row.case_id, row]));
 const outputPath = path.join(batchRoot, "batch01_vocabulary_and_fixture_tracker.xlsx");
 
 const colors = {
@@ -76,7 +79,7 @@ function addSheet(workbook, name, headers, rows, widths = {}) {
 }
 
 const workbook = Workbook.create();
-for (const name of ["README", "REQUIREMENTS", "PREFLIGHT", "DRAFT_TERMS", "R2_INDEX_GAPS", "DEVELOPMENT_TERMS", "OWNERSHIP", "RDF_CASES", "CALIBRATION_ANALYSIS"]) {
+for (const name of ["README", "REQUIREMENTS", "PREFLIGHT", "DRAFT_TERMS", "R2_INDEX_GAPS", "DEVELOPMENT_TERMS", "OWNERSHIP", "STABILIZATION", "RDF_CASES", "CALIBRATION_ANALYSIS"]) {
   workbook.worksheets.add(name);
 }
 const summary = workbook.worksheets.add("SUMMARY");
@@ -88,7 +91,7 @@ summary.getRange("A2:D2").format = { fill: colors.pale, font: { italic: true, co
 summary.getRange("A2").values = [["First 50 eligible requirements | engineering preflight"]];
 summary.getRange("A4:B4").values = [["METRIC", "VALUE"]];
 summary.getRange("A4:B4").format = { fill: colors.teal, font: { bold: true, color: colors.white } };
-summary.getRange("A5:A14").values = [["Requirements"], ["Static"], ["Static Calculation"], ["Planned minimum RDF variants"], ["Unique draft terms/values"], ["Ready-after-index-check decisions"], ["R6 development registry terms"], ["R6 development additions"], ["Authored RDF cases"], ["RDF fixture validation"]];
+summary.getRange("A5:A14").values = [["Requirements"], ["Static"], ["Static Calculation"], ["Planned minimum RDF variants"], ["Unique draft terms/values"], ["Ready-after-index-check decisions"], ["R8 stabilization registry terms"], ["R8 cumulative development additions"], ["Authored RDF cases"], ["RDF fixture validation"]];
 summary.getRange("B5:B14").formulas = [
   ["=COUNTA('REQUIREMENTS'!$B$5:$B$54)"],
   ["=COUNTIF('REQUIREMENTS'!$G$5:$G$54,\"Static\")"],
@@ -106,15 +109,15 @@ summary.getRange("B5:B13").format.numberFormat = "#,##0";
 summary.getRange("A16:D20").values = [
   ["PHASE", "Vocabulary development/calibration; do not report as final benchmark accuracy.", "", ""],
   ["ORDER", "RDF expectations are created before fresh SHACL generation.", "", ""],
-  ["VOCABULARY", "R2 is the source baseline; R6 adds authoritative requirement-scoped term ownership after the R5 generation and RDF-evaluation findings.", "", ""],
+  ["VOCABULARY", "R2 is the source baseline; R8 stabilization preserves R7 and repairs two existing-term context gaps without adding vocabulary terms.", "", ""],
   ["LEAKAGE", "Development fixtures become regression tests. Official evaluation will be regenerated after the final vocabulary/pipeline freeze.", "", ""],
-  ["NEXT GATE", "Rerun the R6 affected queue, evaluate its hash-bound RDF fixtures, and scale only after the first-50 gate is clean.", "", ""],
+  ["NEXT GATE", "Run a small non-official confirmation set only if desired, then scale to the remaining eligible requirements. Do not reopen first-50 prompt tuning unless a new general failure class is proven.", "", ""],
 ];
 summary.getRange("A16:A20").format = { fill: colors.pale, font: { bold: true, color: colors.navy } };
 summary.getRange("B16:D20").format.wrapText = true;
 summary.getRange("A16:D20").format.rowHeight = 38;
 summary.getRange("A1:D20").format.font.name = "Aptos";
-summary.getRange("A1:A20").format.columnWidth = 28;
+summary.getRange("A1:A20").format.columnWidth = 40;
 summary.getRange("B1:B20").format.columnWidth = 82;
 summary.freezePanes.freezeRows(4);
 
@@ -128,6 +131,7 @@ const readmeSheet = addSheet(workbook, "README", ["SECTION", "DETAIL"], [
   ["DEVELOPMENT BINDING", devManifest.developmentId],
   ["DEVELOPMENT STATUS", devManifest.status],
   ["RDF FIXTURES", `${fixtureCatalog.cases} cases; ${fixtureValidation.status}; one pass, one fail and one boundary/non-applicability case per requirement.`],
+  ["STABILIZATION", "R8 repairs context delivery for TRF-037 and TRF-042 and adds deterministic guards for brittle numeric equality and mutually exclusive case properties."],
   ["NO ANSWER LOGIC", "Draft vocabulary terms must represent observations, entities, relations, quantities or evidence - never a precomputed compliance answer."],
 ], { SECTION: 28, DETAIL: 95 });
 readmeSheet.getRange("B5:B14").format.wrapText = true;
@@ -143,8 +147,8 @@ const requirementRows = batch.requirements.map((r) => [
 addSheet(workbook, "REQUIREMENTS", [
   "SEQUENCE", "REQUIREMENT_ID", "SOURCE_SHEET", "PAGE", "CLAUSE", "EDITION", "CATEGORY",
   "ENCODING_PATTERN", "R2_INDEXED_TERM_COUNT", "R2_INDEXED_TERMS", "FIXTURE_PATTERN",
-  "MINIMUM_FIXTURE_VARIANTS", "R6_DEV_INDEXED_TERM_COUNT", "R6_DEV_INDEXED_TERMS", "NORMALIZED_REQUIREMENT",
-], requirementRows, { EDITION: 36, CATEGORY: 22, ENCODING_PATTERN: 30, R6_DEV_INDEXED_TERMS: 64, NORMALIZED_REQUIREMENT: 80 });
+  "MINIMUM_FIXTURE_VARIANTS", "R8_DEV_INDEXED_TERM_COUNT", "R8_DEV_INDEXED_TERMS", "NORMALIZED_REQUIREMENT",
+], requirementRows, { EDITION: 36, CATEGORY: 22, ENCODING_PATTERN: 30, R7_DEV_INDEXED_TERMS: 64, NORMALIZED_REQUIREMENT: 80 });
 
 const preflightRows = preflight.requirements.map((r) => [
   r.sequence, r.requirement_id, r.page, r.clause, r.decision,
@@ -166,7 +170,7 @@ for (const row of preflight.requirements) {
   }
 }
 const termRows = [...termMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([term, ids], index) => [
-  term, ids.join(" | "), ids.length, "PROVISIONAL", "Initial preflight term retained for comparison with the consolidated R6 registry.",
+  term, ids.join(" | "), ids.length, "PROVISIONAL", "Initial preflight term retained for comparison with the consolidated R7 registry.",
 ]);
 addSheet(workbook, "DRAFT_TERMS", ["DRAFT_LOCAL_NAME", "REQUIREMENT_IDS", "REQUIREMENT_COUNT", "STATUS", "NEXT_REVIEW"], termRows,
   { DRAFT_LOCAL_NAME: 46, REQUIREMENT_IDS: 42, STATUS: 18, NEXT_REVIEW: 72 });
@@ -201,10 +205,28 @@ addSheet(workbook, "OWNERSHIP", [
   "REQUIREMENT_ID", "TARGET_OWNER", "LOCAL_NAME", "REQUIRED_OWNER", "SEMANTIC_OBLIGATIONS", "STATUS",
 ], ownershipRows, { TARGET_OWNER: 34, LOCAL_NAME: 46, REQUIRED_OWNER: 34, SEMANTIC_OBLIGATIONS: 90, STATUS: 38 });
 
+const stabilizationRows = [
+  ["TRF-037", "CONTEXT_INDEX_GAP", "hasDirectAnalysisCase existed in R7 but was absent from the scoped context; iceLoadAreaFactorCa ownership also needed the directAnalysisCase path.", "RESOLVED", "Index hasDirectAnalysisCase and directAnalysisCase; mark ca owner; generic owner-path expansion supplies canonical object-property paths."],
+  ["TRF-042", "CONTEXT_INDEX_GAP", "plating existed in R7 and was the authoritative target owner, but the class was not in the scoped context.", "RESOLVED", "Index the existing plating class and always include the authoritative target-owner class."],
+  ["TRF-022 | TRF-027", "NUMERIC_SERIALIZATION", "Numeric sh:hasValue on qudt:numericValue rejected equivalent decimal lexical forms.", "RESOLVED_GENERAL_GUARD", "Static validator rejects numeric sh:hasValue; prompts require equal numeric bounds for constants and tolerance for derived results."],
+  ["TRF-030", "NODE_MODEL_OVERCONSTRAINT", "A case shape could require both vertical and horizontal position properties although cases represent alternative axes.", "RESOLVED_GENERAL_GUARD", "Verified exclusivePropertyGroups metadata plus deterministic conjunctive-shape rejection."],
+  ["TRF-025", "TOLERANCE_SCALE", "Generated C2 tolerance was based on the reported value rather than the expected formula result.", "RESOLVED_GENERAL_GUIDANCE", "Generator and validator now require derived tolerances to scale from the expected result."],
+  ["TRF-011", "GENERATOR_SYNTAX", "Final repair contained a stray token and invalid Turtle.", "ALREADY_BLOCKED_AND_GUIDANCE_STRENGTHENED", "Existing parser gate prevents acceptance; generator now performs an explicit pre-return syntax self-check."],
+  ["ALL", "STATUS_CLASSIFICATION", "Matcher exhaustion was previously labeled VOCABULARY_GAP even when a canonical term might exist outside retrieval candidates.", "RESOLVED", "Runtime status is TERM_RESOLUTION_UNRESOLVED; a true vocabulary gap requires registry/index audit evidence."],
+];
+const stabilizationSheet = addSheet(workbook, "STABILIZATION", [
+  "REQUIREMENT_ID", "FAILURE_CLASS", "R7_EVIDENCE", "R8_STATUS", "ENGINEERING_RESOLUTION",
+], stabilizationRows, { REQUIREMENT_ID: 28, FAILURE_CLASS: 34, R7_EVIDENCE: 82, R8_STATUS: 38, ENGINEERING_RESOLUTION: 90 });
+stabilizationSheet.getRange("C5:E11").format.wrapText = true;
+stabilizationSheet.getRange("A5:E11").format.rowHeight = 54;
+
 const rdfRows = fixtureCatalog.caseRecords.map((item) => [
   item.caseId, item.requirementId, item.caseKind, item.expectedConforms, item.sourcePage, item.sourceClause,
   item.scenarioBasis, item.rdfFile, item.rdfSha256, item.tripleCount, item.developmentVocabularyId,
-  item.calibrationOnly ? "YES" : "NO", "NOT_RUN",
+  item.calibrationOnly ? "YES" : "NO",
+  evaluationByCase.has(item.caseId)
+    ? (evaluationByCase.get(item.caseId).expected_match ? "EXPECTED_MATCH" : "EXPECTED_MISMATCH")
+    : "NOT_IN_R7_ACCEPTED_SET",
 ]);
 addSheet(workbook, "RDF_CASES", [
   "CASE_ID", "REQUIREMENT_ID", "CASE_KIND", "EXPECTED_CONFORMS", "SOURCE_PAGE", "SOURCE_CLAUSE",
@@ -213,19 +235,19 @@ addSheet(workbook, "RDF_CASES", [
 ], rdfRows, { CASE_ID: 34, CASE_KIND: 18, SCENARIO_BASIS: 68, RDF_FILE: 72, RDF_SHA256: 68, DEVELOPMENT_VOCABULARY_ID: 38, EXECUTION_STATUS: 22 });
 
 const analysisRows = calibrationAnalysis.rows.map((item) => [
-  item.requirement_id, item.r3_run_id, item.r3_generation_status, item.r3_attempts,
-  item.r3_accepted ? "TRUE" : "FALSE", item.r3_evaluated_cases, item.r3_execution_failures,
-  item.r3_expectation_mismatches, item.classification, item.r4_action, item.rationale, item.final_feedback,
+  item.requirement_id, item.run_id, item.generation_status, item.semantic_attempts,
+  item.accepted ? "TRUE" : "FALSE", item.api_calls, item.evaluated_cases,
+  item.expected_matches, item.classification, item.final_feedback,
 ]);
 addSheet(workbook, "CALIBRATION_ANALYSIS", [
-  "REQUIREMENT_ID", "R3_RUN_ID", "R3_GENERATION_STATUS", "R3_ATTEMPTS", "R3_ACCEPTED",
-  "R3_EVALUATED_CASES", "R3_EXECUTION_FAILURES", "R3_EXPECTATION_MISMATCHES",
-  "CLASSIFICATION", "R4_ACTION", "RATIONALE", "FINAL_FEEDBACK",
+  "REQUIREMENT_ID", "R7_RUN_ID", "R7_GENERATION_STATUS", "R7_SEMANTIC_ATTEMPTS", "R7_ACCEPTED",
+  "R7_API_CALLS", "R7_EVALUATED_CASES", "R7_EXPECTED_MATCHES",
+  "CLASSIFICATION", "FINAL_FEEDBACK",
 ], analysisRows, {
-  R3_RUN_ID: 48, R3_GENERATION_STATUS: 28, CLASSIFICATION: 34, R4_ACTION: 30,
-  RATIONALE: 72, FINAL_FEEDBACK: 90,
+  R7_RUN_ID: 48, R7_GENERATION_STATUS: 28, CLASSIFICATION: 34,
+  FINAL_FEEDBACK: 90,
 });
 
 const output = await SpreadsheetFile.exportXlsx(workbook);
 await output.save(outputPath);
-console.log(JSON.stringify({ output: outputPath, sheets: 10, requirements: requirementRows.length, draftTerms: termRows.length, developmentTerms: developmentRows.length, ownershipRows: ownershipRows.length, rdfCases: rdfRows.length, analysisRows: analysisRows.length, indexGaps: gapRows.length }));
+console.log(JSON.stringify({ output: outputPath, sheets: 11, requirements: requirementRows.length, draftTerms: termRows.length, developmentTerms: developmentRows.length, ownershipRows: ownershipRows.length, stabilizationRows: stabilizationRows.length, rdfCases: rdfRows.length, analysisRows: analysisRows.length, indexGaps: gapRows.length }));

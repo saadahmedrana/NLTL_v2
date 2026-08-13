@@ -1,0 +1,491 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF020Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:constructionStageDate ;
+                sh:datatype xsd:date ;
+                sh:maxExclusive "2003-09-01"^^xsd:date ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:in (
+                    nltl:iceClassIi
+                    nltl:iceClassIii
+                ) ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        gs:ApplicableShipShape
+    ) .
+
+gs:ApplicableShipShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "2003-09-01"^^xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gs:UpperIceWaterlineInputShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:node gs:PositiveMetreValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:brashIceChannelResistanceAtUpperIceWaterline ;
+        sh:node gs:NonNegativeNewtonValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:brashIceChannelResistanceAtLowerIceWaterline ;
+        sh:node gs:NonNegativeNewtonValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:minimumRequiredPowerAtUpperIceWaterline ;
+        sh:node gs:NonNegativeKilowattValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:minimumRequiredPowerAtLowerIceWaterline ;
+        sh:node gs:NonNegativeKilowattValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:node gs:NonNegativeKilowattValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        gs:OnePropellerLowerCoefficientCase
+        gs:OnePropellerHigherCoefficientCase
+        gs:TwoPropellerLowerCoefficientCase
+        gs:TwoPropellerHigherCoefficientCase
+        gs:ThreePropellerLowerCoefficientCase
+        gs:ThreePropellerHigherCoefficientCase
+    ) ;
+    sh:sparql [
+        sh:message "Each draught-specific minimum power must satisfy formula 3.1 within a squared-equation relative tolerance of 2.000001e-6 (absolute fallback 1e-12), and MCR power must be no less than both minimum powers." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:engineOutputCoefficientKe/qudt:numericValue ?ke ;
+                      nltl:propellerDiameter/qudt:numericValue ?diameter ;
+                      nltl:brashIceChannelResistanceAtUpperIceWaterline/qudt:numericValue ?upperResistance ;
+                      nltl:brashIceChannelResistanceAtLowerIceWaterline/qudt:numericValue ?lowerResistance ;
+                      nltl:minimumRequiredPowerAtUpperIceWaterline/qudt:numericValue ?upperPower ;
+                      nltl:minimumRequiredPowerAtLowerIceWaterline/qudt:numericValue ?lowerPower ;
+                      nltl:maximumContinuousRatingPower/qudt:numericValue ?mcrPower .
+
+                BIND (?upperResistance / 1000.0 AS ?upperResistanceKilonewtons)
+                BIND (?lowerResistance / 1000.0 AS ?lowerResistanceKilonewtons)
+
+                BIND (
+                    (?ke * ?ke *
+                     ?upperResistanceKilonewtons *
+                     ?upperResistanceKilonewtons *
+                     ?upperResistanceKilonewtons) /
+                    (?diameter * ?diameter)
+                    AS ?expectedUpperSquared
+                )
+                BIND (
+                    (?ke * ?ke *
+                     ?lowerResistanceKilonewtons *
+                     ?lowerResistanceKilonewtons *
+                     ?lowerResistanceKilonewtons) /
+                    (?diameter * ?diameter)
+                    AS ?expectedLowerSquared
+                )
+
+                BIND (?upperPower * ?upperPower AS ?actualUpperSquared)
+                BIND (?lowerPower * ?lowerPower AS ?actualLowerSquared)
+
+                BIND (
+                    IF(
+                        ABS(?expectedUpperSquared) > 0.000000000001,
+                        ABS(?expectedUpperSquared) * 0.000002000001,
+                        0.000000000001
+                    )
+                    AS ?upperTolerance
+                )
+                BIND (
+                    IF(
+                        ABS(?expectedLowerSquared) > 0.000000000001,
+                        ABS(?expectedLowerSquared) * 0.000002000001,
+                        0.000000000001
+                    )
+                    AS ?lowerTolerance
+                )
+
+                FILTER (
+                    ABS(?actualUpperSquared - ?expectedUpperSquared) > ?upperTolerance ||
+                    ABS(?actualLowerSquared - ?expectedLowerSquared) > ?lowerTolerance ||
+                    ?mcrPower < ?upperPower ||
+                    ?mcrPower < ?lowerPower
+                )
+            }
+        """
+    ] .
+
+gs:UpperIceWaterlineInputShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLength ;
+        sh:node gs:PositiveMetreValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineBreadth ;
+        sh:node gs:PositiveMetreValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:PositiveMetreValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:NonNegativeNewtonValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:N ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:NonNegativeKilowattValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloW ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:OnePropellerLowerCoefficientCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerCount ;
+        sh:datatype xsd:integer ;
+        sh:hasValue 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:node gs:LowerCoefficientPropulsionCase ;
+    sh:property [
+        sh:path nltl:engineOutputCoefficientKe ;
+        sh:node gs:Coefficient203Shape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:OnePropellerHigherCoefficientCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerCount ;
+        sh:datatype xsd:integer ;
+        sh:hasValue 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:node gs:HigherCoefficientPropulsionCase ;
+    sh:property [
+        sh:path nltl:engineOutputCoefficientKe ;
+        sh:node gs:Coefficient226Shape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TwoPropellerLowerCoefficientCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerCount ;
+        sh:datatype xsd:integer ;
+        sh:hasValue 2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:node gs:LowerCoefficientPropulsionCase ;
+    sh:property [
+        sh:path nltl:engineOutputCoefficientKe ;
+        sh:node gs:Coefficient144Shape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TwoPropellerHigherCoefficientCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerCount ;
+        sh:datatype xsd:integer ;
+        sh:hasValue 2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:node gs:HigherCoefficientPropulsionCase ;
+    sh:property [
+        sh:path nltl:engineOutputCoefficientKe ;
+        sh:node gs:Coefficient160Shape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:ThreePropellerLowerCoefficientCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerCount ;
+        sh:datatype xsd:integer ;
+        sh:hasValue 3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:node gs:LowerCoefficientPropulsionCase ;
+    sh:property [
+        sh:path nltl:engineOutputCoefficientKe ;
+        sh:node gs:Coefficient118Shape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:ThreePropellerHigherCoefficientCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerCount ;
+        sh:datatype xsd:integer ;
+        sh:hasValue 3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:node gs:HigherCoefficientPropulsionCase ;
+    sh:property [
+        sh:path nltl:engineOutputCoefficientKe ;
+        sh:node gs:Coefficient131Shape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:LowerCoefficientPropulsionCase
+    a sh:NodeShape ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:propulsionSystemType ;
+                sh:hasValue nltl:conventionalPropulsionSystem ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchControlType ;
+                sh:hasValue nltl:controllablePitch ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propulsionSystemType ;
+                sh:hasValue nltl:electricPropulsionMachinery ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propulsionSystemType ;
+                sh:hasValue nltl:hydraulicPropulsionMachinery ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) .
+
+gs:HigherCoefficientPropulsionCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propulsionSystemType ;
+        sh:hasValue nltl:conventionalPropulsionSystem ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchControlType ;
+        sh:hasValue nltl:fixedPitch ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:Coefficient203Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:hasValue 2.03 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:Coefficient226Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:hasValue 2.26 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:Coefficient144Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:hasValue 1.44 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:Coefficient160Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:hasValue 1.60 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:Coefficient118Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:hasValue 1.18 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:Coefficient131Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:hasValue 1.31 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

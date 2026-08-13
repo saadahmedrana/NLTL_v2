@@ -1,0 +1,175 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LowerIceWaterlineEnvelopeShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "At least one intended ice operating waterline with a complete profile is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one lower ice waterline with a complete profile is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The lower ice waterline must contain exactly the minimum intended vertical envelope and no non-envelope profile points." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT DISTINCT $this
+WHERE {
+    {
+        SELECT $this ?kind ?anchor
+        WHERE {
+            {
+                SELECT $this ?intendedX (MIN(?intendedZ) AS ?minimumZ)
+                WHERE {
+                    $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+                    ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+                    ?intendedPoint
+                        nltl:longitudinalPosition ?intendedXQuantity ;
+                        nltl:verticalCoordinate ?intendedZQuantity .
+                    ?intendedXQuantity
+                        qudt:numericValue ?intendedX ;
+                        qudt:unit unit:M .
+                    ?intendedZQuantity
+                        qudt:numericValue ?intendedZ ;
+                        qudt:unit unit:M .
+                    FILTER(
+                        datatype(?intendedX) = xsd:decimal &&
+                        datatype(?intendedZ) = xsd:decimal
+                    )
+                }
+                GROUP BY $this ?intendedX
+            }
+
+            $this nltl:hasLowerIceWaterline ?lowerWaterline .
+            ?lowerWaterline nltl:hasWaterlineProfilePoint ?lowerPoint .
+            ?lowerPoint
+                nltl:longitudinalPosition ?lowerXQuantity ;
+                nltl:verticalCoordinate ?lowerZQuantity .
+            ?lowerXQuantity
+                qudt:numericValue ?lowerX ;
+                qudt:unit unit:M .
+            ?lowerZQuantity
+                qudt:numericValue ?lowerZ ;
+                qudt:unit unit:M .
+            FILTER(
+                datatype(?lowerX) = xsd:decimal &&
+                datatype(?lowerZ) = xsd:decimal
+            )
+
+            {
+                BIND("intended-position" AS ?kind)
+                BIND(?intendedX AS ?anchor)
+            }
+            UNION
+            {
+                BIND("lower-profile-point" AS ?kind)
+                BIND(?lowerPoint AS ?anchor)
+            }
+        }
+        GROUP BY $this ?kind ?anchor
+        HAVING(
+            MAX(
+                IF(
+                    (
+                        ABS(?lowerX - ?intendedX) <= 0.000000001 ||
+                        ABS(?lowerX - ?intendedX) <=
+                            0.000001 *
+                            IF(
+                                ABS(?lowerX) > ABS(?intendedX),
+                                ABS(?lowerX),
+                                ABS(?intendedX)
+                            )
+                    )
+                    &&
+                    (
+                        ABS(?lowerZ - ?minimumZ) <= 0.000000001 ||
+                        ABS(?lowerZ - ?minimumZ) <=
+                            0.000001 *
+                            IF(
+                                ABS(?lowerZ) > ABS(?minimumZ),
+                                ABS(?lowerZ),
+                                ABS(?minimumZ)
+                            )
+                    ),
+                    1,
+                    0
+                )
+            ) = 0
+        )
+    }
+}
+"""
+    ] .
+
+gen:IceWaterlineShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:IRI ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:WaterlineProfilePointShape ;
+        sh:minCount 1 ;
+        sh:message "An ice waterline must have at least one complete profile point."
+    ] .
+
+gen:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:IRI ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:class qudt:QuantityValue ;
+        sh:node gen:MetreDecimalQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each waterline profile point must have exactly one longitudinal position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:class qudt:QuantityValue ;
+        sh:node gen:MetreDecimalQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each waterline profile point must have exactly one vertical coordinate in metres."
+    ] .
+
+gen:MetreDecimalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity must have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity must use metre as its sole unit."
+    ] .

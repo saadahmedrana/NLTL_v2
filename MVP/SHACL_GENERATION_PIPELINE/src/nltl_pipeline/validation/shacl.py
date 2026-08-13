@@ -10,10 +10,15 @@ from rdflib.plugins.sparql.parser import parseQuery
 
 from ..models import ContextPack, StaticValidationReport
 from ..retrieval.context import NLTL, VocabularyRepository
+from .sparql_extensions import MATH_NAMESPACE, register_math_functions
+
+
+register_math_functions()
 
 
 BEGIN = "<BEGIN_SHACL>"
 END = "<END_SHACL>"
+QUDT_NUMERIC_VALUE = URIRef("http://qudt.org/schema/qudt/numericValue")
 FULL_NLTL_IRI_RE = re.compile(r"<((?:https://w3id\.org/nltl-benchmark/vocab#)[A-Za-z_][A-Za-z0-9_]*)>")
 CURIE_RE = re.compile(r"\bnltl:([A-Za-z_][A-Za-z0-9_]*)\b")
 PREFIX_RE = re.compile(r"\bPREFIX\s+([A-Za-z_][A-Za-z0-9_-]*):\s*<([^>]+)>", re.IGNORECASE)
@@ -34,6 +39,7 @@ APPROVED_EXTERNAL_NAMESPACES = (
     "http://www.w3.org/ns/ssn/",
     "http://www.w3.org/2004/02/skos/core#",
     "http://purl.org/dc/terms/",
+    MATH_NAMESPACE,
     "urn:nltl:generated-shape:",
     "https://w3id.org/nltl-benchmark/generated-shapes/",
 )
@@ -229,12 +235,17 @@ class ShaclStaticValidator:
                     "Embedded SHACL-SPARQL nests OPTIONAL inside FILTER NOT EXISTS; "
                     "use SHACL Core for required fields and a bounded positive formula pattern"
                 )
+            if re.search(r"(?<![:A-Za-z0-9_])(SIN|COS|TAN|ATAN)\s*\(", query_text, re.IGNORECASE):
+                errors.append(
+                    "Bare trigonometric SPARQL functions are unsupported; use the registered "
+                    "XPath math IRIs math:sin, math:cos, math:tan, and math:atan"
+                )
             try:
                 parseQuery(query_text)
             except Exception as exc:
                 errors.append(f"Embedded SHACL-SPARQL parse error: {exc}")
             declared_prefixes = {prefix.lower() for prefix, _namespace in PREFIX_RE.findall(query_text)}
-            for prefix in ("nltl", "xsd", "rdf", "rdfs", "owl", "sh", "qudt", "unit"):
+            for prefix in ("nltl", "xsd", "rdf", "rdfs", "owl", "sh", "qudt", "unit", "math"):
                 if re.search(rf"\b{prefix}:[A-Za-z_]", query_text, re.IGNORECASE) and prefix not in declared_prefixes:
                     errors.append(
                         f"Embedded SHACL-SPARQL uses prefix {prefix}: without declaring it inside the query"
@@ -296,6 +307,52 @@ class ShaclStaticValidator:
                 errors.append(
                     f"Quantity property {record['localName']} must point to a QUDT QuantityValue node, not a direct literal datatype"
                 )
+
+        # Numeric RDF literal equality is datatype-and-lexical-form sensitive.
+        # Equivalent values such as 845 and 845.0 can therefore compare unequal
+        # under sh:hasValue. Bounds and tolerances are portable across serializers.
+        numeric_datatypes = {
+            XSD.decimal, XSD.double, XSD.float, XSD.integer, XSD.long, XSD.int,
+            XSD.short, XSD.byte, XSD.nonNegativeInteger, XSD.positiveInteger,
+            XSD.nonPositiveInteger, XSD.negativeInteger, XSD.unsignedLong,
+            XSD.unsignedInt, XSD.unsignedShort, XSD.unsignedByte,
+        }
+        for property_shape in graph.subjects(SH.path, QUDT_NUMERIC_VALUE):
+            for required_value in graph.objects(property_shape, SH.hasValue):
+                if isinstance(required_value, Literal) and required_value.datatype in numeric_datatypes:
+                    datatype_unit_valid = False
+                    errors.append(
+                        "Numeric qudt:numericValue uses sh:hasValue, which is lexical-form brittle; "
+                        "use equal inclusive numeric bounds for an exact regulatory constant or "
+                        "an explicit tolerance interval for a derived result"
+                    )
+
+        for group in context.selection.get("exclusivePropertyGroups", []):
+            alternatives = group.get("alternatives", []) if isinstance(group, dict) else []
+            if len(alternatives) < 2:
+                continue
+            alternative_iris = [
+                {URIRef(NLTL + str(local_name)) for local_name in alternative}
+                for alternative in alternatives
+            ]
+            for parent in set(graph.subjects(SH.property, None)):
+                mandatory_paths: set[URIRef] = set()
+                for property_shape in graph.objects(parent, SH.property):
+                    path = graph.value(property_shape, SH.path)
+                    minimum = graph.value(property_shape, SH.minCount)
+                    if isinstance(path, URIRef) and isinstance(minimum, Literal):
+                        try:
+                            if int(minimum) >= 1:
+                                mandatory_paths.add(path)
+                        except (TypeError, ValueError):
+                            pass
+                if all(mandatory_paths & alternative for alternative in alternative_iris):
+                    shacl_structure_valid = False
+                    errors.append(
+                        f"Mutually exclusive property alternatives in {group.get('id', 'declared group')} "
+                        "are mandatory on the same node shape; encode separate positive branches or case shapes"
+                    )
+                    break
 
         for shape, _, target_class in graph.triples((None, SH.targetClass, None)):
             if isinstance(target_class, URIRef) and str(target_class) in by_iri:

@@ -361,16 +361,16 @@ class PipelineRunner:
                         iteration=iteration,
                     )
                     if not candidates:
-                        final_status = "VOCABULARY_GAP"
+                        final_status = "TERM_RESOLUTION_UNRESOLVED"
                         final_feedback = "Deterministic search found no plausible canonical candidate. " + feedback
                         logger.emit(
                             "unresolved_issue",
                             iteration=iteration,
-                            issue_type="VOCABULARY_GAP",
+                            issue_type="TERM_RESOLUTION_UNRESOLVED",
                             detail=final_feedback,
                             status="OPEN",
                         )
-                        decision_label = "STOP_VOCABULARY_GAP"
+                        decision_label = "STOP_TERM_RESOLUTION"
                     else:
                         matcher_user = self.prompts.matcher_user(context, semantic_feedback, suspicious, candidates)
                         allowed_candidates = {(item["localName"], item["iri"]) for item in candidates}
@@ -405,16 +405,16 @@ class PipelineRunner:
                             feedback_appendix=matcher_decision.feedback_appendix,
                         )
                         if not matcher_decision.match_found:
-                            final_status = "VOCABULARY_GAP"
+                            final_status = "TERM_RESOLUTION_UNRESOLVED"
                             final_feedback = matcher_decision.feedback_appendix or feedback
                             logger.emit(
                                 "unresolved_issue",
                                 iteration=iteration,
-                                issue_type="VOCABULARY_GAP",
+                                issue_type="TERM_RESOLUTION_UNRESOLVED",
                                 detail=final_feedback,
                                 status="OPEN",
                             )
-                            decision_label = "STOP_VOCABULARY_GAP"
+                            decision_label = "STOP_TERM_RESOLUTION"
                         else:
                             additional_terms.add(matcher_decision.canonical_local_name)
                             current_repair = (
@@ -447,7 +447,7 @@ class PipelineRunner:
                     generator_elapsed_ms=generator_result.elapsed_ms,
                     validator_elapsed_ms=validator_result.elapsed_ms,
                 )
-                if final_status == "VOCABULARY_GAP":
+                if final_status == "TERM_RESOLUTION_UNRESOLVED":
                     break
             else:
                 logger.emit(

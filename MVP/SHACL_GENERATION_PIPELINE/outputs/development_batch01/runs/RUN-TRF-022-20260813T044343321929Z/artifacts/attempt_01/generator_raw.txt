@@ -1,0 +1,371 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF022Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:bowRakeAtQuarterBreadth ;
+        sh:minCount 1 ;
+        sh:node gen:DegreeQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:waterlineAngleAtQuarterBreadth ;
+        sh:minCount 1 ;
+        sh:node gen:DegreeQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:flareAngle ;
+        sh:minCount 1 ;
+        sh:node gen:DegreeQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:shipLength ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassDraught ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:shipBreadth ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:clampedHullGeometryTerm ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientC3 ;
+        sh:minCount 1 ;
+        sh:node gen:C3Quantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientC4 ;
+        sh:minCount 1 ;
+        sh:node gen:C4Quantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientC5 ;
+        sh:minCount 1 ;
+        sh:node gen:C5Quantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientF1 ;
+        sh:minCount 1 ;
+        sh:node gen:F1Quantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientF2 ;
+        sh:minCount 1 ;
+        sh:node gen:F2Quantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientF3 ;
+        sh:minCount 1 ;
+        sh:node gen:F3Quantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientF4 ;
+        sh:minCount 1 ;
+        sh:node gen:F4Quantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientG1 ;
+        sh:minCount 1 ;
+        sh:node gen:G1Quantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientG2 ;
+        sh:minCount 1 ;
+        sh:node gen:G2Quantity
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientG3 ;
+        sh:minCount 1 ;
+        sh:node gen:G3Quantity
+    ] ;
+    sh:sparql [
+        sh:message "The flare-angle and clamped-geometry results must satisfy the prescribed formulas within relative tolerance 1e-6, with absolute tolerance 1e-6 near zero; formula denominators must be non-zero." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            SELECT $this
+            WHERE {
+                $this nltl:bowRakeAtQuarterBreadth/qudt:numericValue ?phi2 ;
+                      nltl:waterlineAngleAtQuarterBreadth/qudt:numericValue ?alpha ;
+                      nltl:flareAngle/qudt:numericValue ?psi ;
+                      nltl:shipLength/qudt:numericValue ?length ;
+                      nltl:iceClassDraught/qudt:numericValue ?draught ;
+                      nltl:shipBreadth/qudt:numericValue ?breadth ;
+                      nltl:clampedHullGeometryTerm/qudt:numericValue ?clamped .
+
+                BIND(math:sin((?alpha * 3.141592653589793) / 180.0) AS ?sinAlpha)
+                BIND(IF(ABS(?sinAlpha) < 1e-12, 1.0, ?sinAlpha) AS ?safeSinAlpha)
+                BIND(IF(ABS(?breadth) < 1e-12, 1.0, ?breadth) AS ?safeBreadth)
+
+                BIND(
+                    (math:atan(
+                        math:tan((?phi2 * 3.141592653589793) / 180.0)
+                        / ?safeSinAlpha
+                    ) * 180.0) / 3.141592653589793
+                    AS ?expectedPsi
+                )
+
+                BIND(
+                    ((?length * ?draught) / (?safeBreadth * ?safeBreadth))
+                    AS ?geometryRatio
+                )
+                BIND(
+                    (?geometryRatio * ?geometryRatio * ?geometryRatio)
+                    AS ?rawGeometryTerm
+                )
+                BIND(
+                    IF(
+                        ?rawGeometryTerm < 5.0,
+                        5.0,
+                        IF(?rawGeometryTerm > 20.0, 20.0, ?rawGeometryTerm)
+                    )
+                    AS ?expectedClamped
+                )
+
+                BIND(
+                    0.000001 * IF(
+                        ABS(?expectedPsi) > 1.0,
+                        ABS(?expectedPsi),
+                        1.0
+                    )
+                    AS ?psiTolerance
+                )
+                BIND(
+                    0.000001 * IF(
+                        ABS(?expectedClamped) > 1.0,
+                        ABS(?expectedClamped),
+                        1.0
+                    )
+                    AS ?clampedTolerance
+                )
+
+                FILTER(
+                    ABS(?sinAlpha) < 1e-12
+                    || ABS(?breadth) < 1e-12
+                    || ABS(?psi - ?expectedPsi) > ?psiTolerance
+                    || ABS(?clamped - ?expectedClamped) > ?clampedTolerance
+                )
+            }
+        """
+    ] .
+
+gen:DegreeQuantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:DEG )
+    ] .
+
+gen:MetreQuantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:M )
+    ] .
+
+gen:UnitlessQuantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:UNITLESS )
+    ] .
+
+gen:C3Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "845"^^xsd:decimal ;
+        sh:maxInclusive "845"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( nltl:kilogramPerSquareMetreSquareSecondUnit )
+    ] .
+
+gen:C4Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "42"^^xsd:decimal ;
+        sh:maxInclusive "42"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( nltl:kilogramPerSquareMetreSquareSecondUnit )
+    ] .
+
+gen:C5Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "825"^^xsd:decimal ;
+        sh:maxInclusive "825"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( nltl:kilogramPerSquareSecondUnit )
+    ] .
+
+gen:F1Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "23"^^xsd:decimal ;
+        sh:maxInclusive "23"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:N-PER-M2 )
+    ] .
+
+gen:F2Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "45.8"^^xsd:decimal ;
+        sh:maxInclusive "45.8"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:N-PER-M )
+    ] .
+
+gen:F3Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "14.7"^^xsd:decimal ;
+        sh:maxInclusive "14.7"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:N-PER-M )
+    ] .
+
+gen:F4Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "29"^^xsd:decimal ;
+        sh:maxInclusive "29"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:N-PER-M2 )
+    ] .
+
+gen:G1Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "1530"^^xsd:decimal ;
+        sh:maxInclusive "1530"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:N )
+    ] .
+
+gen:G2Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "170"^^xsd:decimal ;
+        sh:maxInclusive "170"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:N-PER-M )
+    ] .
+
+gen:G3Quantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "400"^^xsd:decimal ;
+        sh:maxInclusive "400"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( nltl:newtonPerMetreToPowerOnePointFiveUnit )
+    ] .
+<END_SHACL>

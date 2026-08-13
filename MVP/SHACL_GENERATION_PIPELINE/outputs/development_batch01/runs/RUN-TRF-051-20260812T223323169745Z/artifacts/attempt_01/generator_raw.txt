@@ -1,0 +1,126 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "The quantity requires a decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:MilliM ) ;
+        sh:message "The quantity must use millimetres."
+    ] .
+
+gen:MegapascalQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "The yield strength requires a decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:MegaPA ) ;
+        sh:message "The yield strength must use megapascals."
+    ] .
+
+gen:TRF051FrameWebThicknessShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:hullStructure ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:frameProfileType ;
+                sh:not [
+                    sh:in (
+                        nltl:profileSection
+                        nltl:flatBarSection
+                    )
+                ]
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:adjacentFrameHeight ;
+                sh:minCount 1 ;
+                sh:node gen:MillimetreQuantityShape ;
+                sh:message "Adjacent frame height is required for the frame web-thickness calculation."
+            ] ;
+            sh:property [
+                sh:path nltl:yieldStrength ;
+                sh:minCount 1 ;
+                sh:node gen:MegapascalQuantityShape ;
+                sh:message "Yield strength is required for the frame web-thickness calculation."
+            ] ;
+            sh:property [
+                sh:path nltl:netShellPlatingThickness ;
+                sh:minCount 1 ;
+                sh:node gen:MillimetreQuantityShape ;
+                sh:message "Net shell-plating thickness is required for the frame web-thickness calculation."
+            ] ;
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:minCount 1 ;
+                sh:node gen:MillimetreQuantityShape ;
+                sh:message "Corrosion and abrasion addition is required for the frame web-thickness calculation."
+            ] ;
+            sh:property [
+                sh:path nltl:frameWebThickness ;
+                sh:minCount 1 ;
+                sh:node gen:MillimetreQuantityShape ;
+                sh:message "Frame web thickness is required."
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Frame web thickness must be at least h_w*sqrt(sigma_y)/C, (t-t_c)/2, and 9 mm, with C determined by the frame profile type." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:frameProfileType ?profileType ;
+          nltl:adjacentFrameHeight ?heightQuantity ;
+          nltl:yieldStrength ?yieldQuantity ;
+          nltl:netShellPlatingThickness ?shellQuantity ;
+          nltl:corrosionAbrasionAddition ?additionQuantity ;
+          nltl:frameWebThickness ?webQuantity .
+
+    ?heightQuantity qudt:numericValue ?heightValue .
+    ?yieldQuantity qudt:numericValue ?yieldValue .
+    ?shellQuantity qudt:numericValue ?shellValue .
+    ?additionQuantity qudt:numericValue ?additionValue .
+    ?webQuantity qudt:numericValue ?webValue .
+
+    FILTER (?profileType IN (nltl:profileSection, nltl:flatBarSection))
+
+    BIND(xsd:decimal(?heightValue) AS ?height)
+    BIND(xsd:decimal(?yieldValue) AS ?yieldStrength)
+    BIND(xsd:decimal(?shellValue) AS ?shellThickness)
+    BIND(xsd:decimal(?additionValue) AS ?addition)
+    BIND(xsd:decimal(?webValue) AS ?webThickness)
+    BIND(IF(?profileType = nltl:flatBarSection, 282.0, 805.0) AS ?coefficient)
+
+    FILTER (
+        ?webThickness < 9.0 ||
+        (2.0 * ?webThickness) < (?shellThickness - ?addition) ||
+        ((?webThickness * ?coefficient) * (?webThickness * ?coefficient))
+            < ((?height * ?height) * ?yieldStrength)
+    )
+}
+        """
+    ] .
+<END_SHACL>
