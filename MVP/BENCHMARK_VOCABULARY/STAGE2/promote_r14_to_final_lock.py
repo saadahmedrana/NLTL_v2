@@ -95,8 +95,20 @@ def finalize() -> None:
     Graph().parse(TARGET / "ontology/nltl_benchmark_vocabulary.ttl", format="turtle")
     Graph().parse(TARGET / "ontology/nltl_benchmark_vocabulary.rdf", format="xml")
     prelock = read_json(TARGET / "prelock_manifest.json")
-    bound = dict(prelock["boundArtifacts"])
+    # Recompute every bound hash at sealing time.  The namespace migration and
+    # RDF reconfirmation deliberately changed several prepared artifacts.
+    bound = {
+        relative: sha256(TARGET / relative)
+        for relative in prelock["boundArtifacts"]
+    }
     bound["validation/final_lock_workbook_verification.json"] = sha256(verification)
+    bound["validation/namespace_acceptance_report.json"] = sha256(
+        TARGET / "validation/namespace_acceptance_report.json"
+    )
+    prompt_hashes = {
+        name: sha256(MVP / "SHACL_GENERATION_PIPELINE/prompts" / name)
+        for name in ("generator.txt", "validator.txt", "vocabulary_matcher.txt")
+    }
     lock = {
         "lockId": LOCK_ID,
         "status": "LOCKED_FOR_FINAL_EXPERIMENT_INPUT",
@@ -119,6 +131,14 @@ def finalize() -> None:
         },
         "boundMachineReadableArtifacts": bound,
         "boundRequirementIndex": {"requirement_term_index.json": sha256(TARGET / "requirement_term_index.json")},
+        "boundGeneratorInputs": {
+            "fewShotJsonl": {
+                "path": "RELEVANT FILES/SHACL_FEW_SHOT_EXAMPLES/few_shot_pairs.jsonl",
+                "sha256": sha256(MVP / "RELEVANT FILES/SHACL_FEW_SHOT_EXAMPLES/few_shot_pairs.jsonl"),
+            },
+            "prompts": prompt_hashes,
+            "canonicalVocabularyNamespace": "https://w3id.org/nltl/vocab#",
+        },
         "nonBlockingPublicationItems": [
             "The permanent W3ID path https://w3id.org/nltl/ has been requested; confirm redirect deployment before public release.",
             "ISO 19848 normative text remains unavailable; no ISO-specific normative definition or identifier is claimed.",
