@@ -13,7 +13,7 @@ PROJECT = ROOT.parents[1]
 REGISTRY_PATH = PROJECT / "BENCHMARK_VOCABULARY/STAGE2/registry/term_registry.json"
 ONTOLOGY_PATH = PROJECT / "BENCHMARK_VOCABULARY/STAGE2/ontology/nltl_benchmark_vocabulary.ttl"
 CASES_ROOT = ROOT / "cases"
-NLTL = "https://w3id.org/nltl-benchmark/vocab#"
+NLTL = "https://w3id.org/nltl/vocab#"
 
 PREFIX_IRIS = {
     "dct": "http://purl.org/dc/terms/",
@@ -693,9 +693,9 @@ EXAMPLES = [
         sh:select """
             SELECT $this
             WHERE {
-                $this <https://w3id.org/nltl-benchmark/vocab#personsOnBoard> ?persons ;
-                      <https://w3id.org/nltl-benchmark/vocab#additionalEquipmentCapacityRequirement> ?additional ;
-                      <https://w3id.org/nltl-benchmark/vocab#personsCapacityRequirement> ?required .
+                $this <https://w3id.org/nltl/vocab#personsOnBoard> ?persons ;
+                      <https://w3id.org/nltl/vocab#additionalEquipmentCapacityRequirement> ?additional ;
+                      <https://w3id.org/nltl/vocab#personsCapacityRequirement> ?required .
                 FILTER (?required != (?persons + ?additional))
             }
         """

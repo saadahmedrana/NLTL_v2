@@ -24,7 +24,7 @@ class ShaclValidationTests(unittest.TestCase):
         _turtle, report = self.validator.validate_raw(wrong, self.context)
         self.assertFalse(report.valid)
         self.assertIn(
-            "https://w3id.org/nltl-benchmark/vocab#visualIceDetectionLightCount",
+            "https://w3id.org/nltl/vocab#visualIceDetectionLightCount",
             report.unknown_canonical_iris,
         )
 
@@ -38,8 +38,8 @@ class ShaclValidationTests(unittest.TestCase):
     def test_unapproved_query_namespace_is_detected(self) -> None:
         correct = offline_smoke_responses("IMO26-014")["generator"][1]
         altered = correct.replace(
-            "PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>",
-            "PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\nPREFIX bad: <https://example.invalid/vocab#>",
+            "PREFIX nltl: <https://w3id.org/nltl/vocab#>",
+            "PREFIX nltl: <https://w3id.org/nltl/vocab#>\nPREFIX bad: <https://example.invalid/vocab#>",
         ).replace(
             "$this nltl:operatesOnlyInContinuousDaylight ?daylight .",
             "$this nltl:operatesOnlyInContinuousDaylight ?daylight .\n$this bad:invented ?x .",
@@ -115,14 +115,12 @@ class ShaclValidationTests(unittest.TestCase):
         self.assertTrue(any("OPTIONAL inside FILTER NOT EXISTS" in item for item in report.errors), report.errors)
 
     def test_registered_xpath_math_function_executes(self) -> None:
-        config = PipelineConfig.load(
-            PipelineConfig.load().config_path.parent / "pipeline.dev-batch01.json"
-        )
+        config = PipelineConfig.load()
         vocabulary = VocabularyRepository(config)
         validator = ShaclStaticValidator(vocabulary)
         context = vocabulary.build_context_pack("TRF-022")
         turtle = '''@prefix gen: <urn:nltl:generated-shape:> .
-@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 gen:S a sh:NodeShape ; sh:targetClass nltl:ship ; sh:sparql [
   sh:select """PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
@@ -132,14 +130,12 @@ gen:S a sh:NodeShape ; sh:targetClass nltl:ship ; sh:sparql [
         self.assertTrue(report.valid, report.errors)
 
     def test_numeric_has_value_on_qudt_numeric_value_is_rejected(self) -> None:
-        config = PipelineConfig.load(
-            PipelineConfig.load().config_path.parent / "pipeline.dev-batch01.json"
-        )
+        config = PipelineConfig.load()
         vocabulary = VocabularyRepository(config)
         validator = ShaclStaticValidator(vocabulary)
         context = vocabulary.build_context_pack("TRF-022")
         turtle = '''@prefix gen: <urn:nltl:generated-shape:> .
-@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
 @prefix qudt: <http://qudt.org/schema/qudt/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
@@ -153,9 +149,7 @@ gen:S a sh:NodeShape ; sh:targetClass nltl:ship ; sh:property [
         self.assertTrue(any("lexical-form brittle" in item for item in report.errors), report.errors)
 
     def test_declared_exclusive_property_groups_cannot_be_conjunctive(self) -> None:
-        config = PipelineConfig.load(
-            PipelineConfig.load().config_path.parent / "pipeline.dev-batch01.json"
-        )
+        config = PipelineConfig.load()
         vocabulary = VocabularyRepository(config)
         validator = ShaclStaticValidator(vocabulary)
         context = vocabulary.build_context_pack("TRF-030")
@@ -164,7 +158,7 @@ gen:S a sh:NodeShape ; sh:targetClass nltl:ship ; sh:property [
             "alternatives": [["verticalLoadPosition"], ["horizontalLoadPosition"]],
         }]
         turtle = '''@prefix gen: <urn:nltl:generated-shape:> .
-@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 gen:S a sh:NodeShape ; sh:targetClass nltl:directAnalysisCase ;
   sh:property [ sh:path nltl:verticalLoadPosition ; sh:minCount 1 ],

@@ -50,7 +50,7 @@ The pass/fail RDF files belong to QA and regression testing. They do not need to
 
 ## Grounding decisions
 
-- Canonical vocabulary namespace: `https://w3id.org/nltl-benchmark/vocab#`.
+- Canonical vocabulary namespace: `https://w3id.org/nltl/vocab#`.
 - Synthetic example-data namespace: `urn:nltl:few-shot:`. It is an identifier, not a web link.
 - Engineering quantities use the locked QUDT pattern: property to `qudt:QuantityValue`, then exactly one decimal `qudt:numericValue` and one canonical `qudt:unit`.
 - Controlled categories and lifecycle states use IRIs, not free-text labels.

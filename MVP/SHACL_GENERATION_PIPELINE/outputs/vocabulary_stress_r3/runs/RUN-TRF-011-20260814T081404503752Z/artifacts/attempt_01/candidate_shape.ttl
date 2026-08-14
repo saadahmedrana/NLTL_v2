@@ -1,0 +1,124 @@
+@prefix gen: <urn:nltl:stress-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF011ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011IceWaterlineShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011IceWaterlineShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The UIWL must equal, at every longitudinal position, the maximum vertical coordinate of the intended ice-operating waterline points, with no missing or extra positions." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasIntendedIceOperatingWaterline ?intended ;
+                      nltl:hasUpperIceWaterline ?uiwl .
+
+                {
+                    SELECT ?x
+                           (MAX(?intValue) AS ?intMax)
+                           (MAX(?uiValue) AS ?uiMax)
+                           (COUNT(?intValue) AS ?intCount)
+                           (COUNT(?uiValue) AS ?uiCount)
+                    WHERE {
+                        {
+                            ?intended nltl:hasWaterlineProfilePoint ?intPoint .
+                            ?intPoint nltl:longitudinalPosition ?intLongitudinal ;
+                                      nltl:verticalCoordinate ?intVertical .
+                            ?intLongitudinal qudt:numericValue ?x ;
+                                             qudt:unit <http://qudt.org/vocab/unit/M> .
+                            ?intVertical qudt:numericValue ?intValue ;
+                                         qudt:unit <http://qudt.org/vocab/unit/M> .
+                        }
+                        UNION
+                        {
+                            ?uiwl nltl:hasWaterlineProfilePoint ?uiPoint .
+                            ?uiPoint nltl:longitudinalPosition ?uiLongitudinal ;
+                                    nltl:verticalCoordinate ?uiVertical .
+                            ?uiLongitudinal qudt:numericValue ?x ;
+                                             qudt:unit <http://qudt.org/vocab/unit/M> .
+                            ?uiVertical qudt:numericValue ?uiValue ;
+                                        qudt:unit <http://qudt.org/vocab/unit/M> .
+                        }
+                    }
+                    GROUP BY ?x
+                }
+
+                FILTER(
+                    ?intCount = 0 ||
+                    ?uiCount = 0 ||
+                    ABS(COALESCE(?uiMax, 0) - COALESCE(?intMax, 0)) >
+                    1e-6 *
+                    IF(
+                        ABS(COALESCE(?intMax, 0)) > 1,
+                        ABS(COALESCE(?intMax, 0)),
+                        1
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:TRF011IceWaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011ProfilePointShape
+    ] .
+
+gen:TRF011ProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011LengthQuantityShape
+    ] .
+
+gen:TRF011LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

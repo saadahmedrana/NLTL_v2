@@ -21,7 +21,7 @@ def offline_smoke_responses(requirement_id: str) -> dict[str, list[str]]:
         raise ValueError("The auditable offline smoke fixture is currently defined for IMO26-014 only")
     wrong_shape = '''<BEGIN_SHACL>
 @prefix gen: <urn:nltl:generated-shape:> .
-@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
@@ -36,7 +36,7 @@ gen:IMO26_014 a sh:NodeShape ;
     sh:sparql [
         sh:message "Two means of illumination are required unless operation is only in continuous daylight." ;
         sh:select """
-            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
             SELECT $this WHERE {
                 $this nltl:operatesOnlyInContinuousDaylight ?daylight .
                 FILTER (?daylight = false)
@@ -56,7 +56,7 @@ gen:IMO26_014 a sh:NodeShape ;
             '{"accept":true,"activate_variable_matcher":false,"feedback":"The conditional minimum-count logic, target, datatype, and canonical vocabulary are suitable for later RDF evaluation."}',
         ],
         "vocabulary_matcher": [
-            '{"match_found":true,"canonical_local_name":"visualIceDetectionIlluminationMeansCount","canonical_iri":"https://w3id.org/nltl-benchmark/vocab#visualIceDetectionIlluminationMeansCount","feedback_appendix":"This indexed integer property exactly represents the number of illumination means for visual ice detection."}'
+            '{"match_found":true,"canonical_local_name":"visualIceDetectionIlluminationMeansCount","canonical_iri":"https://w3id.org/nltl/vocab#visualIceDetectionIlluminationMeansCount","feedback_appendix":"This indexed integer property exactly represents the number of illumination means for visual ice detection."}'
         ],
     }
 
@@ -230,11 +230,33 @@ def main(argv: list[str] | None = None) -> None:
                         flush=True,
                     )
         accepted_count = sum(1 for item in results if item.get("accepted") is True)
+        session_directory = config.path("outputs") / "sessions" / session_id
+        session_directory.mkdir(parents=True, exist_ok=True)
+        session_result = session_directory / "batch_result.json"
+        session_result.write_text(
+            json.dumps(
+                {
+                    "session_id": session_id,
+                    "pipeline_version": config.raw["pipeline_version"],
+                    "vocabulary_lock_id": str(runner.vocabulary.lock_info.get("lock_id", "")),
+                    "queue": str(queue_path),
+                    "requirements": len(requirements),
+                    "repetitions": repetitions,
+                    "total_items": total_items,
+                    "accepted": accepted_count,
+                    "results": results,
+                },
+                indent=2,
+                ensure_ascii=True,
+            ) + "\n",
+            encoding="utf-8",
+        )
         print(
             f"[BATCH] FINISH session={session_id} accepted={accepted_count}/{total_items}",
             file=sys.stderr,
             flush=True,
         )
+        print(f"[BATCH] RESULT FILE {session_result}", file=sys.stderr, flush=True)
         report_project_cost(config)
         print(json.dumps({"session_id": session_id, "results": results}, indent=2, ensure_ascii=True))
     except KeyboardInterrupt:

@@ -18,7 +18,7 @@ OUT = MVP / "BENCHMARK_VOCABULARY" / "DEVELOPMENT" / "DEV_R5_BATCH01"
 BATCH = MVP / "INPUTS" / "DEVELOPMENT_CALIBRATION" / "BATCH_01_FIRST_50"
 R2_INDEX = MVP / "BENCHMARK_VOCABULARY" / "PIPELINE_CONTEXT" / "R2" / "requirement_term_index.json"
 DEV_INDEX = OUT / "requirement_term_index.json"
-BASE = "https://w3id.org/nltl-benchmark/vocab#"
+BASE = "https://w3id.org/nltl/vocab#"
 VERSION = "2.5.0-dev-batch01"
 DEV_ID = "VOCAB-DEV-2026-08-12-BATCH01-R5"
 
@@ -707,7 +707,7 @@ def build_ontology(additions: list[dict]) -> None:
         graph.remove((ontology, OWL.versionInfo, None))
         graph.remove((ontology, OWL.versionIRI, None))
         graph.add((ontology, OWL.versionInfo, Literal(VERSION)))
-        graph.add((ontology, OWL.versionIRI, URIRef(f"https://w3id.org/nltl-benchmark/vocab/{VERSION}")))
+        graph.add((ontology, OWL.versionIRI, URIRef(f"https://w3id.org/nltl/vocab/{VERSION}")))
     (OUT / "ontology").mkdir(parents=True, exist_ok=True)
     graph.serialize(OUT / "ontology" / "nltl_benchmark_vocabulary.ttl", format="turtle")
     graph.serialize(OUT / "ontology" / "nltl_benchmark_vocabulary.rdf", format="xml")

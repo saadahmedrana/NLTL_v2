@@ -16,9 +16,9 @@ except ModuleNotFoundError:  # deterministic local fallback used in this workspa
 
 
 STAGE2 = Path(os.environ.get("NLTL_STAGE2_DIR", Path(__file__).resolve().parent)).resolve()
-VOCAB_BASE = "https://w3id.org/nltl-benchmark/vocab#"
+VOCAB_BASE = "https://w3id.org/nltl/vocab#"
 NLTL = Namespace(VOCAB_BASE)
-NSH = Namespace("https://w3id.org/nltl-benchmark/shapes#")
+NSH = Namespace("https://w3id.org/nltl/shapes#")
 QUDT = Namespace("http://qudt.org/schema/qudt/")
 SOSA = Namespace("http://www.w3.org/ns/sosa/")
 

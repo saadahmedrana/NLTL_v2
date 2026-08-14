@@ -1,0 +1,120 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltl:TRF_116_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:datatype qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue qudt:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "designIceThickness must be a single quantity value in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:nonHemisphericalImpactContactArea ;
+        sh:datatype qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue qudt:M2 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "nonHemisphericalImpactContactArea must be a single quantity value in square metres."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "propellerHubOrThrusterEndCapImpact must identify the applicable impact exception."
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:datatype qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue qudt:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "equivalentImpactSphereRadius must be a single quantity value in metres."
+    ] ;
+    sh:sparql [
+        sh:message "equivalentImpactSphereRadius must satisfy R_ceq=sqrt(A/pi), capped at designIceThickness/2 unless the impact is on a propeller hub or thruster end cap; comparison uses a relative tolerance of 1e-6 with a 1e-12 absolute fallback." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:nonHemisphericalImpactContactArea ?areaNode ;
+                      nltl:designIceThickness ?thicknessNode ;
+                      nltl:propellerHubOrThrusterEndCapImpact ?impact ;
+                      nltl:equivalentImpactSphereRadius ?radiusNode .
+
+                ?areaNode qudt:numericValue ?area .
+                ?thicknessNode qudt:numericValue ?thickness .
+                ?radiusNode qudt:numericValue ?radius .
+
+                BIND((?area / 3.141592653589793) AS ?baseSquared)
+                BIND(
+                    IF(
+                        ?impact = true,
+                        ?baseSquared,
+                        IF(
+                            ?baseSquared > ((?thickness * ?thickness) / 4),
+                            ((?thickness * ?thickness) / 4),
+                            ?baseSquared
+                        )
+                    )
+                    AS ?expectedSquared
+                )
+
+                FILTER(
+                    ?radius < 0 ||
+                    ABS((?radius * ?radius) - ?expectedSquared) >
+                    ((0.000001 * ?expectedSquared) + 0.000000000001)
+                )
+            }
+        """
+    ] .
+<END_SHACL>

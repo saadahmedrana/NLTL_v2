@@ -19,7 +19,7 @@ Each case directory contains:
 
 ## Modelling contract
 
-- Canonical vocabulary: `https://w3id.org/nltl-benchmark/vocab#`.
+- Canonical vocabulary: `https://w3id.org/nltl/vocab#`.
 - Pilot instance identifiers: `urn:nltl:rdf-pilot:`.
 - Graphs contain ship facts only. Expected outcomes and deliberate violations are kept in metadata, not encoded into the ship graph.
 - Every failing graph differs from its paired passing graph at one subject-predicate value only.

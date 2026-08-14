@@ -1,0 +1,96 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:stress-shape:IMO-109> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:cargoTankCarriesOil ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable ship, every cargo tank carrying oil must be separated from the outer shell by at least 0.76 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:shipType ?shipType ;
+                      nltl:constructionDate ?constructionDate ;
+                      nltl:cargoTankCarriesOil ?carriesOil .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER (STR(?shipType) != "oil_tanker")
+                FILTER (?carriesOil = true)
+                FILTER (
+                    YEAR(?constructionDate) > 2017 ||
+                    (
+                        YEAR(?constructionDate) = 2017 &&
+                        (
+                            MONTH(?constructionDate) > 1 ||
+                            (
+                                MONTH(?constructionDate) = 1 &&
+                                DAY(?constructionDate) >= 1
+                            )
+                        )
+                    )
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:cargoTankOuterShellSeparation ?acceptableQuantity .
+                        ?acceptableQuantity qudt:numericValue ?acceptableValue ;
+                                             qudt:unit unit:M .
+                        FILTER (
+                            datatype(?acceptableValue) = xsd:decimal &&
+                            ?acceptableValue >= "0.76"^^xsd:decimal
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:cargoTankOuterShellSeparation ?quantity .
+                        ?quantity qudt:numericValue ?value ;
+                                 qudt:unit ?quantityUnit .
+                        FILTER (
+                            ?quantityUnit != unit:M ||
+                            datatype(?value) != xsd:decimal ||
+                            (
+                                datatype(?value) = xsd:decimal &&
+                                ?value < "0.76"^^xsd:decimal
+                            )
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

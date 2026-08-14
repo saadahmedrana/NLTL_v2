@@ -1,0 +1,194 @@
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltl:LinearInterpolationShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:calculationCase ;
+        sh:minCount 1 ;
+        sh:node nltl:LinearInterpolationCaseShape ;
+        sh:message "Each ship must provide a calculation case for the linear interpolation requirement."
+    ] .
+
+nltl:LinearInterpolationCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+        sh:nodeKind sh:IRI ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltl:LengthMetreQuantityShape ;
+        sh:message "The calculation case must provide one hull-girder longitudinal position from aft in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolatedLongitudinalDistributionFactor ;
+        sh:nodeKind sh:IRI ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltl:DimensionlessQuantityShape ;
+        sh:message "The calculation case must provide one interpolated longitudinal distribution factor."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint ;
+        sh:minCount 1 ;
+        sh:node nltl:InterpolationPointShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationLowerEndpoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltl:InterpolationPointShape ;
+        sh:message "The calculation case must identify one lower interpolation endpoint."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationUpperEndpoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltl:InterpolationPointShape ;
+        sh:message "The calculation case must identify one upper interpolation endpoint."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The interpolated factor must equal the linear interpolation between the lower and upper endpoint values, within a relative tolerance of 1e-6 with a 1e-12 absolute-scale fallback, and the case position must lie within the endpoint coordinate envelope." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  $this nltl:interpolationLowerEndpoint ?lower ;
+        nltl:interpolationUpperEndpoint ?upper ;
+        nltl:interpolatedLongitudinalDistributionFactor ?factorNode .
+
+  ?lower nltl:interpolationPointCoordinate ?lowerCoordinateNode ;
+         nltl:interpolationPointValue ?lowerValueNode .
+  ?upper nltl:interpolationPointCoordinate ?upperCoordinateNode ;
+         nltl:interpolationPointValue ?upperValueNode .
+  $this nltl:hullGirderLongitudinalPositionFromAft ?positionNode .
+
+  ?lowerCoordinateNode qudt:numericValue ?lowerCoordinate .
+  ?upperCoordinateNode qudt:numericValue ?upperCoordinate .
+  ?lowerValueNode qudt:numericValue ?lowerValue .
+  ?upperValueNode qudt:numericValue ?upperValue .
+  ?positionNode qudt:numericValue ?position .
+  ?factorNode qudt:numericValue ?observed .
+
+  FILTER (
+    datatype(?lowerCoordinate) = xsd:decimal &&
+    datatype(?upperCoordinate) = xsd:decimal &&
+    datatype(?lowerValue) = xsd:decimal &&
+    datatype(?upperValue) = xsd:decimal &&
+    datatype(?position) = xsd:decimal &&
+    datatype(?observed) = xsd:decimal
+  )
+  FILTER (?upperCoordinate != ?lowerCoordinate)
+  FILTER (
+    (?position >= ?lowerCoordinate && ?position <= ?upperCoordinate) ||
+    (?position >= ?upperCoordinate && ?position <= ?lowerCoordinate)
+  )
+
+  BIND (
+    ?lowerValue +
+    ((?position - ?lowerCoordinate) /
+     (?upperCoordinate - ?lowerCoordinate)) *
+    (?upperValue - ?lowerValue)
+    AS ?expected
+  )
+  BIND (
+    ABS(?observed - ?expected)
+    AS ?error
+  )
+  BIND (
+    IF(ABS(?expected) > "0.000000000001"^^xsd:decimal,
+       ABS(?expected),
+       "0.000000000001"^^xsd:decimal)
+    AS ?scale
+  )
+
+  FILTER (?error > ("0.000001"^^xsd:decimal * ?scale))
+}
+"""
+    ] .
+
+nltl:InterpolationPointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltl:NumericQuantityShape ;
+        sh:message "Each interpolation point must provide one numeric interpolation coordinate."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltl:DimensionlessQuantityShape ;
+        sh:message "Each interpolation point must provide one dimensionless coordinate."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointValue ;
+        sh:nodeKind sh:IRI ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltl:NumericQuantityShape ;
+        sh:message "Each interpolation point must provide one numeric value."
+    ] .
+
+nltl:NumericQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+nltl:LengthMetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+nltl:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

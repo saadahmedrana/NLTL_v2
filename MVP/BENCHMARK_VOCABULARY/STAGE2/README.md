@@ -15,4 +15,4 @@ Primary artifacts:
 - `examples/` - equivalent illustrative Turtle and JSON-LD graphs.
 - `validation/` - machine-readable and human-readable validation results.
 
-The provisional vocabulary base is `https://w3id.org/nltl-benchmark/vocab#`. Register or replace it before publication.
+The provisional vocabulary base is `https://w3id.org/nltl/vocab#`. Register or replace it before publication.

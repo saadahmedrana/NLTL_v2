@@ -19,7 +19,7 @@ PROJECT = ROOT.parents[1]
 MANIFEST_PATH = ROOT / "pilot_manifest.json"
 ONTOLOGY_PATH = PROJECT / "BENCHMARK_VOCABULARY/STAGE2/ontology/nltl_benchmark_vocabulary.ttl"
 EVIDENCE_PATH = PROJECT / "BENCHMARK_VOCABULARY/STAGE2/evidence/stage1_approved.json"
-NLTL = "https://w3id.org/nltl-benchmark/vocab#"
+NLTL = "https://w3id.org/nltl/vocab#"
 
 ALLOWED_NAMESPACES = (
     "urn:nltl:rdf-pilot:",
@@ -64,7 +64,7 @@ def check_turtle(path, graph, ontology):
             errors.append(f"{path}: unapproved IRI namespace {iri}")
         if iri.startswith(NLTL) and not any(ontology.triples((URIRef(iri), None, None))):
             errors.append(f"{path}: NLTL term is not declared in the locked ontology: {iri}")
-    for iri in re.findall(r"https://w3id\.org/nltl-benchmark/vocab#[A-Za-z][A-Za-z0-9]*", text):
+    for iri in re.findall(r"https://w3id\.org/nltl/vocab#[A-Za-z][A-Za-z0-9]*", text):
         if not any(ontology.triples((URIRef(iri), None, None))):
             errors.append(f"{path}: SHACL-SPARQL uses undeclared NLTL term: {iri}")
     return errors

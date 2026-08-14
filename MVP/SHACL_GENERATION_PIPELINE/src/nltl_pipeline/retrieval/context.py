@@ -13,7 +13,7 @@ from ..errors import ConfigurationError
 from ..models import ContextPack
 
 
-NLTL = "https://w3id.org/nltl-benchmark/vocab#"
+NLTL = "https://w3id.org/nltl/vocab#"
 INFRASTRUCTURE_DEPENDENCIES = ("benchmarkEntity", "ship")
 
 

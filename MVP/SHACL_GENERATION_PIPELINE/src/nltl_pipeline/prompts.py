@@ -9,6 +9,8 @@ from .models import ContextPack, StaticValidationReport
 
 
 class PromptFactory:
+    CANONICAL_VOCABULARY_NAMESPACE = "https://w3id.org/nltl/vocab#"
+
     def __init__(self, prompt_directory: Path | None = None) -> None:
         self.directory = prompt_directory or PIPELINE_ROOT / "prompts"
         self.generator_instructions = (self.directory / "generator.txt").read_text(encoding="utf-8")
@@ -28,6 +30,7 @@ class PromptFactory:
     ) -> str:
         return self._json({
             "task": "Generate one candidate SHACL graph",
+            "canonicalVocabularyNamespace": self.CANONICAL_VOCABULARY_NAMESPACE,
             "requirement": context.requirement,
             "allowedVocabulary": context.terms,
             "nodePatterns": context.node_patterns,
@@ -48,6 +51,7 @@ class PromptFactory:
     ) -> str:
         return self._json({
             "task": "Review one candidate SHACL graph for freezing before later RDF evaluation",
+            "canonicalVocabularyNamespace": self.CANONICAL_VOCABULARY_NAMESPACE,
             "requirement": context.requirement,
             "selection": context.selection,
             "retrievedRelevantVocabulary": context.terms,
@@ -73,6 +77,7 @@ class PromptFactory:
     ) -> str:
         return self._json({
             "task": "Resolve one canonical vocabulary mismatch",
+            "canonicalVocabularyNamespace": self.CANONICAL_VOCABULARY_NAMESPACE,
             "requirement": context.requirement,
             "selection": context.selection,
             "validatorFeedback": validator_feedback,

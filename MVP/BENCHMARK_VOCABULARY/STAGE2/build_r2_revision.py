@@ -16,8 +16,8 @@ R1 = Path(__file__).resolve().parent
 R2 = MVP / "BENCHMARK_VOCABULARY" / "STAGE2_R2"
 PIPELINE_INDEX_R1 = MVP / "BENCHMARK_VOCABULARY" / "PIPELINE_CONTEXT" / "master" / "requirement_term_index.json"
 PIPELINE_INDEX_R2 = MVP / "BENCHMARK_VOCABULARY" / "PIPELINE_CONTEXT" / "R2" / "requirement_term_index.json"
-VOCAB_BASE = "https://w3id.org/nltl-benchmark/vocab#"
-SHAPES_BASE = "https://w3id.org/nltl-benchmark/shapes#"
+VOCAB_BASE = "https://w3id.org/nltl/vocab#"
+SHAPES_BASE = "https://w3id.org/nltl/shapes#"
 VERSION = "2.2.0-stage2-r2"
 LOCK_ID = "VOCAB-LOCK-2026-08-12-R2"
 SOURCE_REF = "IMO-057 | IMO_POLAR_CODE p.22 | 7.3.2.1"
@@ -258,7 +258,7 @@ def build_ontology() -> None:
         graph.remove((ontology, OWL.versionInfo, None))
         graph.remove((ontology, OWL.versionIRI, None))
         graph.add((ontology, OWL.versionInfo, Literal(VERSION)))
-        graph.add((ontology, OWL.versionIRI, URIRef(f"https://w3id.org/nltl-benchmark/vocab/{VERSION}")))
+        graph.add((ontology, OWL.versionIRI, URIRef(f"https://w3id.org/nltl/vocab/{VERSION}")))
     graph.serialize(R2 / "ontology" / "nltl_benchmark_vocabulary.ttl", format="turtle")
     graph.serialize(R2 / "ontology" / "nltl_benchmark_vocabulary.rdf", format="xml")
 

@@ -1,0 +1,181 @@
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix s: <urn:nltl:stress-shape:> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+s:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraughtDUI ;
+        sh:minCount 1 ;
+        sh:node s:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:displacementFactorThreshold ;
+        sh:minCount 1 ;
+        sh:node s:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasNonBowIceLoadCalculationCase ;
+        sh:minCount 1 ;
+        sh:node s:NonBowIceLoadCalculationCaseShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasTableLookupCase ;
+        sh:minCount 1 ;
+        sh:node s:TableLookupCaseShape
+    ] ;
+    sh:sparql [
+        sh:message "Non-bow displacement factor, force, and line load must satisfy the specified piecewise formulas." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:upperIceWaterlineDraughtDUI ?duiNode ;
+                      nltl:displacementFactorThreshold ?thresholdNode ;
+                      nltl:hasNonBowIceLoadCalculationCase ?case ;
+                      nltl:hasTableLookupCase ?table .
+
+                ?duiNode qudt:numericValue ?dui .
+                ?thresholdNode qudt:numericValue ?threshold .
+                ?table nltl:crushingFailureClassFactor ?cfcNode ;
+                       nltl:loadPatchDimensionClassFactor ?cfdNode .
+                ?cfcNode qudt:numericValue ?cfc .
+                ?cfdNode qudt:numericValue ?cfd .
+
+                ?case nltl:shipDisplacementFactor ?dfNode ;
+                      nltl:nonBowIceForce ?forceNode ;
+                      nltl:nonBowIceLineLoad ?lineLoadNode .
+                ?dfNode qudt:numericValue ?df .
+                ?forceNode qudt:numericValue ?force .
+                ?lineLoadNode qudt:numericValue ?lineLoad .
+
+                BIND(
+                    IF(
+                        ?dui <= ?threshold,
+                        math:pow(?dui, 0.64),
+                        math:pow(?threshold, 0.64) + 0.10 * (?dui - ?threshold)
+                    )
+                    AS ?expectedDf
+                )
+                BIND(360.0 * ?cfc * ?expectedDf AS ?expectedForce)
+                BIND(
+                    1000.0 * 0.639 *
+                    math:pow((?expectedForce / 1000.0), 0.61) *
+                    ?cfd
+                    AS ?expectedLineLoad
+                )
+
+                FILTER(
+                    ABS(?df - ?expectedDf) >
+                    (ABS(?expectedDf) * 0.000001 + 0.000000001)
+                    ||
+                    ABS(?force - ?expectedForce) >
+                    (ABS(?expectedForce) * 0.000001 + 0.000001)
+                    ||
+                    ABS(?lineLoad - ?expectedLineLoad) >
+                    (ABS(?expectedLineLoad) * 0.000001 + 0.000001)
+                )
+            }
+        """
+    ] .
+
+s:NonBowIceLoadCalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:nonBowIceLoadCalculationCase ;
+    sh:property [
+        sh:path nltl:shipDisplacementFactor ;
+        sh:minCount 1 ;
+        sh:node s:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:nonBowIceForce ;
+        sh:minCount 1 ;
+        sh:node s:KiloNewtonQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:nonBowIceLineLoad ;
+        sh:minCount 1 ;
+        sh:node s:KiloNewtonPerMetreQuantityShape
+    ] .
+
+s:TableLookupCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:tableLookupCase ;
+    sh:property [
+        sh:path nltl:crushingFailureClassFactor ;
+        sh:minCount 1 ;
+        sh:node s:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchDimensionClassFactor ;
+        sh:minCount 1 ;
+        sh:node s:UnitlessQuantityShape
+    ] .
+
+s:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+s:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+s:KiloNewtonQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+s:KiloNewtonPerMetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN-PER-M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

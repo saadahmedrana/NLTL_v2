@@ -16,7 +16,7 @@ BATCH = Path(__file__).resolve().parents[1]
 DEV = MVP / "BENCHMARK_VOCABULARY" / "DEVELOPMENT" / "DEV_R8_1_POSTCONFIRMATION"
 DEVELOPMENT_ID = "VOCAB-DEV-2026-08-13-BATCH01-R8.1-POSTCONFIRMATION"
 OUT = BATCH / "rdf_fixtures"
-BASE = "https://w3id.org/nltl-benchmark/vocab#"
+BASE = "https://w3id.org/nltl/vocab#"
 EX_BASE = "urn:nltl:batch01-fixture:"
 
 NLTL = Namespace(BASE)

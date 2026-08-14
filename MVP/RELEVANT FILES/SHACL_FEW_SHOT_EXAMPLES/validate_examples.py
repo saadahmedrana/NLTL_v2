@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT.parents[1]
 CATALOG_PATH = ROOT / "catalog.json"
 ONTOLOGY_PATH = PROJECT / "BENCHMARK_VOCABULARY/STAGE2/ontology/nltl_benchmark_vocabulary.ttl"
-NLTL = "https://w3id.org/nltl-benchmark/vocab#"
+NLTL = "https://w3id.org/nltl/vocab#"
 
 ALLOWED_EXTERNAL_NAMESPACES = (
     "urn:nltl:few-shot:",
@@ -79,7 +79,7 @@ def check_namespaces(path, graph):
 def nltl_iris(path, graph):
     found = {iri for iri in graph_iris(graph) if iri.startswith(NLTL)}
     text = path.read_text(encoding="utf-8")
-    found.update(re.findall(r"https://w3id\.org/nltl-benchmark/vocab#[A-Za-z][A-Za-z0-9]*", text))
+    found.update(re.findall(r"https://w3id\.org/nltl/vocab#[A-Za-z][A-Za-z0-9]*", text))
     return found
 
 

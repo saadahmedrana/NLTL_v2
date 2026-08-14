@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from nltl_pipeline.config import PipelineConfig
 from nltl_pipeline.matching.search import CandidateSearcher
@@ -17,12 +16,12 @@ class RetrievalTests(unittest.TestCase):
 
     def test_locked_counts_and_eligibility(self) -> None:
         self.assertEqual(len(self.vocabulary.requirements), 313)
-        self.assertEqual(len(self.vocabulary.registry), 825)
+        self.assertEqual(len(self.vocabulary.registry), 1625)
         eligible = sum(
             1 for item in self.vocabulary.requirements.values()
             if self.vocabulary.is_generation_eligible(item)
         )
-        self.assertEqual(eligible, 240)
+        self.assertEqual(eligible, 238)
 
     def test_imo_057_r2_relationship_and_targets(self) -> None:
         context = self.vocabulary.build_context_pack("IMO-057")
@@ -31,7 +30,7 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(by_name["hasContainingCompartment"]["kind"], "ObjectProperty")
         self.assertEqual(
             by_name["hasContainingCompartment"]["range"],
-            "https://w3id.org/nltl-benchmark/vocab#compartment",
+            "https://w3id.org/nltl/vocab#compartment",
         )
         self.assertTrue({
             "firePump", "emergencyFirePump", "waterMistPump", "waterSprayPump",
@@ -55,7 +54,7 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(by_name["evidenceStateApproved"]["kind"], "NamedIndividual")
         self.assertEqual(
             by_name["evidenceStateApproved"]["iri"],
-            "https://w3id.org/nltl-benchmark/vocab#evidenceStateApproved",
+            "https://w3id.org/nltl/vocab#evidenceStateApproved",
         )
 
     def test_few_shot_selection_is_deterministic(self) -> None:
@@ -70,7 +69,7 @@ class RetrievalTests(unittest.TestCase):
         searcher = CandidateSearcher(self.vocabulary)
         candidates = searcher.search(
             "Replace the visual ice detection light count with the illumination means count.",
-            ["https://w3id.org/nltl-benchmark/vocab#visualIceDetectionLightCount"],
+            ["https://w3id.org/nltl/vocab#visualIceDetectionLightCount"],
             limit=12,
             minimum_score=0.24,
         )
@@ -79,9 +78,8 @@ class RetrievalTests(unittest.TestCase):
             {item["localName"] for item in candidates},
         )
 
-    def test_development_context_exposes_authoritative_ownership_and_obligations(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-batch01.json"
-        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+    def test_active_context_exposes_authoritative_ownership_and_obligations(self) -> None:
+        vocabulary = VocabularyRepository(self.config)
 
         formula_context = vocabulary.build_context_pack("TRF-059")
         by_name = {term["localName"]: term for term in formula_context.terms}
@@ -134,8 +132,7 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(patch_context.selection["exclusivePropertyGroups"], [])
 
     def test_complete_dependency_contract_rejects_absent_terms(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-batch01.json"
-        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+        vocabulary = VocabularyRepository(self.config)
         vocabulary.dependency_contracts["TRF-001"] = {
             "status": "COMPLETE",
             "ownerClasses": ["ship"],
@@ -146,8 +143,7 @@ class RetrievalTests(unittest.TestCase):
             vocabulary.build_context_pack("TRF-001")
 
     def test_complete_dependency_contract_rejects_unindexed_terms(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-batch01.json"
-        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+        vocabulary = VocabularyRepository(self.config)
         vocabulary.dependency_contracts["TRF-001"] = {
             "status": "COMPLETE",
             "ownerClasses": ["ship"],
@@ -158,23 +154,19 @@ class RetrievalTests(unittest.TestCase):
             vocabulary.build_context_pack("TRF-001")
 
     def test_unique_canonical_domain_is_used_when_owner_override_is_absent(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-r10.json"
-        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+        vocabulary = VocabularyRepository(self.config)
         context = vocabulary.build_context_pack("TRF-082")
         by_name = {term["localName"]: term for term in context.terms}
         self.assertEqual(by_name["tableLookupApplied"]["requiredOwner"], "tableLookupCase")
 
-    def test_explicit_owner_override_precedes_canonical_domain_inference(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-r10.json"
-        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+    def test_explicit_owner_override_cannot_contradict_canonical_domain(self) -> None:
+        vocabulary = VocabularyRepository(self.config)
         vocabulary.term_owners.setdefault("TRF-082", {})["tableLookupApplied"] = "ship"
-        context = vocabulary.build_context_pack("TRF-082")
-        by_name = {term["localName"]: term for term in context.terms}
-        self.assertEqual(by_name["tableLookupApplied"]["requiredOwner"], "ship")
+        with self.assertRaisesRegex(Exception, "ownership/domain mismatch"):
+            vocabulary.build_context_pack("TRF-082")
 
     def test_schema_v2_contract_rejects_non_object_model_path(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-batch01.json"
-        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+        vocabulary = VocabularyRepository(self.config)
         vocabulary.dependency_contracts["TRF-001"] = {
             "status": "COMPLETE",
             "schemaVersion": 2,

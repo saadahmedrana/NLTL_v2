@@ -1,0 +1,116 @@
+<BEGIN_SHACL>
+@prefix stress: <urn:nltl:stress-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+stress:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+stress:BeamTheoryRequiredCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:beamTheoryUsed ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:allowableShearStress ;
+        sh:node stress:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:yieldShearStress ;
+        sh:node stress:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+stress:NonBeamTheoryCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:beamTheoryUsed ;
+        sh:hasValue false ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+stress:TRF031Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:beamTheoryUsed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:combinedBendingShearStress ;
+        sh:node stress:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:yieldPoint ;
+        sh:node stress:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:vonMisesYieldCriterion ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        stress:BeamTheoryRequiredCase
+        stress:NonBeamTheoryCase
+    ) ;
+    sh:sparql [
+        sh:message "Combined bending and shear stress must be lower than the yield point; under beam theory, yield shear stress must equal yield point divided by sqrt(3) within tolerance and allowable shear stress must not exceed 0.9 times that value." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:beamTheoryUsed true ;
+                      nltl:combinedBendingShearStress ?combinedNode ;
+                      nltl:yieldPoint ?yieldNode ;
+                      nltl:yieldShearStress ?yieldShearNode ;
+                      nltl:allowableShearStress ?allowableNode .
+
+                ?combinedNode qudt:numericValue ?combined .
+                ?yieldNode qudt:numericValue ?yield .
+                ?yieldShearNode qudt:numericValue ?yieldShear .
+                ?allowableNode qudt:numericValue ?allowable .
+
+                BIND (?yield / 1.7320508075688772 AS ?expectedYieldShear)
+                FILTER (
+                    ?combined >= ?yield ||
+                    ABS(?yieldShear - ?expectedYieldShear) >
+                        (ABS(?expectedYieldShear) * 0.000001 + 0.000000000001) ||
+                    ?allowable > (0.9 * ?expectedYieldShear)
+                )
+            }
+        """
+    ] .
+<END_SHACL>

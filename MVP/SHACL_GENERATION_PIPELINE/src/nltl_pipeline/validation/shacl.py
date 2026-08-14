@@ -19,7 +19,7 @@ register_math_functions()
 BEGIN = "<BEGIN_SHACL>"
 END = "<END_SHACL>"
 QUDT_NUMERIC_VALUE = URIRef("http://qudt.org/schema/qudt/numericValue")
-FULL_NLTL_IRI_RE = re.compile(r"<((?:https://w3id\.org/nltl-benchmark/vocab#)[A-Za-z_][A-Za-z0-9_]*)>")
+FULL_NLTL_IRI_RE = re.compile(r"<((?:https://w3id\.org/nltl/vocab#)[A-Za-z_][A-Za-z0-9_]*)>")
 CURIE_RE = re.compile(r"\bnltl:([A-Za-z_][A-Za-z0-9_]*)\b")
 PREFIX_RE = re.compile(r"\bPREFIX\s+([A-Za-z_][A-Za-z0-9_-]*):\s*<([^>]+)>", re.IGNORECASE)
 # Require an absolute-IRI scheme immediately after '<'.  A broad '<...>'
@@ -41,7 +41,7 @@ APPROVED_EXTERNAL_NAMESPACES = (
     "http://purl.org/dc/terms/",
     MATH_NAMESPACE,
     "urn:nltl:generated-shape:",
-    "https://w3id.org/nltl-benchmark/generated-shapes/",
+    "https://w3id.org/nltl/generated-shapes/",
 )
 
 TARGET_PREDICATES = {

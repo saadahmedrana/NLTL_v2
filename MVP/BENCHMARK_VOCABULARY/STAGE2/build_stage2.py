@@ -19,9 +19,9 @@ SNAPSHOT = STAGE2 / "evidence" / "stage1_approved.json"
 GENERATED_DATE = "2026-08-12"
 VERSION = "2.1.0-stage2"
 
-VOCAB_BASE = "https://w3id.org/nltl-benchmark/vocab#"
-SHAPES_BASE = "https://w3id.org/nltl-benchmark/shapes#"
-PROFILE_BASE = "https://w3id.org/nltl-benchmark/profile/"
+VOCAB_BASE = "https://w3id.org/nltl/vocab#"
+SHAPES_BASE = "https://w3id.org/nltl/shapes#"
+PROFILE_BASE = "https://w3id.org/nltl/profile/"
 
 NLTL = Namespace(VOCAB_BASE)
 NSH = Namespace(SHAPES_BASE)
@@ -588,7 +588,7 @@ def add_core(g: Graph) -> None:
     g.add((ontology, RDFS.label, Literal("NLTL benchmark controlled vocabulary")))
     g.add((ontology, DCTERMS.created, Literal(GENERATED_DATE, datatype=XSD.date)))
     g.add((ontology, OWL.versionInfo, Literal(VERSION)))
-    g.add((ontology, OWL.versionIRI, URIRef(f"https://w3id.org/nltl-benchmark/vocab/{VERSION}")))
+    g.add((ontology, OWL.versionIRI, URIRef(f"https://w3id.org/nltl/vocab/{VERSION}")))
     g.add((ontology, DCTERMS.description, Literal("One controlled vocabulary for NL-to-SHACL benchmark inputs. It defines names and value structures but contains no regulatory threshold, formula, applicability outcome, or pass/fail answer logic.")))
     g.add((ontology, NLTL.publicationStatus, Literal("Stage 2 draft; provisional w3id redirect not yet registered")))
 
@@ -738,7 +738,7 @@ def build_ontology(terms: list[dict]) -> Graph:
 def build_mappings(terms: list[dict]) -> Graph:
     g = Graph()
     bind(g)
-    mapping_doc = URIRef("https://w3id.org/nltl-benchmark/mapping/haitham-stage2")
+    mapping_doc = URIRef("https://w3id.org/nltl/mapping/haitham-stage2")
     g.add((mapping_doc, RDF.type, OWL.Ontology))
     g.add((mapping_doc, RDFS.label, Literal("Verified Haitham compatibility mappings")))
     g.add((mapping_doc, DCTERMS.description, Literal("SKOS mappings only; no OWL equivalence is asserted because the legacy named-variable node model differs from the benchmark property/value model.")))

@@ -45,4 +45,4 @@ Checks passed: **42**
 - every quantity has an explicit unit decision: PASS — 258
 - only source-ambiguous viscosity lacks a global recommended unit: PASS — ['manufacturerMaxViscosity', 'manufacturerMinViscosity', 'observedViscosity']
 - quantity terms use QuantityValue: PASS — 258
-- core regulated enumerations use IRIs: PASS — {'iceClass': 'https://w3id.org/nltl-benchmark/vocab#iceClassValue', 'polarClass': 'https://w3id.org/nltl-benchmark/vocab#polarClassValue', 'shipCategory': 'https://w3id.org/nltl-benchmark/vocab#polarShipCategoryValue'}
+- core regulated enumerations use IRIs: PASS — {'iceClass': 'https://w3id.org/nltl/vocab#iceClassValue', 'polarClass': 'https://w3id.org/nltl/vocab#polarClassValue', 'shipCategory': 'https://w3id.org/nltl/vocab#polarShipCategoryValue'}

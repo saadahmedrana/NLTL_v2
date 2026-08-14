@@ -105,7 +105,7 @@ The automated validation suite passed **42 checks**, including:
 
 ## Non-blocking publication limitations
 
-1. `https://w3id.org/nltl-benchmark/vocab#` remains a provisional base. Register its redirect or replace it with a final institutional URI before public release.
+1. `https://w3id.org/nltl/vocab#` remains a provisional base. Register its redirect or replace it with a final institutional URI before public release.
 2. ISO 19848 normative text remains unavailable. No ISO-specific definition or identifier is claimed.
 
 Neither item blocks use of Stage 2 for local benchmark construction. The next engineering task is to create the pipeline that consumes the locked workbook, context, registry, and profiles and generates requirement-specific SHACL, positive/negative requirement cases, integrated ship cases, and repeated LLM-run evaluation assets.
