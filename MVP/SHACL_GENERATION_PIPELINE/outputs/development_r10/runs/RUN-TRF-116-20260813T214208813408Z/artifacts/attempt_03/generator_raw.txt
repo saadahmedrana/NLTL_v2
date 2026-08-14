@@ -1,0 +1,159 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:AreaQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:EquivalentImpactSphereRadiusShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:nonHemisphericalImpactContactArea ;
+        sh:nodeKind sh:BlankNodeOrIRI ;
+        sh:node gen:AreaQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single non-hemispherical impact contact area in square metres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:nodeKind sh:BlankNodeOrIRI ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single design ice thickness in metres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The propeller-hub or thruster-end-cap impact status is required."
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:nodeKind sh:BlankNodeOrIRI ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single equivalent impact sphere radius in metres is required."
+    ] ;
+    sh:sparql [
+        sh:message "The equivalent radius must equal sqrt(A/pi), capped at half the design ice thickness when its diameter exceeds that thickness, except for propeller-hub or thruster-end-cap impacts; tolerance is 1e-6 relative with a 1e-12 m near-zero fallback." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:nonHemisphericalImpactContactArea ?area ;
+                      nltl:designIceThickness ?ice ;
+                      nltl:propellerHubOrThrusterEndCapImpact ?exception ;
+                      nltl:equivalentImpactSphereRadius ?radius .
+                ?area qudt:numericValue ?areaValue .
+                ?ice qudt:numericValue ?iceValue .
+                ?radius qudt:numericValue ?radiusValue .
+                FILTER (
+                    (
+                        ?exception = false &&
+                        (
+                            (4.0 * xsd:decimal(?areaValue) /
+                             3.1415926535897932384626433832795028841971693993751)
+                            >
+                            (xsd:decimal(?iceValue) * xsd:decimal(?iceValue))
+                        ) &&
+                        (
+                            (xsd:decimal(?radiusValue) * xsd:decimal(?radiusValue))
+                            <
+                            (
+                                (
+                                    xsd:decimal(?iceValue) *
+                                    xsd:decimal(?iceValue) / 4.0
+                                ) * 0.999998000001
+                                - 0.000000000000000000000001
+                            )
+                            ||
+                            (xsd:decimal(?radiusValue) * xsd:decimal(?radiusValue))
+                            >
+                            (
+                                (
+                                    xsd:decimal(?iceValue) *
+                                    xsd:decimal(?iceValue) / 4.0
+                                ) * 1.000002000001
+                                + 0.000000000000000000000001
+                            )
+                        )
+                    )
+                    ||
+                    (
+                        (
+                            ?exception = true
+                            ||
+                            (
+                                (4.0 * xsd:decimal(?areaValue) /
+                                 3.1415926535897932384626433832795028841971693993751)
+                                <=
+                                (xsd:decimal(?iceValue) * xsd:decimal(?iceValue))
+                            )
+                        ) &&
+                        (
+                            (xsd:decimal(?radiusValue) * xsd:decimal(?radiusValue))
+                            <
+                            (
+                                (
+                                    xsd:decimal(?areaValue) /
+                                    3.1415926535897932384626433832795028841971693993751
+                                ) * 0.999998000001
+                                - 0.000000000000000000000001
+                            )
+                            ||
+                            (xsd:decimal(?radiusValue) * xsd:decimal(?radiusValue))
+                            >
+                            (
+                                (
+                                    xsd:decimal(?areaValue) /
+                                    3.1415926535897932384626433832795028841971693993751
+                                ) * 1.000002000001
+                                + 0.000000000000000000000001
+                            )
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

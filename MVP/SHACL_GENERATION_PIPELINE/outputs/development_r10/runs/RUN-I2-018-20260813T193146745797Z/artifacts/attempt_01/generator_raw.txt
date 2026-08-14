@@ -1,0 +1,198 @@
+<BEGIN_SHACL>
+@prefix g: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+g:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:MegaPA )
+    ] .
+
+g:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:KiloN )
+    ] .
+
+g:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minExclusive "0"^^xsd:decimal ;
+        sh:message "Load-patch dimensions must be positive for the pressure calculation."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:M )
+    ] .
+
+g:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:UNITLESS )
+    ] .
+
+g:PeakPressureFactorLookupCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:localizedStructuralMemberCategory ;
+        sh:minCount 1 ;
+        sh:class nltl:structuralMemberCategoryValue ;
+        sh:message "A localized structural-member category is required for the peak-pressure-factor lookup."
+    ] ;
+    sh:property [
+        sh:path nltl:selectedPeakPressureFactor ;
+        sh:minCount 1 ;
+        sh:node g:UnitlessQuantityShape ;
+        sh:message "A unitless peak pressure factor selected for the lookup case is required."
+    ] ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:minCount 1 ;
+        sh:in ( nltl:iacsUrI2Table3 ) ;
+        sh:message "The peak-pressure-factor lookup must reference IACS UR I2 Table 3."
+    ] ;
+    sh:property [
+        sh:path nltl:lookupSelectionEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "Evidence supporting the Table 3 lookup selection is required."
+    ] .
+
+g:I2_018_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIceLoadPatch ;
+        sh:minCount 1 ;
+        sh:class nltl:iceLoadPatch ;
+        sh:message "A design ice-load patch is required for the pressure calculation."
+    ] ;
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:minCount 1 ;
+        sh:node g:PressureQuantityShape ;
+        sh:message "Average ice pressure in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:iceForce ;
+        sh:minCount 1 ;
+        sh:node g:ForceQuantityShape ;
+        sh:message "Ice force in kN is required."
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:minCount 1 ;
+        sh:node g:LengthQuantityShape ;
+        sh:message "Load-patch height in metres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchLength ;
+        sh:minCount 1 ;
+        sh:node g:LengthQuantityShape ;
+        sh:message "Load-patch length in metres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:peakPressureFactor ;
+        sh:minCount 1 ;
+        sh:node g:UnitlessQuantityShape ;
+        sh:message "The unitless peak pressure factor is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasPeakPressureFactorLookupCase ;
+        sh:minCount 1 ;
+        sh:class nltl:peakPressureFactorLookupCase ;
+        sh:node g:PeakPressureFactorLookupCaseShape ;
+        sh:message "A peak-pressure-factor lookup case is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasTableLookupCase ;
+        sh:minCount 1 ;
+        sh:class nltl:tableLookupCase ;
+        sh:node g:PeakPressureFactorLookupCaseShape ;
+        sh:equals nltl:hasPeakPressureFactorLookupCase ;
+        sh:message "The Table 3 selection and peak-pressure-factor selection must use the same lookup case."
+    ] ;
+    sh:sparql [
+        sh:message "Average ice pressure must equal ice force divided by load-patch height and length, with kN/m2 converted to MPa, within relative tolerance 1e-6 and absolute fallback 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasIceLoadPatch ?patch ;
+                      nltl:iceForce ?forceQuantity ;
+                      nltl:loadPatchHeight ?heightQuantity ;
+                      nltl:loadPatchLength ?lengthQuantity ;
+                      nltl:averageIcePressure ?pressureQuantity .
+                ?forceQuantity qudt:numericValue ?force .
+                ?heightQuantity qudt:numericValue ?height .
+                ?lengthQuantity qudt:numericValue ?length .
+                ?pressureQuantity qudt:numericValue ?pressure .
+                FILTER (?height > 0 && ?length > 0)
+                BIND ((?force * 0.001) / (?height * ?length) AS ?expected)
+                BIND (IF(ABS(?expected) * 0.000001 > 0.000000001,
+                         ABS(?expected) * 0.000001,
+                         0.000000001) AS ?tolerance)
+                FILTER (ABS(?pressure - ?expected) > ?tolerance)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The ship peak pressure factor must match the factor selected in its IACS UR I2 Table 3 lookup case within relative tolerance 1e-6 and absolute fallback 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasPeakPressureFactorLookupCase ?case ;
+                      nltl:hasTableLookupCase ?case ;
+                      nltl:peakPressureFactor ?reportedQuantity .
+                ?case nltl:localizedStructuralMemberCategory ?category ;
+                      nltl:tableReference nltl:iacsUrI2Table3 ;
+                      nltl:lookupSelectionEvidence ?evidence ;
+                      nltl:selectedPeakPressureFactor ?selectedQuantity .
+                ?selectedQuantity qudt:numericValue ?selected .
+                ?reportedQuantity qudt:numericValue ?reported .
+                BIND (IF(ABS(?selected) * 0.000001 > 0.000000001,
+                         ABS(?selected) * 0.000001,
+                         0.000000001) AS ?tolerance)
+                FILTER (ABS(?reported - ?selected) > ?tolerance)
+            }
+        """
+    ] .
+<END_SHACL>

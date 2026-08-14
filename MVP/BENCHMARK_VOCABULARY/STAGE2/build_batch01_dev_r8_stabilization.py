@@ -12,6 +12,7 @@ base.DEV_INDEX = base.OUT / "requirement_term_index.json"
 base.VERSION = "2.8.0-dev-batch01-stabilization"
 base.DEV_ID = "VOCAB-DEV-2026-08-13-BATCH01-R8-STABILIZATION"
 
+
 # These are context/index repairs for canonical terms that already existed in
 # R7. No new engineering concept, threshold, formula result, or compliance
 # answer is introduced here.

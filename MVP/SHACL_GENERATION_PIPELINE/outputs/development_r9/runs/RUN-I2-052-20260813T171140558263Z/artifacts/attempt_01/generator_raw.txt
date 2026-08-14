@@ -1,0 +1,124 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ShipLinearInterpolationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:class nltl:calculationCase ;
+    sh:property gen:HullGirderPositionShape ;
+    sh:property gen:InterpolationPointsShape ;
+    sh:sparql gen:BracketingInterpolationPointsConstraint .
+
+gen:HullGirderPositionShape
+    a sh:PropertyShape ;
+    sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+    sh:minCount 1 ;
+    sh:node gen:MetreQuantityValueShape ;
+    sh:message "A hull-girder longitudinal position in metres is required for interpolation." .
+
+gen:InterpolationPointsShape
+    a sh:PropertyShape ;
+    sh:path nltl:hasInterpolationPoint ;
+    sh:minCount 2 ;
+    sh:class nltl:interpolationPoint ;
+    sh:node gen:InterpolationPointShape ;
+    sh:message "At least two interpolation points are required for linear interpolation." .
+
+gen:InterpolationPointShape
+    a sh:NodeShape ;
+    sh:class nltl:interpolationPoint ;
+    sh:property gen:InterpolationCoordinateShape ;
+    sh:property gen:InterpolationPointValueShape .
+
+gen:InterpolationCoordinateShape
+    a sh:PropertyShape ;
+    sh:path nltl:interpolationCoordinate ;
+    sh:minCount 1 ;
+    sh:node gen:QuantityValueShape ;
+    sh:message "Each interpolation point requires a numeric interpolation coordinate and unit." .
+
+gen:InterpolationPointValueShape
+    a sh:PropertyShape ;
+    sh:path nltl:interpolationPointValue ;
+    sh:minCount 1 ;
+    sh:node gen:QuantityValueShape ;
+    sh:message "Each interpolation point requires a numeric interpolation value and unit." .
+
+gen:QuantityValueShape
+    a sh:NodeShape ;
+    sh:property gen:DecimalNumericValueShape ;
+    sh:property gen:QuantityUnitShape .
+
+gen:MetreQuantityValueShape
+    a sh:NodeShape ;
+    sh:property gen:DecimalNumericValueShape ;
+    sh:property gen:MetreUnitShape .
+
+gen:DecimalNumericValueShape
+    a sh:PropertyShape ;
+    sh:path qudt:numericValue ;
+    sh:minCount 1 ;
+    sh:datatype xsd:decimal .
+
+gen:QuantityUnitShape
+    a sh:PropertyShape ;
+    sh:path qudt:unit ;
+    sh:minCount 1 ;
+    sh:nodeKind sh:IRI .
+
+gen:MetreUnitShape
+    a sh:PropertyShape ;
+    sh:path qudt:unit ;
+    sh:minCount 1 ;
+    sh:nodeKind sh:IRI ;
+    sh:hasValue unit:M .
+
+gen:BracketingInterpolationPointsConstraint
+    a sh:SPARQLConstraint ;
+    sh:message "No two distinct, unit-compatible interpolation points bracket the hull-girder longitudinal position." ;
+    sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?positionQuantity
+WHERE {
+    $this nltl:hullGirderLongitudinalPositionFromAft ?positionQuantity .
+    ?positionQuantity qudt:numericValue ?position ;
+                      qudt:unit ?positionUnit .
+    FILTER(datatype(?position) = xsd:decimal)
+    FILTER NOT EXISTS {
+        $this nltl:hasInterpolationPoint ?lowerPoint ;
+              nltl:hasInterpolationPoint ?upperPoint .
+        FILTER(?lowerPoint != ?upperPoint)
+        ?lowerPoint nltl:interpolationCoordinate ?lowerCoordinate ;
+                    nltl:interpolationPointValue ?lowerValue .
+        ?upperPoint nltl:interpolationCoordinate ?upperCoordinate ;
+                    nltl:interpolationPointValue ?upperValue .
+        ?lowerCoordinate qudt:numericValue ?lowerPosition ;
+                         qudt:unit ?lowerCoordinateUnit .
+        ?upperCoordinate qudt:numericValue ?upperPosition ;
+                         qudt:unit ?upperCoordinateUnit .
+        ?lowerValue qudt:numericValue ?lowerPointValue ;
+                    qudt:unit ?lowerValueUnit .
+        ?upperValue qudt:numericValue ?upperPointValue ;
+                    qudt:unit ?upperValueUnit .
+        FILTER(
+            datatype(?lowerPosition) = xsd:decimal &&
+            datatype(?upperPosition) = xsd:decimal &&
+            datatype(?lowerPointValue) = xsd:decimal &&
+            datatype(?upperPointValue) = xsd:decimal &&
+            ?lowerCoordinateUnit = ?positionUnit &&
+            ?upperCoordinateUnit = ?positionUnit &&
+            ?lowerValueUnit = ?upperValueUnit &&
+            ?lowerPosition < ?position &&
+            ?position < ?upperPosition
+        )
+    }
+}
+""" .
+<END_SHACL>

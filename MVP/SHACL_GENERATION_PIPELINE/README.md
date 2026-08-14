@@ -62,6 +62,26 @@ From this directory, using the project virtual environment:
 
 The smoke command uses a local scripted client. It performs no API request.
 
+## Development model and cost policy
+
+The R10 development configuration uses GPT-5.6 Sol for SHACL generation,
+GPT-5.6 Terra for semantic validation, and GPT-5.6 Luna for the optional
+vocabulary matcher. This reduces development cost while preserving the
+strongest model for code generation. One declared model assignment must be
+frozen before the final clean experiment.
+
+Every completed API response records its exact model and input/output tokens.
+Rebuild the project-wide cost ledger without making an API call:
+
+```text
+../.venv/bin/python run_pipeline.py --config config/pipeline.dev-r10.json cost-report
+```
+
+Live single and batch generation commands rebuild the ledger and print the
+cumulative Azure-list-price estimate when they finish. The estimate is a
+budgeting aid, not an Aalto invoice. Pricing assumptions and their Microsoft
+source URL are stored in the active configuration and ledger workbook.
+
 ## Later live use
 
 After the environment file is ready:

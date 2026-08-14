@@ -1,0 +1,244 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2-035-Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MegaPascalQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:PositiveMetreQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpan ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:PositiveMetreQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:hullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:UnitlessQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:PositiveMetreQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:peakPressureFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:UnitlessQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:requiredLongitudinalFrameShearArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:SquareCentimetreQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:shearArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:SquareMetreQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:PositiveMegaPascalQuantity
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:minCount 1 ;
+        sh:class nltl:structuralMember ;
+        sh:node gs:I2-035-StructuralMemberShape ;
+        sh:message "At least one structural member with a selected hull area factor is required."
+    ] ;
+    sh:sparql [
+        sh:message "The hull area factor and required longitudinal frame shear area must satisfy the I2.7.2 formula, and actual shear area must be at least the calculated required area." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                      nltl:averageIcePressure ?pAvgQuantity ;
+                      nltl:frameSpacing ?spacingQuantity ;
+                      nltl:frameSpan ?spanQuantity ;
+                      nltl:hullAreaFactor ?koQuantity ;
+                      nltl:loadPatchHeight ?heightQuantity ;
+                      nltl:peakPressureFactor ?ppfQuantity ;
+                      nltl:requiredLongitudinalFrameShearArea ?requiredAreaQuantity ;
+                      nltl:shearArea ?actualAreaQuantity ;
+                      nltl:yieldStrength ?yieldQuantity .
+
+                ?member nltl:selectedHullAreaFactor ?afQuantity .
+
+                ?pAvgQuantity qudt:numericValue ?pAvg .
+                ?spacingQuantity qudt:numericValue ?s .
+                ?spanQuantity qudt:numericValue ?a .
+                ?koQuantity qudt:numericValue ?reportedKo .
+                ?heightQuantity qudt:numericValue ?b .
+                ?ppfQuantity qudt:numericValue ?ppf .
+                ?requiredAreaQuantity qudt:numericValue ?reportedRequiredArea .
+                ?actualAreaQuantity qudt:numericValue ?actualAreaM2 .
+                ?yieldQuantity qudt:numericValue ?yieldStrength .
+                ?afQuantity qudt:numericValue ?af .
+
+                BIND((?b / ?s) AS ?bPrime)
+                BIND(IF(?bPrime < 2.0, ?b * (1.0 - 0.25 * ?bPrime), ?s) AS ?b2)
+                BIND((1.0 - 0.3 / ?bPrime) AS ?expectedKo)
+                BIND((?expectedKo * ?b2) AS ?b1)
+                BIND(
+                    (10000.0 * (?af * ?ppf * ?pAvg) * 0.5 * ?b1 * ?a)
+                    / (0.577 * ?yieldStrength)
+                    AS ?expectedRequiredArea
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedKo) * 0.000001 > 0.000000001,
+                        ABS(?expectedKo) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?koTolerance
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedRequiredArea) * 0.000001 > 0.000000001,
+                        ABS(?expectedRequiredArea) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?areaTolerance
+                )
+
+                FILTER(
+                    ABS(?reportedKo - ?expectedKo) > ?koTolerance ||
+                    ABS(?reportedRequiredArea - ?expectedRequiredArea) > ?areaTolerance ||
+                    (?actualAreaM2 * 10000.0) < ?expectedRequiredArea
+                )
+            }
+        """
+    ] .
+
+gs:I2-035-StructuralMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:UnitlessQuantity
+    ] .
+
+gs:MegaPascalQuantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:PositiveMegaPascalQuantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:PositiveMetreQuantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:UnitlessQuantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:SquareCentimetreQuantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:CentiM2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:SquareMetreQuantity
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

@@ -1,0 +1,152 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF116Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:nonHemisphericalImpactContactArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minInclusive 0 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M2 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minInclusive 0 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minInclusive 0 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "Equivalent impact sphere radius must equal sqrt(A/pi), capped at half the design ice thickness when applicable; tolerance is 1e-6 relative with a 1e-12 m absolute fallback." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:nonHemisphericalImpactContactArea ?areaQuantity ;
+                      nltl:designIceThickness ?iceQuantity ;
+                      nltl:equivalentImpactSphereRadius ?radiusQuantity ;
+                      nltl:propellerHubOrThrusterEndCapImpact ?exception .
+
+                ?areaQuantity qudt:numericValue ?area .
+                ?iceQuantity qudt:numericValue ?iceThickness .
+                ?radiusQuantity qudt:numericValue ?reportedRadius .
+
+                BIND(xsd:decimal("3.141592653589793238462643383279502884") AS ?pi)
+                BIND(xsd:decimal("0.000001") AS ?relativeTolerance)
+                BIND(xsd:decimal("0.000000000001") AS ?absoluteTolerance)
+                BIND(?area / ?pi AS ?uncappedRadiusSquared)
+                BIND(
+                    IF(
+                        ?exception = xsd:boolean("true"),
+                        ?uncappedRadiusSquared,
+                        IF(
+                            xsd:decimal("4") * ?uncappedRadiusSquared >
+                                ?iceThickness * ?iceThickness,
+                            (?iceThickness * ?iceThickness) / xsd:decimal("4"),
+                            ?uncappedRadiusSquared
+                        )
+                    )
+                    AS ?expectedRadiusSquared
+                )
+                BIND(
+                    ?reportedRadius / (xsd:decimal("1") + ?relativeTolerance)
+                    AS ?relativeLowerRadius
+                )
+                BIND(
+                    ?reportedRadius / (xsd:decimal("1") - ?relativeTolerance)
+                    AS ?relativeUpperRadius
+                )
+                BIND(
+                    IF(
+                        ?reportedRadius > ?absoluteTolerance,
+                        ?reportedRadius - ?absoluteTolerance,
+                        xsd:decimal("0")
+                    )
+                    AS ?absoluteLowerRadius
+                )
+                BIND(
+                    ?reportedRadius + ?absoluteTolerance
+                    AS ?absoluteUpperRadius
+                )
+                FILTER(
+                    ?reportedRadius < xsd:decimal("0") ||
+                    (
+                        (
+                            ?expectedRadiusSquared <
+                                ?relativeLowerRadius * ?relativeLowerRadius ||
+                            ?expectedRadiusSquared >
+                                ?relativeUpperRadius * ?relativeUpperRadius
+                        ) &&
+                        (
+                            ?expectedRadiusSquared <
+                                ?absoluteLowerRadius * ?absoluteLowerRadius ||
+                            ?expectedRadiusSquared >
+                                ?absoluteUpperRadius * ?absoluteUpperRadius
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

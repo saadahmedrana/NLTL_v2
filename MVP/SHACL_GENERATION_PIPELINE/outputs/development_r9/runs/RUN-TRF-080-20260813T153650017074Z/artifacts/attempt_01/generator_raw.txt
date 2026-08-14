@@ -1,0 +1,45 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gs:TRF080Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a ship having a propeller-ice-interaction component, the effective ice load cycle count must equal the ice load cycle count multiplied by the propeller blade count, using UNITLESS and a relative tolerance of 1e-6 with an absolute fallback of 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasComponent ?component .
+                ?component a nltl:propellerIceInteractionComponent .
+                FILTER NOT EXISTS {
+                    $this nltl:iceLoadCycleCount ?nice ;
+                          nltl:propellerBladeCount ?bladeCount ;
+                          nltl:effectiveIceLoadCycleCount ?effectiveQuantity .
+                    ?effectiveQuantity
+                        qudt:numericValue ?actual ;
+                        qudt:unit unit:UNITLESS .
+                    FILTER(datatype(?nice) = xsd:integer)
+                    FILTER(datatype(?bladeCount) = xsd:integer)
+                    FILTER(datatype(?actual) = xsd:decimal)
+                    BIND(xsd:decimal(?nice) * xsd:decimal(?bladeCount) AS ?expected)
+                    BIND(
+                        IF(
+                            ABS(?expected) * 0.000001 > 0.000000000001,
+                            ABS(?expected) * 0.000001,
+                            0.000000000001
+                        )
+                        AS ?tolerance
+                    )
+                    FILTER(ABS(?actual - ?expected) <= ?tolerance)
+                }
+            }
+        """
+    ] .
+<END_SHACL>

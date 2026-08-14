@@ -1,0 +1,125 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO118Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single construction date is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        ) ;
+        sh:maxCount 1 ;
+        sh:message "Ship category, when recorded, must be a single Category A, B, or C value."
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:maxCount 1 ;
+        sh:message "Ship type must be single-valued when recorded."
+    ] ;
+    sh:property [
+        sh:path nltl:sewageDischargeToSea ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+        sh:message "Sewage discharge status must be single-valued when recorded."
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeSewageParagraph4Point2Point1Point3ComplianceStatus ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+        sh:message "Paragraph 4.2.1.3 compliance status must be single-valued when recorded."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A ship constructed on or after 1 January 2017 requires sufficient category and ship-type evidence to determine applicability." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:constructionDate ?date .
+    FILTER(
+        YEAR(?date) > 2017 ||
+        (YEAR(?date) = 2017 && MONTH(?date) > 1) ||
+        (YEAR(?date) = 2017 && MONTH(?date) = 1 && DAY(?date) >= 1)
+    )
+    FILTER(
+        !(
+            EXISTS {
+                $this nltl:shipCategory ?applicableCategory .
+                FILTER(
+                    ?applicableCategory IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+            } ||
+            EXISTS {
+                $this nltl:shipType ?passengerType .
+                FILTER(?passengerType = "passenger_ship"^^xsd:string)
+            } ||
+            EXISTS {
+                $this nltl:shipCategory nltl:polarShipCategoryC ;
+                      nltl:shipType ?nonPassengerType .
+                FILTER(?nonPassengerType != "passenger_ship"^^xsd:string)
+            }
+        )
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable ship, sewage discharge must be false unless paragraph 4.2.1.3 compliance status is true." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:constructionDate ?date .
+    FILTER(
+        YEAR(?date) > 2017 ||
+        (YEAR(?date) = 2017 && MONTH(?date) > 1) ||
+        (YEAR(?date) = 2017 && MONTH(?date) = 1 && DAY(?date) >= 1)
+    )
+    FILTER(
+        EXISTS {
+            $this nltl:shipCategory ?applicableCategory .
+            FILTER(
+                ?applicableCategory IN (
+                    nltl:polarShipCategoryA,
+                    nltl:polarShipCategoryB
+                )
+            )
+        } ||
+        EXISTS {
+            $this nltl:shipType ?passengerType .
+            FILTER(?passengerType = "passenger_ship"^^xsd:string)
+        }
+    )
+    FILTER(
+        !EXISTS {
+            $this nltl:sewageDischargeToSea ?dischargeStatus .
+            FILTER(?dischargeStatus = false)
+        } &&
+        !EXISTS {
+            $this nltl:polarCodeSewageParagraph4Point2Point1Point3ComplianceStatus ?exceptionStatus .
+            FILTER(?exceptionStatus = true)
+        }
+    )
+}
+"""
+    ] .

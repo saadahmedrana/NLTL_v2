@@ -1,0 +1,164 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO-111-Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one recognized polar ship category is required."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:hasValue nltl:polarShipCategoryC
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:in (
+                    nltl:polarShipCategoryA
+                    nltl:polarShipCategoryB
+                )
+            ] ;
+            sh:property [
+                sh:path nltl:constructionDate ;
+                sh:datatype xsd:date ;
+                sh:maxExclusive "2017-01-01"^^xsd:date ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:in (
+                    nltl:polarShipCategoryA
+                    nltl:polarShipCategoryB
+                )
+            ] ;
+            sh:property [
+                sh:path nltl:constructionDate ;
+                sh:datatype xsd:date ;
+                sh:minInclusive "2017-01-01"^^xsd:date ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:tankType ;
+                sh:datatype xsd:string ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Exactly one tank type is required for Category A or B ships constructed on or after 1 January 2017."
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "A regulated tank over 30 m3 must have exactly one capacity in m3 and exactly one outer-shell separation of at least 0.76 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:tankType ?type .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER (
+                    YEAR(?date) > 2017 ||
+                    (
+                        YEAR(?date) = 2017 &&
+                        (
+                            MONTH(?date) > 1 ||
+                            (
+                                MONTH(?date) = 1 &&
+                                DAY(?date) >= 1
+                            )
+                        )
+                    )
+                )
+                FILTER (
+                    ?type IN (
+                        "oil_residue_tank",
+                        "oily_bilge_water_holding_tank"
+                    )
+                )
+
+                OPTIONAL {
+                    $this nltl:individualTankCapacity ?capacityNode .
+                    OPTIONAL {
+                        ?capacityNode qudt:numericValue ?capacity .
+                    }
+                    OPTIONAL {
+                        ?capacityNode qudt:numericValue ?capacityDecimal .
+                        FILTER (DATATYPE(?capacityDecimal) = xsd:decimal)
+                    }
+                    OPTIONAL {
+                        ?capacityNode qudt:unit ?capacityUnit .
+                    }
+                    OPTIONAL {
+                        ?capacityNode qudt:unit unit:M3 .
+                        BIND (1 AS ?capacityM3)
+                    }
+                }
+
+                OPTIONAL {
+                    $this nltl:tankOuterShellSeparation ?separationNode .
+                    OPTIONAL {
+                        ?separationNode qudt:numericValue ?separation .
+                    }
+                    OPTIONAL {
+                        ?separationNode qudt:numericValue ?separationDecimal .
+                        FILTER (DATATYPE(?separationDecimal) = xsd:decimal)
+                    }
+                    OPTIONAL {
+                        ?separationNode qudt:unit ?separationUnit .
+                    }
+                    OPTIONAL {
+                        ?separationNode qudt:unit unit:M .
+                        BIND (1 AS ?separationM)
+                    }
+                }
+            }
+            GROUP BY $this
+            HAVING (
+                COUNT(DISTINCT ?capacityNode) != 1 ||
+                COUNT(DISTINCT ?capacity) != 1 ||
+                COUNT(DISTINCT ?capacityDecimal) != 1 ||
+                COUNT(DISTINCT ?capacityUnit) != 1 ||
+                COUNT(?capacityM3) = 0 ||
+                (
+                    COALESCE(MAX(?capacityDecimal), 0.0) > 30.0 &&
+                    (
+                        COUNT(DISTINCT ?separationNode) != 1 ||
+                        COUNT(DISTINCT ?separation) != 1 ||
+                        COUNT(DISTINCT ?separationDecimal) != 1 ||
+                        COUNT(DISTINCT ?separationUnit) != 1 ||
+                        COUNT(?separationM) = 0 ||
+                        COALESCE(MAX(?separationDecimal), 0.0) < 0.76
+                    )
+                )
+            )
+        """
+    ] .

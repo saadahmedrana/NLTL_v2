@@ -159,6 +159,10 @@ gen:S a sh:NodeShape ; sh:targetClass nltl:ship ; sh:property [
         vocabulary = VocabularyRepository(config)
         validator = ShaclStaticValidator(vocabulary)
         context = vocabulary.build_context_pack("TRF-030")
+        context.selection["exclusivePropertyGroups"] = [{
+            "id": "syntheticVerifiedAlternative",
+            "alternatives": [["verticalLoadPosition"], ["horizontalLoadPosition"]],
+        }]
         turtle = '''@prefix gen: <urn:nltl:generated-shape:> .
 @prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .

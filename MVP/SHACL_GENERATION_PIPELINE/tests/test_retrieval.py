@@ -131,8 +131,63 @@ class RetrievalTests(unittest.TestCase):
         self.assertIn("plating", {term["localName"] for term in plating_context.terms})
         self.assertEqual(plating_context.selection["requiredTargetOwner"], "plating")
 
-        patch_groups = patch_context.selection["exclusivePropertyGroups"]
-        self.assertEqual(patch_groups[0]["id"], "directAnalysisPositionAxis")
+        self.assertEqual(patch_context.selection["exclusivePropertyGroups"], [])
+
+    def test_complete_dependency_contract_rejects_absent_terms(self) -> None:
+        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-batch01.json"
+        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+        vocabulary.dependency_contracts["TRF-001"] = {
+            "status": "COMPLETE",
+            "ownerClasses": ["ship"],
+            "operandTerms": ["termThatDoesNotExist"],
+            "requiredModelFields": ["operandTerms"],
+        }
+        with self.assertRaisesRegex(Exception, "absent canonical terms"):
+            vocabulary.build_context_pack("TRF-001")
+
+    def test_complete_dependency_contract_rejects_unindexed_terms(self) -> None:
+        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-batch01.json"
+        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+        vocabulary.dependency_contracts["TRF-001"] = {
+            "status": "COMPLETE",
+            "ownerClasses": ["ship"],
+            "operandTerms": ["upperIceWaterlineBreadth"],
+            "requiredModelFields": ["operandTerms"],
+        }
+        with self.assertRaisesRegex(Exception, "not in the requirement index"):
+            vocabulary.build_context_pack("TRF-001")
+
+    def test_unique_canonical_domain_is_used_when_owner_override_is_absent(self) -> None:
+        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-r10.json"
+        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+        context = vocabulary.build_context_pack("TRF-082")
+        by_name = {term["localName"]: term for term in context.terms}
+        self.assertEqual(by_name["tableLookupApplied"]["requiredOwner"], "tableLookupCase")
+
+    def test_explicit_owner_override_precedes_canonical_domain_inference(self) -> None:
+        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-r10.json"
+        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+        vocabulary.term_owners.setdefault("TRF-082", {})["tableLookupApplied"] = "ship"
+        context = vocabulary.build_context_pack("TRF-082")
+        by_name = {term["localName"]: term for term in context.terms}
+        self.assertEqual(by_name["tableLookupApplied"]["requiredOwner"], "ship")
+
+    def test_schema_v2_contract_rejects_non_object_model_path(self) -> None:
+        config_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.dev-batch01.json"
+        vocabulary = VocabularyRepository(PipelineConfig.load(config_path))
+        vocabulary.dependency_contracts["TRF-001"] = {
+            "status": "COMPLETE",
+            "schemaVersion": 2,
+            "ownerClasses": ["ship"],
+            "relationshipTerms": ["constructionContractDate"],
+            "modelPaths": [{
+                "fromOwner": "ship", "via": "constructionContractDate", "toOwner": "ship",
+            }],
+            "requiredModelFields": ["comparisonModel"],
+            "comparisonModel": "test",
+        }
+        with self.assertRaisesRegex(Exception, "does not use an object property"):
+            vocabulary.build_context_pack("TRF-001")
 
 
 if __name__ == "__main__":

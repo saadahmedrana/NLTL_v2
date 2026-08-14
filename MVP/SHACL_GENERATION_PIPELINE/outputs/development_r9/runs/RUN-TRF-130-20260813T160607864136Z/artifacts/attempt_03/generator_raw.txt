@@ -1,0 +1,181 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:SeaChestVolumeValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF130Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "State whether the cooling-water chest volume and height requirements cannot be met."
+    ] ;
+    sh:property [
+        sh:path nltl:totalRelevantEnginePower ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloW ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Total relevant engine power must be reported in kW."
+    ] ;
+    sh:property [
+        sh:path nltl:nearCentrelineAndWellAftIfPossible ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The sea inlet must be near the centreline and well aft where possible."
+    ] ;
+    sh:property [
+        sh:path nltl:fullCapacityDischargePipeConnected ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A full-capacity cooling-water discharge pipe must be connected."
+    ] ;
+    sh:property [
+        sh:path nltl:strainerOpenAreaRatio ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minInclusive "4"^^xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The strainer open-area ratio must be at least 4."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:seaChestVolume ;
+                sh:minCount 1 ;
+                sh:node gen:SeaChestVolumeValueShape
+            ] ;
+            sh:property [
+                sh:path nltl:iceAccumulationSpaceAboveInlet ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:seaChestVolume ;
+                sh:minCount 2 ;
+                sh:maxCount 2 ;
+                sh:node gen:SeaChestVolumeValueShape
+            ] ;
+            sh:property [
+                sh:path nltl:alternatingCoolingWaterIntakeAndDischarge ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "The normal arrangement requires at least one sea-chest volume approximately equal to total relevant engine power divided by 750; each alternative chest must be strictly smaller." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ?cannotMeet ;
+          nltl:totalRelevantEnginePower ?powerQuantity .
+    ?powerQuantity qudt:numericValue ?power ;
+                   qudt:unit unit:KiloW .
+    BIND((xsd:decimal(?power) / xsd:decimal("750")) AS ?expected)
+    BIND(
+        IF(
+            ABS(?expected) * xsd:decimal("0.000001") > xsd:decimal("0.000000000001"),
+            ABS(?expected) * xsd:decimal("0.000001"),
+            xsd:decimal("0.000000000001")
+        ) AS ?tolerance
+    )
+    FILTER(
+        (
+            ?cannotMeet = false &&
+            NOT EXISTS {
+                $this nltl:seaChestVolume ?normalVolumeQuantity .
+                ?normalVolumeQuantity qudt:numericValue ?normalVolume ;
+                                      qudt:unit unit:M3 .
+                FILTER(ABS(xsd:decimal(?normalVolume) - ?expected) <= ?tolerance)
+            }
+        )
+        ||
+        (
+            ?cannotMeet = true &&
+            EXISTS {
+                $this nltl:seaChestVolume ?alternativeVolumeQuantity .
+                ?alternativeVolumeQuantity qudt:numericValue ?alternativeVolume ;
+                                           qudt:unit unit:M3 .
+                FILTER(xsd:decimal(?alternativeVolume) >= ?expected)
+            }
+        )
+    )
+}
+"""
+    ] .
+<END_SHACL>

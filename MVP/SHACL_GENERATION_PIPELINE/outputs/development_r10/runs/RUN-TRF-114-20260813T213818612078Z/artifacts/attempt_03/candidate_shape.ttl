@@ -1,0 +1,179 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:KnotQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:KN
+    ] .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:KilonewtonQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:KiloN
+    ] .
+
+gen:ThrusterIceImpactLoadCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:thrusterIceImpactLoadCase ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoadCaseIdentifier ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:equals (
+            [ sh:inversePath nltl:hasThrusterIceImpactLoadCase ]
+            nltl:impactLoadCase
+        ) ;
+        sh:message "Each load case identifier must correspond to the ship's selected Table 6-16 impact load case."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactDemand ;
+        sh:minCount 1 ;
+        sh:node gen:KilonewtonQuantityShape ;
+        sh:message "Each thruster ice-impact load case requires a demand in kilonewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoadedAreaEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "Each thruster ice-impact load case requires loaded-area evidence."
+    ] .
+
+gen:NonHemisphericalLoadCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:contactGeometryCorrespondenceEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "A non-hemispherical contact geometry requires correspondence evidence for each load case."
+    ] .
+
+gen:ThrusterIceImpactRequirementShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:designIceBlock ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "The Table 6-3 design ice block selection is required."
+    ] ;
+    sh:property [
+        sh:path nltl:iceOperatingSpeed ;
+        sh:minCount 1 ;
+        sh:node gen:KnotQuantityShape ;
+        sh:message "The typical ice operating speed is required in knots."
+    ] ;
+    sh:property [
+        sh:path nltl:impactLoadCase ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "At least one Table 6-16 impact load case selection is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasThrusterIceImpactLoadCase ;
+        sh:minCount 1 ;
+        sh:node gen:ThrusterIceImpactLoadCaseShape ;
+        sh:message "The ship requires a linked, identified thruster ice-impact load case."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoad ;
+        sh:minCount 1 ;
+        sh:node gen:KilonewtonQuantityShape ;
+        sh:message "The governing thruster ice-impact load is required in kilonewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:contactGeometry ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Exactly one contact geometry value is required."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:contactGeometry ;
+                sh:hasValue "hemispherical"^^xsd:string
+            ]
+        ]
+        [
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "This alternative requires an actual contact geometry other than hemispherical." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:contactGeometry ?geometry .
+                        FILTER(?geometry = "hemispherical"^^xsd:string)
+                    }
+                """
+            ] ;
+            sh:property [
+                sh:path nltl:equivalentImpactSphereRadius ;
+                sh:minCount 1 ;
+                sh:node gen:MetreQuantityShape ;
+                sh:message "A non-hemispherical contact geometry requires an equivalent impact sphere radius in metres."
+            ] ;
+            sh:property [
+                sh:path nltl:hasThrusterIceImpactLoadCase ;
+                sh:minCount 1 ;
+                sh:node gen:NonHemisphericalLoadCaseShape
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each linked thruster body requires a resistance capacity in kilonewtons." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?thruster
+            WHERE {
+                $this nltl:hasComponent ?thruster .
+                ?thruster a nltl:thrusterBody .
+                FILTER NOT EXISTS {
+                    ?thruster nltl:thrusterResistanceCapacity ?capacity .
+                    ?capacity qudt:numericValue ?capacityValue ;
+                              qudt:unit unit:KiloN .
+                    FILTER(datatype(?capacityValue) = xsd:decimal)
+                }
+            }
+        """
+    ] .

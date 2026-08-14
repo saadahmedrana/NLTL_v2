@@ -1,0 +1,28 @@
+# R9 Batch 02 failure reconstruction
+
+- Session: `SESSION-BATCH-20260813T091540611845Z`
+- Failed cases reconstructed: 94
+- Term-resolution unresolved: 79
+- Maximum attempts reached: 15
+
+## Root-cause signals
+
+- VOCABULARY_OR_MODEL_GAP: 79
+- INCOMPLETE_INDEX_OR_CONTEXT: 62
+- MISSING_EVIDENCE_MODEL: 39
+- MISSING_RELATIONSHIP_PATH: 27
+- GENERATION_OR_CONTEXT_REPAIR: 15
+- CONTROLLED_VALUE_REQUIRED: 13
+- GENERATOR_INCOMPLETE_LOGIC: 13
+- MISSING_BRANCH_SELECTOR: 13
+- GENERATOR_FORMULA_LOGIC: 9
+- MISSING_FORMULA_OPERAND: 9
+- OVERLOADED_OR_WRONG_TERM: 8
+- MISSING_CASE_OR_ASSIGNMENT_NODE: 7
+- NUMERIC_QUANTITY_REQUIRED: 6
+- MISSING_FORMULA_RESULT: 4
+- GENERATOR_ALL_VALUES_LOGIC: 4
+- GENERATOR_CONDITIONAL_LOGIC: 3
+- GENERATOR_SPARQL_LOGIC: 2
+
+These are multi-label evidence signals, not yet final term-addition decisions. Each change must be checked against the regulation and the reusable engineering model.

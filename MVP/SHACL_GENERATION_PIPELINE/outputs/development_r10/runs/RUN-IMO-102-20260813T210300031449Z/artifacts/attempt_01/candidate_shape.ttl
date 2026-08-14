@@ -1,0 +1,90 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO102Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceCondition ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:class nltl:iceConditionValue
+    ] ;
+    sh:property [
+        sh:path [
+            sh:alternativePath (
+                nltl:iceCondition
+                nltl:iceConditionClassification
+            )
+        ] ;
+        sh:minCount 1 ;
+        sh:message "An ice-condition selector is required to determine the applicable training-table row."
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Ship type is required to determine the applicable training-table column."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCrewMemberInventory ;
+        sh:class nltl:crewMember ;
+        sh:node [
+            sh:property [
+                sh:path nltl:crewRole ;
+                sh:datatype xsd:string ;
+                sh:minCount 1 ;
+                sh:message "Each listed crew member requires a crew role for training applicability."
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable crew member lacks a valid STCW training record whose recorded level matches the required level." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?crew
+WHERE {
+    $this nltl:shipType ?shipType ;
+          nltl:hasCrewMemberInventory ?crew ;
+          (nltl:iceConditionClassification|nltl:iceCondition) ?iceCondition .
+    ?crew nltl:crewRole ?crewRole .
+
+    FILTER (
+        (
+            ?iceCondition = nltl:openWaterIceCondition
+            && STR(?shipType) IN ("Tankers", "Passenger ships")
+            && STR(?crewRole) IN (
+                "master",
+                "chief mate",
+                "officers in charge of a navigational watch"
+            )
+        )
+        ||
+        (
+            STR(?iceCondition) = "Other waters"
+            && STR(?shipType) IN ("Tankers", "Passenger ships", "Other")
+            && STR(?crewRole) IN (
+                "master",
+                "chief mate",
+                "officers in charge of a navigational watch"
+            )
+        )
+    )
+
+    FILTER NOT EXISTS {
+        ?crew nltl:hasCrewTrainingRecord ?record .
+        ?record a nltl:polarTrainingRecord ;
+                nltl:requiredTrainingLevel ?level ;
+                nltl:trainingRecordLevel ?level ;
+                nltl:stcwQualificationValid true .
+        ?level a nltl:trainingLevelValue .
+    }
+}
+"""
+    ] .

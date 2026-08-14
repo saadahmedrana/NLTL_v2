@@ -1,0 +1,113 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:AreaQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:EquivalentImpactSphereRadiusShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:nonHemisphericalImpactContactArea ;
+        sh:node gen:AreaQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A non-hemispherical impact contact area in square metres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Design ice thickness in metres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The propeller-hub or thruster-end-cap impact status is required."
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An equivalent impact sphere radius in metres is required."
+    ] ;
+    sh:sparql [
+        sh:message "The equivalent impact sphere radius must equal sqrt(A/pi), capped at half the design ice thickness when applicable, within max(1e-6 relative, 1e-12 m absolute) tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:nonHemisphericalImpactContactArea ?areaQuantity ;
+                      nltl:designIceThickness ?iceQuantity ;
+                      nltl:propellerHubOrThrusterEndCapImpact ?exception ;
+                      nltl:equivalentImpactSphereRadius ?radiusQuantity .
+                ?areaQuantity qudt:numericValue ?area .
+                ?iceQuantity qudt:numericValue ?iceThickness .
+                ?radiusQuantity qudt:numericValue ?reportedRadius .
+                BIND(SQRT(?area / xsd:decimal("3.14159265358979323846")) AS ?baseRadius)
+                BIND(
+                    IF(
+                        ?exception = "true"^^xsd:boolean,
+                        ?baseRadius,
+                        IF(
+                            xsd:decimal("2") * ?baseRadius > ?iceThickness,
+                            ?iceThickness / xsd:decimal("2"),
+                            ?baseRadius
+                        )
+                    )
+                    AS ?expectedRadius
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedRadius) * xsd:decimal("0.000001") >
+                            xsd:decimal("0.000000000001"),
+                        ABS(?expectedRadius) * xsd:decimal("0.000001"),
+                        xsd:decimal("0.000000000001")
+                    )
+                    AS ?tolerance
+                )
+                FILTER(ABS(?reportedRadius - ?expectedRadius) > ?tolerance)
+            }
+        """
+    ] .
+<END_SHACL>

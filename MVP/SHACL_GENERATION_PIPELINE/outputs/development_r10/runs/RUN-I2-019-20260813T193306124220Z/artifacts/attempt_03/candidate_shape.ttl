@@ -1,0 +1,113 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:UnitlessDecimalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:StructuralMemberHullAreaShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:hasSpannedHullArea ;
+        sh:class nltl:hullAreaValue
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hasSpannedHullArea ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:hasSpannedHullArea ;
+                sh:minCount 2
+            ] ;
+            sh:property [
+                sh:path (
+                    [ sh:inversePath nltl:hasStructuralMember ]
+                    nltl:spansHullArea
+                ) ;
+                sh:class nltl:hullRegionValue ;
+                sh:minCount 1 ;
+                sh:message "A ship with a boundary-spanning member must identify a spanned hull region."
+            ] ;
+            sh:property [
+                sh:path (
+                    [ sh:inversePath nltl:hasStructuralMember ]
+                    nltl:hullAreaFactor
+                ) ;
+                sh:minCount 1 ;
+                sh:node gen:UnitlessDecimalQuantityShape ;
+                sh:message "Hull area factors are required for a boundary-spanning member."
+            ] ;
+            sh:property [
+                sh:path nltl:selectedHullAreaFactor ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:UnitlessDecimalQuantityShape ;
+                sh:message "A boundary-spanning member must have one selected unitless hull area factor."
+            ]
+        ]
+    ) .
+
+gen:HullAreaFactorSelectionShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:class nltl:structuralMember ;
+        sh:node gen:StructuralMemberHullAreaShape
+    ] ;
+    sh:sparql [
+        sh:message "For a boundary-spanning member, the selected hull area factor must equal the largest ship hull area factor within relative tolerance 1e-6 and absolute fallback 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?member
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                      nltl:hullAreaFactor ?factor .
+                ?member nltl:hasSpannedHullArea ?area1 ;
+                        nltl:hasSpannedHullArea ?area2 ;
+                        nltl:selectedHullAreaFactor ?selected .
+                FILTER (?area1 != ?area2)
+                ?selected qudt:numericValue ?selectedNumber ;
+                          qudt:unit unit:UNITLESS .
+                ?factor qudt:numericValue ?factorNumber ;
+                        qudt:unit unit:UNITLESS .
+            }
+            GROUP BY $this ?member ?selectedNumber
+            HAVING (
+                ABS(
+                    xsd:decimal(?selectedNumber) -
+                    MAX(xsd:decimal(?factorNumber))
+                ) >
+                IF(
+                    ABS(MAX(xsd:decimal(?factorNumber))) * 0.000001 >
+                    0.000000000001,
+                    ABS(MAX(xsd:decimal(?factorNumber))) * 0.000001,
+                    0.000000000001
+                )
+            )
+        """
+    ] .

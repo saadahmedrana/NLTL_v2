@@ -1,0 +1,145 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF079Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:propellerShaftCentrelineDepth ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:propellerImmersionFunction ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadCycleCoefficientK2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:sparql [
+        sh:message "Propeller diameter must be nonzero, f must equal (h_0 - H_ice)/(D/2) - 1, and k_2 must satisfy the prescribed piecewise formula within a 1e-6 relative tolerance with a 1e-9 absolute fallback." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:designIceThickness ?iceNode ;
+                      nltl:propellerShaftCentrelineDepth ?depthNode ;
+                      nltl:propellerDiameter ?diameterNode ;
+                      nltl:propellerImmersionFunction ?reportedFNode ;
+                      nltl:iceLoadCycleCoefficientK2 ?reportedK2Node .
+                ?iceNode qudt:numericValue ?iceRaw .
+                ?depthNode qudt:numericValue ?depthRaw .
+                ?diameterNode qudt:numericValue ?diameterRaw .
+                ?reportedFNode qudt:numericValue ?reportedFRaw .
+                ?reportedK2Node qudt:numericValue ?reportedK2Raw .
+
+                BIND(xsd:decimal(?iceRaw) AS ?ice)
+                BIND(xsd:decimal(?depthRaw) AS ?depth)
+                BIND(xsd:decimal(?diameterRaw) AS ?diameter)
+                BIND(xsd:decimal(?reportedFRaw) AS ?reportedF)
+                BIND(xsd:decimal(?reportedK2Raw) AS ?reportedK2)
+
+                BIND(
+                    IF(
+                        ?diameter = 0.0,
+                        0.0,
+                        ((?depth - ?ice) / (?diameter / 2.0)) - 1.0
+                    )
+                    AS ?expectedF
+                )
+                BIND(
+                    IF(
+                        ?expectedF < 0.0,
+                        0.8 - ?expectedF,
+                        IF(
+                            ?expectedF <= 1.0,
+                            0.8 - (0.4 * ?expectedF),
+                            IF(
+                                ?expectedF <= 2.5,
+                                0.6 - (0.2 * ?expectedF),
+                                0.1
+                            )
+                        )
+                    )
+                    AS ?expectedK2
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedF) * 0.000001 > 0.000000001,
+                        ABS(?expectedF) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?fTolerance
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedK2) * 0.000001 > 0.000000001,
+                        ABS(?expectedK2) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?k2Tolerance
+                )
+                FILTER(
+                    ?diameter = 0.0 ||
+                    ABS(?reportedF - ?expectedF) > ?fTolerance ||
+                    ABS(?reportedK2 - ?expectedK2) > ?k2Tolerance
+                )
+            }
+        """
+    ] .

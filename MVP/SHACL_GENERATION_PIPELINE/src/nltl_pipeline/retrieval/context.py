@@ -41,6 +41,7 @@ class VocabularyRepository:
         self.term_owners = dict(self.index_payload.get("termOwners", {}))
         self.semantic_obligations = dict(self.index_payload.get("semanticObligations", {}))
         self.exclusive_property_groups = dict(self.index_payload.get("exclusivePropertyGroups", {}))
+        self.dependency_contracts = dict(self.index_payload.get("dependencyContracts", {}))
         if int(self.index_payload.get("requirementCount", -1)) != len(self.requirements):
             raise ConfigurationError("Requirement evidence and requirement-term index counts differ")
 
@@ -184,6 +185,7 @@ class VocabularyRepository:
         additional_local_names: Iterable[str] = (),
     ) -> ContextPack:
         requirement = self.requirement(requirement_id)
+        self.validate_dependency_contract(requirement_id)
         indexed = list(self.requirement_index.get(requirement_id, []))
         if not indexed:
             raise ConfigurationError(f"Requirement has no indexed vocabulary terms: {requirement_id}")
@@ -261,7 +263,18 @@ class VocabularyRepository:
             for name in sorted(reasons)
         ]
         for term in terms:
-            term["requiredOwner"] = ownership.get(term["localName"], target_owner)
+            explicit_owner = ownership.get(term["localName"])
+            domain_owners = [
+                str(value)[len(NLTL):]
+                for value in term.get("domains", [])
+                if str(value).startswith(NLTL)
+                and str(value) != NLTL + "benchmarkEntity"
+            ]
+            # A unique canonical rdfs:domain is safer than silently defaulting
+            # every older term to the requirement target (normally ship).
+            # Explicit per-requirement ownership still has highest precedence.
+            inferred_owner = domain_owners[0] if len(set(domain_owners)) == 1 else target_owner
+            term["requiredOwner"] = explicit_owner or inferred_owner
         kinds = {item["kind"] for item in terms}
         patterns: list[dict[str, Any]] = []
         if "Class" in kinds:
@@ -292,6 +305,7 @@ class VocabularyRepository:
                 "requiredTargetOwner": target_owner,
                 "semanticObligations": list(self.semantic_obligations.get(requirement_id, [])),
                 "exclusivePropertyGroups": list(self.exclusive_property_groups.get(requirement_id, [])),
+                "dependencyContract": dict(self.dependency_contracts.get(requirement_id, {})),
             },
             usage_policy={
                 "useOnlyAllowedCanonicalTerms": True,
@@ -300,6 +314,114 @@ class VocabularyRepository:
                 "containsRegulatoryAnswerLogic": False,
             },
         )
+
+    def validate_dependency_contract(self, requirement_id: str) -> None:
+        """Reject an explicitly complete R9 contract if its declared model is inconsistent.
+
+        Older locks and draft contracts remain usable. This gate becomes strict only
+        after engineering review marks a requirement contract COMPLETE.
+        """
+        contract = self.dependency_contracts.get(requirement_id)
+        if not contract or contract.get("status") != "COMPLETE":
+            return
+        declared: set[str] = set()
+        for key in (
+            "applicabilityTerms", "operandTerms", "resultTerms", "comparisonTerms",
+            "relationshipTerms", "evidenceTerms", "controlledValueTerms", "timeTerms",
+        ):
+            declared.update(str(item) for item in contract.get(key, []))
+        declared.update(str(item) for item in contract.get("ownerClasses", []))
+        missing = sorted(declared - set(self.all_terms))
+        if missing:
+            raise ConfigurationError(
+                f"Complete dependency contract contains absent canonical terms for {requirement_id}: {missing}"
+            )
+        indexed = set(self.requirement_index.get(requirement_id, []))
+        not_indexed = sorted(
+            name for name in declared - set(contract.get("ownerClasses", []))
+            if name not in indexed
+        )
+        if not_indexed:
+            raise ConfigurationError(
+                f"Complete dependency contract terms are not in the requirement index for {requirement_id}: {not_indexed}"
+            )
+        missing_fields = [
+            field for field in contract.get("requiredModelFields", [])
+            if not contract.get(field)
+        ]
+        if missing_fields:
+            raise ConfigurationError(
+                f"Complete dependency contract lacks required model fields for {requirement_id}: {missing_fields}"
+            )
+        if int(contract.get("schemaVersion", 1)) >= 2:
+            def class_is_compatible(actual_iri: str, expected_iri: str) -> bool:
+                """Return true when actual is expected or one of its subclasses."""
+                actual = URIRef(actual_iri)
+                expected = URIRef(expected_iri)
+                if actual == expected:
+                    return True
+                visited: set[URIRef] = set()
+                frontier = [actual]
+                while frontier:
+                    current = frontier.pop()
+                    if current in visited:
+                        continue
+                    visited.add(current)
+                    for parent in self.ontology_graph.objects(current, RDFS.subClassOf):
+                        if parent == expected:
+                            return True
+                        if isinstance(parent, URIRef):
+                            frontier.append(parent)
+                return False
+
+            owner_classes = set(str(item) for item in contract.get("ownerClasses", []))
+            relationship_terms = set(str(item) for item in contract.get("relationshipTerms", []))
+            paths = list(contract.get("modelPaths", []))
+            path_relationships = {str(item.get("via", "")) for item in paths}
+            undeclared_paths = sorted(path_relationships - relationship_terms)
+            if undeclared_paths:
+                raise ConfigurationError(
+                    f"Complete dependency contract model paths use undeclared relationships for "
+                    f"{requirement_id}: {undeclared_paths}"
+                )
+            for item in paths:
+                via = str(item.get("via", ""))
+                source_owner = str(item.get("fromOwner", ""))
+                target_owner = str(item.get("toOwner", ""))
+                term = self.all_terms.get(via, {})
+                if term.get("kind") != "ObjectProperty":
+                    raise ConfigurationError(
+                        f"Complete dependency contract path for {requirement_id} does not use an "
+                        f"object property: {via}"
+                    )
+                expected_range = NLTL + target_owner
+                if str(term.get("parentOrRange") or "") != expected_range:
+                    raise ConfigurationError(
+                        f"Complete dependency contract path range mismatch for {requirement_id}: "
+                        f"{via} -> {target_owner}"
+                    )
+                domains = {str(value) for value in term.get("domains", [])}
+                if domains and not any(
+                    class_is_compatible(NLTL + source_owner, domain) for domain in domains
+                ):
+                    raise ConfigurationError(
+                        f"Complete dependency contract path domain mismatch for {requirement_id}: "
+                        f"{source_owner} -{via}-> {target_owner}"
+                    )
+            declared_terms = declared - owner_classes
+            ownership = self.term_owners.get(requirement_id, {})
+            for name in sorted(declared_terms):
+                if name not in ownership:
+                    continue
+                owner = str(ownership[name])
+                term = self.all_terms[name]
+                domains = {str(value) for value in term.get("domains", [])}
+                if term.get("kind") in {"ObjectProperty", "DatatypeProperty", "QuantityProperty"} and domains:
+                    if not any(class_is_compatible(NLTL + owner, domain) for domain in domains):
+                        raise ConfigurationError(
+                            f"Complete dependency contract ownership/domain mismatch for {requirement_id}: "
+                            f"{name} owner={owner} domains={sorted(domains)}"
+                        )
 
     def full_compact_index(self) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []

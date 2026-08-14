@@ -1,0 +1,190 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:KiloNewtonQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:KiloN )
+    ] .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:M )
+    ] .
+
+gen:KnotQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:KN )
+    ] .
+
+gen:ThrusterBodyShape
+    a sh:NodeShape ;
+    sh:class nltl:thrusterBody ;
+    sh:property [
+        sh:path nltl:thrusterResistanceCapacity ;
+        sh:minCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "A linked thruster body must record resistance capacity in kilonewtons."
+    ] .
+
+gen:ThrusterIceImpactLoadCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:thrusterIceImpactLoadCase ;
+    sh:property [
+        sh:path nltl:designIceBlockTableReference ;
+        sh:hasValue nltl:traficomTable6Dash3Reference ;
+        sh:message "The impact case must reference TRAFICOM Table 6-3 for the design ice block."
+    ] ;
+    sh:property [
+        sh:path nltl:impactLoadCaseTableReference ;
+        sh:hasValue nltl:traficomTable6Dash16Reference ;
+        sh:message "The impact case must reference TRAFICOM Table 6-16."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterImpactCaseAppliesToBody ;
+        sh:minCount 1 ;
+        sh:node gen:ThrusterBodyShape ;
+        sh:message "The impact case must be linked to its applicable thruster body."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoad ;
+        sh:minCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "The impact case must record its impact load in kilonewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactDemand ;
+        sh:minCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "The impact case must record its impact demand in kilonewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoadedAreaEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "The impact case must provide loaded-area evidence."
+    ] ;
+    sh:property [
+        sh:path nltl:contactGeometryClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:hemisphericalContactGeometry
+            nltl:nonHemisphericalContactGeometry
+        ) ;
+        sh:message "The impact case must have exactly one permitted contact geometry classification."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:contactGeometryClassification ;
+                sh:hasValue nltl:hemisphericalContactGeometry
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:contactGeometryClassification ;
+                sh:hasValue nltl:nonHemisphericalContactGeometry
+            ] ;
+            sh:property [
+                sh:path nltl:contactGeometryCorrespondenceEvidence ;
+                sh:minCount 1 ;
+                sh:class nltl:evidenceArtifact ;
+                sh:message "A non-hemispherical impact case requires geometry correspondence evidence."
+            ]
+        ]
+    ) .
+
+gen:ThrusterIceImpactRequirementShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceOperatingSpeed ;
+        sh:minCount 1 ;
+        sh:node gen:KnotQuantityShape ;
+        sh:message "The ship must record its ice operating speed in knots."
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasThrusterIceImpactLoadCase ;
+        sh:minCount 1 ;
+        sh:node gen:ThrusterIceImpactLoadCaseShape ;
+        sh:message "The ship must provide a conforming thruster ice impact load case."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For every impact case and linked thruster body, resistance capacity must be at least the recorded impact demand and impact load." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?case ?body
+WHERE {
+    $this nltl:hasThrusterIceImpactLoadCase ?case .
+    ?case nltl:thrusterImpactCaseAppliesToBody ?body ;
+          nltl:thrusterIceImpactDemand ?demand ;
+          nltl:thrusterIceImpactLoad ?load .
+    ?body nltl:thrusterResistanceCapacity ?capacity .
+    ?demand qudt:numericValue ?demandValue ;
+            qudt:unit unit:KiloN .
+    ?load qudt:numericValue ?loadValue ;
+          qudt:unit unit:KiloN .
+    ?capacity qudt:numericValue ?capacityValue ;
+              qudt:unit unit:KiloN .
+    FILTER (
+        ?capacityValue < ?demandValue ||
+        ?capacityValue < ?loadValue
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A ship with a non-hemispherical impact case must provide an equivalent impact sphere radius." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?case
+WHERE {
+    $this nltl:hasThrusterIceImpactLoadCase ?case .
+    ?case nltl:contactGeometryClassification nltl:nonHemisphericalContactGeometry .
+    FILTER NOT EXISTS {
+        $this nltl:equivalentImpactSphereRadius ?radius .
+    }
+}
+"""
+    ] .

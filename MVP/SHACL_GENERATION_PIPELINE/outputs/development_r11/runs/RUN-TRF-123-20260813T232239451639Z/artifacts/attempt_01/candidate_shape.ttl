@@ -1,0 +1,171 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:YieldStrengthMPaShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1
+    ] .
+
+gen:SafetyFactorShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 1.0 ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1
+    ] .
+
+gen:MaterialPropertiesShape
+    a sh:NodeShape ;
+    sh:class nltl:materialProperties ;
+    sh:property [
+        sh:path nltl:componentMaterialYieldStrength ;
+        sh:node gen:YieldStrengthMPaShape ;
+        sh:minCount 1 ;
+        sh:message "Component material yield strength in MPa is required."
+    ] .
+
+gen:OccasionalForceComponentShape
+    a sh:NodeShape ;
+    sh:class nltl:shipComponent ;
+    sh:property [
+        sh:path nltl:occasionalForceComponentStress ;
+        sh:node gen:YieldStrengthMPaShape ;
+        sh:minCount 1 ;
+        sh:message "Occasional-force component stress in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:materialYieldStrength ;
+        sh:node gen:YieldStrengthMPaShape ;
+        sh:minCount 1 ;
+        sh:message "Component material yield strength in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasMaterialProperties ;
+        sh:node gen:MaterialPropertiesShape ;
+        sh:minCount 1 ;
+        sh:message "Material properties are required for each assessed component."
+    ] .
+
+gen:OccasionalForceLoadCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:occasionalForceLoadCase ;
+    sh:property [
+        sh:path nltl:propellerBladeExcludedFromOccasionalForceScope ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:message "The occasional-force case must record exclusion of the propeller blade."
+    ] ;
+    sh:property [
+        sh:path nltl:componentYieldSafetyFactor ;
+        sh:node gen:SafetyFactorShape ;
+        sh:minCount 1 ;
+        sh:message "A unitless component yield safety factor greater than one is required."
+    ] ;
+    sh:property [
+        sh:path nltl:occasionalForceCaseAssessedComponent ;
+        sh:node gen:OccasionalForceComponentShape ;
+        sh:minCount 1 ;
+        sh:message "Each occasional-force case must identify its assessed component."
+    ] .
+
+gen:TRF123Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:node gen:YieldStrengthMPaShape ;
+        sh:minCount 1 ;
+        sh:message "Ship yield-strength input in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasPropellerShaftLineComponent ;
+        sh:class nltl:propellerShaftLineComponent
+    ] ;
+    sh:property [
+        sh:path nltl:hasOccasionalForceLoadCase ;
+        sh:node gen:OccasionalForceLoadCaseShape
+    ] ;
+    sh:sparql [
+        sh:message "Each assessed component must be linked to the ship as a propeller-shaft-line component." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?case ?component
+            WHERE {
+                $this nltl:hasOccasionalForceLoadCase ?case .
+                ?case nltl:occasionalForceCaseAssessedComponent ?component .
+                FILTER NOT EXISTS {
+                    $this nltl:hasPropellerShaftLineComponent ?component .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Occasional-force component stress multiplied by the yield safety factor must not exceed the component material yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?case ?component
+            WHERE {
+                $this nltl:yieldStrength ?shipYieldQuantity ;
+                      nltl:hasOccasionalForceLoadCase ?case ;
+                      nltl:hasPropellerShaftLineComponent ?component .
+
+                ?shipYieldQuantity
+                    qudt:numericValue ?shipYield ;
+                    qudt:unit unit:MegaPA .
+
+                ?case
+                    nltl:propellerBladeExcludedFromOccasionalForceScope true ;
+                    nltl:componentYieldSafetyFactor ?factorQuantity ;
+                    nltl:occasionalForceCaseAssessedComponent ?component .
+
+                ?factorQuantity
+                    qudt:numericValue ?factor ;
+                    qudt:unit unit:UNITLESS .
+
+                ?component
+                    nltl:occasionalForceComponentStress ?stressQuantity ;
+                    nltl:materialYieldStrength ?componentYieldQuantity ;
+                    nltl:hasMaterialProperties ?materialProperties .
+
+                ?stressQuantity
+                    qudt:numericValue ?stress ;
+                    qudt:unit unit:MegaPA .
+
+                ?componentYieldQuantity
+                    qudt:numericValue ?componentYield ;
+                    qudt:unit unit:MegaPA .
+
+                ?materialProperties
+                    nltl:componentMaterialYieldStrength ?materialYieldQuantity .
+
+                ?materialYieldQuantity
+                    qudt:numericValue ?materialYield ;
+                    qudt:unit unit:MegaPA .
+
+                FILTER ((?stress * ?factor) > ?materialYield)
+            }
+        """
+    ] .

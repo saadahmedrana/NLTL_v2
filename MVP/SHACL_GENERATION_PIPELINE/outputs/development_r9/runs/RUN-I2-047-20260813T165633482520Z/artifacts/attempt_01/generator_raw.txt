@@ -1,0 +1,86 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:GaugedThicknessValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M
+    ] .
+
+gen:RequiredNetPlateThicknessValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM
+    ] .
+
+gen:PlatingThicknessInputShape
+    a sh:NodeShape ;
+    sh:class nltl:plating ;
+    sh:property [
+        sh:path nltl:iceLoadRequiredNetPlateThickness ;
+        sh:node gen:RequiredNetPlateThicknessValueShape ;
+        sh:minCount 1 ;
+        sh:message "A plating component must provide the ice-load-required net plate thickness in millimetres."
+    ] .
+
+gen:SteelRenewalShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:gaugedThickness ;
+        sh:node gen:GaugedThicknessValueShape ;
+        sh:minCount 1 ;
+        sh:message "Gauged thickness in metres is required for the steel-renewal comparison."
+    ] ;
+    sh:property [
+        sh:path nltl:hasComponent ;
+        sh:qualifiedValueShape gen:PlatingThicknessInputShape ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "A plating component with the required net plate thickness is required for the steel-renewal comparison."
+    ] ;
+    sh:property [
+        sh:path nltl:steelRenewalRequired ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        sh:message "Steel renewal must be recorded as required when gauged thickness is less than the required net plate thickness plus 0.5 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:gaugedThickness ?gaugedQuantity ;
+                      nltl:hasComponent ?plating .
+                ?gaugedQuantity qudt:numericValue ?gaugedMetres ;
+                                qudt:unit unit:M .
+                ?plating a nltl:plating ;
+                         nltl:iceLoadRequiredNetPlateThickness ?requiredQuantity .
+                ?requiredQuantity qudt:numericValue ?requiredMillimetres ;
+                                  qudt:unit unit:MilliM .
+                FILTER ((?gaugedMetres * 1000) < (?requiredMillimetres + 0.5))
+                FILTER NOT EXISTS {
+                    $this nltl:steelRenewalRequired true .
+                }
+            }
+        """
+    ] .
+<END_SHACL>

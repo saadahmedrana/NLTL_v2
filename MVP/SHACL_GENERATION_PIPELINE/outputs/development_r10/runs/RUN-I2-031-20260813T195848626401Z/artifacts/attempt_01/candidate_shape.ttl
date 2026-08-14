@@ -1,0 +1,154 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( unit:KiloN ) ;
+        sh:minCount 1
+    ] .
+
+gen:DemandQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1
+    ] .
+
+gen:StructuralMemberShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:structuralLocationValue
+    ] ;
+    sh:property [
+        sh:path nltl:midspanPlasticCollapseLoad ;
+        sh:node gen:ForceQuantityShape
+    ] .
+
+gen:LoadCaseShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:loadCase ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:node gen:DemandQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchOrientation ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:loadPatchOrientationValue
+    ] .
+
+gen:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:structuralMember
+    ] ;
+    sh:property [
+        sh:path nltl:patchLoad ;
+        sh:node gen:ForceQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:plasticStrength ;
+        sh:node gen:ForceQuantityShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A linked bottom local frame requires a midspan plastic collapse load in kN." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?member
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+        nltl:structuralLocation nltl:bottomStructureLocation .
+    FILTER NOT EXISTS {
+        ?member nltl:midspanPlasticCollapseLoad ?collapseLoad .
+        ?collapseLoad qudt:numericValue ?collapseValue ;
+            qudt:unit unit:KiloN .
+        FILTER(datatype(?collapseValue) = xsd:decimal)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A ship with a linked bottom local frame requires plastic strength in kN." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?member
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+        nltl:structuralLocation nltl:bottomStructureLocation .
+    FILTER NOT EXISTS {
+        $this nltl:plasticStrength ?strength .
+        ?strength qudt:numericValue ?strengthValue ;
+            qudt:unit unit:KiloN .
+        FILTER(datatype(?strengthValue) = xsd:decimal)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Plastic strength must match the linked bottom local frame's midspan plastic collapse load within relative tolerance 1e-6 or absolute tolerance 1e-12 near zero." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?member
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+        nltl:structuralLocation nltl:bottomStructureLocation ;
+        nltl:midspanPlasticCollapseLoad ?collapseLoad .
+    ?collapseLoad qudt:numericValue ?expected ;
+        qudt:unit unit:KiloN .
+    FILTER(datatype(?expected) = xsd:decimal)
+    BIND(
+        IF(
+            ABS(?expected) > "0.000000000001"^^xsd:decimal,
+            ABS(?expected) * "0.000001"^^xsd:decimal,
+            "0.000000000001"^^xsd:decimal
+        ) AS ?tolerance
+    )
+    FILTER NOT EXISTS {
+        $this nltl:plasticStrength ?strength .
+        ?strength qudt:numericValue ?reported ;
+            qudt:unit unit:KiloN .
+        FILTER(datatype(?reported) = xsd:decimal)
+        FILTER(ABS(?reported - ?expected) <= ?tolerance)
+    }
+}
+"""
+    ] .

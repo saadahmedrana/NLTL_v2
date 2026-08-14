@@ -1,0 +1,278 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF060ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:webFrameIceLoad ;
+        sh:minCount 1 ;
+        sh:node gen:KiloNQuantityShape ;
+        sh:message "Web-frame ice load in kN is required for the calculation."
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameSpan ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape ;
+        sh:message "Web-frame span in metres is required for the calculation."
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameMaximumIceLoadBendingMoment ;
+        sh:minCount 1 ;
+        sh:node gen:MegaNewtonMetreQuantityShape ;
+        sh:message "The calculated maximum ice-load bending moment in MN m is required."
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameFreeFlangeArea ;
+        sh:minCount 1 ;
+        sh:node gen:SquareCentimetreQuantityShape ;
+        sh:message "Web-frame free-flange area in cm2 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameWebArea ;
+        sh:minCount 1 ;
+        sh:node gen:SquareCentimetreQuantityShape ;
+        sh:message "Web-frame web area in cm2 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:actualWebFrameCrossSectionalArea ;
+        sh:minCount 1 ;
+        sh:node gen:SquareCentimetreQuantityShape ;
+        sh:message "Actual web-frame cross-sectional area in cm2 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:minCount 1 ;
+        sh:node gen:SquareCentimetreQuantityShape ;
+        sh:message "Required shear area in cm2 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:shearArea ;
+        sh:minCount 1 ;
+        sh:node gen:SquareMetreQuantityShape ;
+        sh:message "Shear area in m2 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node gen:MegaPascalQuantityShape ;
+        sh:message "Yield strength in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:minCount 1 ;
+        sh:node gen:CubicCentimetreQuantityShape ;
+        sh:message "Calculated section modulus in cm3 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasTableLookupCase ;
+        sh:qualifiedValueShape gen:TRF060TableLookupCaseShape ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "A documented Table 4-8 lookup case with its gamma factor is required."
+    ] ;
+    sh:sparql [
+        sh:message "The reported bending moment, actual cross-sectional area, and section modulus must satisfy clause 4.6.2 within relative tolerance 1e-6 and absolute fallback 1e-9; denominators and the square-root argument must be valid." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:webFrameIceLoad ?fQuantity ;
+          nltl:webFrameSpan ?spanQuantity ;
+          nltl:webFrameMaximumIceLoadBendingMoment ?momentQuantity ;
+          nltl:webFrameFreeFlangeArea ?flangeQuantity ;
+          nltl:webFrameWebArea ?webQuantity ;
+          nltl:actualWebFrameCrossSectionalArea ?actualAreaQuantity ;
+          nltl:requiredShearArea ?requiredAreaQuantity ;
+          nltl:yieldStrength ?yieldQuantity ;
+          nltl:sectionModulus ?sectionModulusQuantity ;
+          nltl:hasTableLookupCase ?lookupCase .
+
+    ?lookupCase nltl:tableReference nltl:traficomTable4Dash8 ;
+                nltl:lookupSelectionEvidence ?selectionEvidence ;
+                nltl:webFrameTable4Dash8GammaFactor ?gammaQuantity .
+
+    ?fQuantity qudt:numericValue ?fKilonewton .
+    ?spanQuantity qudt:numericValue ?spanMetre .
+    ?momentQuantity qudt:numericValue ?reportedMoment .
+    ?flangeQuantity qudt:numericValue ?flangeArea .
+    ?webQuantity qudt:numericValue ?webArea .
+    ?actualAreaQuantity qudt:numericValue ?reportedActualArea .
+    ?requiredAreaQuantity qudt:numericValue ?requiredArea .
+    ?yieldQuantity qudt:numericValue ?yieldStrength .
+    ?sectionModulusQuantity qudt:numericValue ?reportedSectionModulus .
+    ?gammaQuantity qudt:numericValue ?gamma .
+
+    BIND(0.193 * (?fKilonewton / 1000) * ?spanMetre AS ?expectedMoment)
+    BIND(?flangeArea + ?webArea AS ?expectedActualArea)
+    BIND(IF(?expectedActualArea != 0,
+            (?gamma * ?requiredArea) / ?expectedActualArea,
+            0) AS ?areaRatio)
+    BIND(1 - (?areaRatio * ?areaRatio) AS ?rootDenominator)
+    BIND(IF(?yieldStrength != 0 && ?expectedActualArea != 0 && ?rootDenominator > 0,
+            (?expectedMoment / ?yieldStrength) *
+            SQRT(1 / ?rootDenominator) *
+            1000000,
+            0) AS ?expectedSectionModulus)
+
+    FILTER(
+        ?yieldStrength = 0 ||
+        ?expectedActualArea = 0 ||
+        ?rootDenominator <= 0 ||
+        (
+            ABS(?reportedMoment - ?expectedMoment) > 0.000000001 &&
+            ABS(?reportedMoment - ?expectedMoment) >
+                ABS(?expectedMoment) * 0.000001
+        ) ||
+        (
+            ABS(?reportedActualArea - ?expectedActualArea) > 0.000000001 &&
+            ABS(?reportedActualArea - ?expectedActualArea) >
+                ABS(?expectedActualArea) * 0.000001
+        ) ||
+        (
+            ABS(?reportedSectionModulus - ?expectedSectionModulus) > 0.000000001 &&
+            ABS(?reportedSectionModulus - ?expectedSectionModulus) >
+                ABS(?expectedSectionModulus) * 0.000001
+        )
+    )
+}
+"""
+    ] .
+
+gen:TRF060TableLookupCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:tableLookupCase ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:minCount 1 ;
+        sh:in ( nltl:traficomTable4Dash8 )
+    ] ;
+    sh:property [
+        sh:path nltl:lookupSelectionEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameTable4Dash8GammaFactor ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] .
+
+gen:SquareCentimetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:CentiM2
+    ] .
+
+gen:SquareMetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:M2
+    ] .
+
+gen:CubicCentimetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:CentiM3
+    ] .
+
+gen:KiloNQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:KiloN
+    ] .
+
+gen:MegaNewtonMetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:MegaN-M
+    ] .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:MegaPascalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+<END_SHACL>

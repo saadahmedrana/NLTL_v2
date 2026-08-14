@@ -1,0 +1,101 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF070ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:mainPropulsionThruster ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "Main-propulsion-thruster status is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterType ;
+        sh:datatype xsd:string
+    ] ;
+    sh:sparql [
+        sh:message "Thruster type is required when a main propulsion thruster is present." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:mainPropulsionThruster ?main .
+                FILTER (
+                    ?main = true &&
+                    NOT EXISTS {
+                        $this nltl:thrusterType ?type .
+                        FILTER (datatype(?type) = xsd:string)
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "An azimuthing or fixed main propulsion thruster requires propeller-ice load, thruster-body ice load, and service-life values in the specified units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:mainPropulsionThruster ?main ;
+                      nltl:thrusterType ?type .
+                FILTER (
+                    ?main = true &&
+                    ?type IN ("azimuthing", "fixed") &&
+                    NOT EXISTS {
+                        $this nltl:propellerIceInteractionLoad ?propellerLoad ;
+                              nltl:thrusterBodyIceInteractionLoad ?bodyLoad ;
+                              nltl:serviceLife ?life .
+                        ?propellerLoad qudt:numericValue ?propellerValue ;
+                                       qudt:unit unit:KiloN .
+                        ?bodyLoad qudt:numericValue ?bodyValue ;
+                                  qudt:unit unit:KiloN .
+                        ?life qudt:numericValue ?lifeValue ;
+                              qudt:unit unit:YR .
+                        FILTER (
+                            datatype(?propellerValue) = xsd:decimal &&
+                            datatype(?bodyValue) = xsd:decimal &&
+                            datatype(?lifeValue) = xsd:decimal
+                        )
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For an applicable thruster with an extreme-load value, local ice pressure and sufficient thruster-body local strength are required." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:mainPropulsionThruster ?main ;
+                      nltl:thrusterType ?type ;
+                      nltl:extremeLoad ?extreme .
+                FILTER (
+                    ?main = true &&
+                    ?type IN ("azimuthing", "fixed") &&
+                    NOT EXISTS {
+                        ?extreme qudt:numericValue ?extremeValue ;
+                                 qudt:unit unit:KiloN .
+                        $this nltl:localIcePressure ?pressure ;
+                              nltl:thrusterBodyLocalStrength true .
+                        ?pressure qudt:numericValue ?pressureValue ;
+                                  qudt:unit unit:MegaPA .
+                        FILTER (
+                            datatype(?extremeValue) = xsd:decimal &&
+                            datatype(?pressureValue) = xsd:decimal
+                        )
+                    }
+                )
+            }
+        """
+    ] .

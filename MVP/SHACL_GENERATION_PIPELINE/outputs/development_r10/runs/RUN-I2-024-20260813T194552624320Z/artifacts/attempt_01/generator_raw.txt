@@ -1,0 +1,202 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:ObliquePlatingInterpolationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:framingAngle ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:AngleQuantityShape ;
+        sh:message "A single framing angle in degrees is required to determine applicability."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:framingAngle ;
+                sh:node gs:AngleAtOrBelowLowerLimitShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:framingAngle ;
+                sh:node gs:AngleAtOrAboveUpperLimitShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:framingAngle ;
+                sh:node gs:ObliqueAngleShape
+            ] ;
+            sh:node gs:ApplicableInterpolationShipShape
+        ]
+    ) .
+
+gs:AngleQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:DEG ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:AngleAtOrBelowLowerLimitShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:maxInclusive "20"^^xsd:decimal
+    ] .
+
+gs:AngleAtOrAboveUpperLimitShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minInclusive "70"^^xsd:decimal
+    ] .
+
+gs:ObliqueAngleShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minExclusive "20"^^xsd:decimal ;
+        sh:maxExclusive "70"^^xsd:decimal
+    ] .
+
+gs:ApplicableInterpolationShipShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasObliquePlatingInterpolationCase ;
+        sh:minCount 1 ;
+        sh:class nltl:obliquePlatingInterpolationCase ;
+        sh:node gs:InterpolationCaseShape ;
+        sh:message "An oblique-plating interpolation case is required when the framing angle is between 20 and 70 degrees."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:class nltl:calculationCase
+    ] ;
+    sh:sparql [
+        sh:message "Each linked oblique-plating interpolation case must also be linked as a calculation case." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasObliquePlatingInterpolationCase ?case .
+                FILTER NOT EXISTS {
+                    $this nltl:hasCalculationCase ?case .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Interpolated thickness must equal longitudinal thickness plus ((framing angle - 20) / 50) times the transverse-minus-longitudinal thickness; relative tolerance is 1e-6 with an absolute fallback of 1e-9 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?case
+            WHERE {
+                $this nltl:framingAngle ?angleValue ;
+                      nltl:hasObliquePlatingInterpolationCase ?case ;
+                      nltl:hasCalculationCase ?case .
+                ?angleValue qudt:numericValue ?omega ;
+                            qudt:unit unit:DEG .
+                ?case nltl:interpolationLowerEndpoint ?lowerEndpoint ;
+                      nltl:interpolationUpperEndpoint ?upperEndpoint ;
+                      nltl:longitudinalFramingNetPlateThickness ?longitudinalValue ;
+                      nltl:transverseFramingNetPlateThickness ?transverseValue ;
+                      nltl:interpolatedNetPlateThickness ?reportedValue .
+                ?longitudinalValue qudt:numericValue ?longitudinal ;
+                                   qudt:unit unit:MilliM .
+                ?transverseValue qudt:numericValue ?transverse ;
+                                 qudt:unit unit:MilliM .
+                ?reportedValue qudt:numericValue ?reported ;
+                               qudt:unit unit:MilliM .
+                FILTER (?omega > 20.0 && ?omega < 70.0)
+                BIND(
+                    ?longitudinal
+                    + ((?omega - 20.0) / 50.0)
+                    * (?transverse - ?longitudinal)
+                    AS ?expected
+                )
+                BIND(ABS(?expected) * 0.000001 AS ?relativeTolerance)
+                BIND(
+                    IF(
+                        ?relativeTolerance > 0.000000001,
+                        ?relativeTolerance,
+                        0.000000001
+                    )
+                    AS ?tolerance
+                )
+                FILTER (ABS(?reported - ?expected) > ?tolerance)
+            }
+        """
+    ] .
+
+gs:InterpolationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:interpolationLowerEndpoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:interpolationPoint ;
+        sh:message "The interpolation case requires one lower endpoint."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationUpperEndpoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:interpolationPoint ;
+        sh:message "The interpolation case requires one upper endpoint."
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalFramingNetPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:ThicknessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:transverseFramingNetPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:ThicknessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolatedNetPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:ThicknessQuantityShape
+    ] .
+
+gs:ThicknessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

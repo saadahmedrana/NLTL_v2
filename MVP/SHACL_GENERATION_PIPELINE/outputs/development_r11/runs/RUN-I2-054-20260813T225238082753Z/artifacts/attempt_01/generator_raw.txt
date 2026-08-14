@@ -1,0 +1,260 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:HullGirderIceBendingMomentShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:node gs:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:stemAngle ;
+        sh:minCount 1 ;
+        sh:node gs:AngleQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:node gs:ForceQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node gs:InterpolationCalculationCaseShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasHullGirderBendingMomentCalculationCase ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node gs:HullGirderBendingMomentCaseShape
+    ] ;
+    sh:sparql [
+        sh:message "Each linked hull-girder case must use the prescribed C_m envelope and satisfy M_I = 0.1*C_m*L_UI*sin(gamma_stem)^(-0.2)*F_IB within relative tolerance 1e-6, with absolute tolerance 1e-9 when the expected result is zero." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:upperIceWaterlineLengthLUI ?lengthQuantity ;
+                      nltl:stemAngle ?angleQuantity ;
+                      nltl:designVerticalIceForceAtBow ?forceQuantity ;
+                      nltl:hasHullGirderBendingMomentCalculationCase ?case .
+
+                ?lengthQuantity qudt:numericValue ?length .
+                ?angleQuantity qudt:numericValue ?angleDegrees .
+                ?forceQuantity qudt:numericValue ?force .
+
+                ?case nltl:caseHullGirderLongitudinalPositionFromAft ?positionQuantity ;
+                      nltl:caseBendingMomentDistributionFactor ?factorQuantity ;
+                      nltl:caseDesignVerticalIceBendingMoment ?momentQuantity .
+
+                ?positionQuantity qudt:numericValue ?position .
+                ?factorQuantity qudt:numericValue ?factor .
+                ?momentQuantity qudt:numericValue ?moment .
+
+                BIND(IF(?length != 0, ?length, 1) AS ?safeLength)
+                BIND(?position / ?safeLength AS ?relativePosition)
+                BIND(
+                    IF(
+                        ?relativePosition <= 0.5,
+                        2.0 * ?relativePosition,
+                        IF(
+                            ?relativePosition <= 0.7,
+                            1.0,
+                            IF(
+                                ?relativePosition <= 0.95,
+                                2.96 - (2.8 * ?relativePosition),
+                                6.0 - (6.0 * ?relativePosition)
+                            )
+                        )
+                    )
+                    AS ?expectedFactor
+                )
+                BIND(ABS(?expectedFactor) * 0.000001 AS ?relativeFactorTolerance)
+                BIND(
+                    IF(
+                        ?relativeFactorTolerance > 0.000000001,
+                        ?relativeFactorTolerance,
+                        0.000000001
+                    )
+                    AS ?factorTolerance
+                )
+
+                BIND(
+                    math:sin(
+                        xsd:double(?angleDegrees) *
+                        0.017453292519943295
+                    )
+                    AS ?sineAngle
+                )
+                BIND(IF(?sineAngle > 0, ?sineAngle, 1.0) AS ?safeSineAngle)
+                BIND(0.1 * ?factor * ?length * ?force AS ?formulaBase)
+                BIND(ABS(?formulaBase) AS ?absoluteFormulaBase)
+                BIND(
+                    ?absoluteFormulaBase *
+                    ?absoluteFormulaBase *
+                    ?absoluteFormulaBase *
+                    ?absoluteFormulaBase *
+                    ?absoluteFormulaBase
+                    AS ?formulaBaseFifthPower
+                )
+                BIND(
+                    ?formulaBaseFifthPower / ?safeSineAngle
+                    AS ?expectedAbsoluteMomentFifthPower
+                )
+                BIND(ABS(?moment) AS ?absoluteMoment)
+                BIND(
+                    ?absoluteMoment *
+                    ?absoluteMoment *
+                    ?absoluteMoment *
+                    ?absoluteMoment *
+                    ?absoluteMoment
+                    AS ?actualAbsoluteMomentFifthPower
+                )
+                BIND(
+                    0.999999 * 0.999999 * 0.999999 *
+                    0.999999 * 0.999999
+                    AS ?lowerRelativeFifthPowerFactor
+                )
+                BIND(
+                    1.000001 * 1.000001 * 1.000001 *
+                    1.000001 * 1.000001
+                    AS ?upperRelativeFifthPowerFactor
+                )
+
+                FILTER(
+                    ?length <= 0 ||
+                    ?position < 0 ||
+                    ?position > ?length ||
+                    ?sineAngle <= 0 ||
+                    ABS(?factor - ?expectedFactor) > ?factorTolerance ||
+                    (
+                        ?formulaBase = 0 &&
+                        ABS(?moment) > 0.000000001
+                    ) ||
+                    (
+                        ?formulaBase != 0 &&
+                        (
+                            ?moment * ?formulaBase < 0 ||
+                            ?actualAbsoluteMomentFifthPower <
+                                ?expectedAbsoluteMomentFifthPower *
+                                ?lowerRelativeFifthPowerFactor ||
+                            ?actualAbsoluteMomentFifthPower >
+                                ?expectedAbsoluteMomentFifthPower *
+                                ?upperRelativeFifthPowerFactor
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+
+gs:HullGirderBendingMomentCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:hullGirderBendingMomentCalculationCase ;
+    sh:property [
+        sh:path nltl:caseHullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:node gs:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:caseBendingMomentDistributionFactor ;
+        sh:minCount 1 ;
+        sh:node gs:DimensionlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:caseDesignVerticalIceBendingMoment ;
+        sh:minCount 1 ;
+        sh:node gs:MomentQuantityShape
+    ] .
+
+gs:InterpolationCalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint
+    ] .
+
+gs:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gs:AngleQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:DEG
+    ] .
+
+gs:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:MegaN
+    ] .
+
+gs:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gs:MomentQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:MegaN-M
+    ] .
+<END_SHACL>

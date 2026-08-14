@@ -1,0 +1,161 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF085Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:bollardPropellerSpeedKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must state whether its bollard propeller speed is known."
+    ] ;
+    sh:or (
+        gs:TRF085KnownSpeedBranch
+        gs:TRF085TableLookupBranch
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The Table 6-9 lookup input and result must correspond to the ship's propeller diameter and reported bollard propeller speed." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:bollardPropellerSpeedKnown false ;
+          nltl:hasTableLookupCase ?case .
+    ?case nltl:lookupInputQuantity ?input ;
+          nltl:lookupResultQuantity ?result .
+    ?input qudt:numericValue ?inputValue ;
+           qudt:unit unit:M .
+    ?result qudt:numericValue ?resultValue ;
+            qudt:unit unit:REV-PER-MIN .
+    FILTER NOT EXISTS {
+        $this nltl:propellerDiameter ?diameter ;
+              nltl:propellerRotationalSpeedAtMaximumContinuousRatingBollard ?speed .
+        ?diameter qudt:numericValue ?diameterValue ;
+                  qudt:unit unit:M .
+        ?speed qudt:numericValue ?speedValue ;
+               qudt:unit unit:REV-PER-MIN .
+        FILTER (
+            ABS(xsd:decimal(?inputValue) - xsd:decimal(?diameterValue))
+                <= (1e-6 * ABS(xsd:decimal(?diameterValue)) + 1e-12)
+            &&
+            ABS(xsd:decimal(?resultValue) - xsd:decimal(?speedValue))
+                <= (1e-6 * ABS(xsd:decimal(?speedValue)) + 1e-12)
+        )
+    }
+}
+"""
+    ] .
+
+gs:TRF085KnownSpeedBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bollardPropellerSpeedKnown ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:propellerRotationalSpeedAtMaximumContinuousRatingBollard ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:TRF085RotationalSpeedValue ;
+        sh:message "A known bollard propeller speed at maximum continuous rating must be recorded in revolutions per minute."
+    ] .
+
+gs:TRF085TableLookupBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bollardPropellerSpeedKnown ;
+        sh:hasValue false
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:TRF085DiameterValue ;
+        sh:message "Propeller diameter in metres is required for the Table 6-9 lookup."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerRotationalSpeedAtMaximumContinuousRatingBollard ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:TRF085RotationalSpeedValue ;
+        sh:message "The bollard propeller speed selected from Table 6-9 must be recorded in revolutions per minute."
+    ] ;
+    sh:property [
+        sh:path nltl:hasTableLookupCase ;
+        sh:minCount 1 ;
+        sh:class nltl:tableLookupCase ;
+        sh:node gs:TRF085TableLookupCase ;
+        sh:message "An explicit Table 6-9 lookup case is required when the bollard propeller speed is not known."
+    ] .
+
+gs:TRF085TableLookupCase
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:tableLookupApplied ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue true ;
+        sh:message "The lookup case must state that the table lookup was applied."
+    ] ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:minCount 1 ;
+        sh:hasValue nltl:traficomTable6Dash9 ;
+        sh:message "The lookup case must reference TRAFICOM Table 6-9."
+    ] ;
+    sh:property [
+        sh:path nltl:lookupInputQuantity ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:TRF085DiameterValue ;
+        sh:message "The lookup case must record its propeller-diameter input in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:lookupResultQuantity ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:TRF085RotationalSpeedValue ;
+        sh:message "The lookup case must record its selected rotational-speed result in revolutions per minute."
+    ] ;
+    sh:property [
+        sh:path nltl:lookupSelectionEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "Evidence of the Table 6-9 selection is required."
+    ] .
+
+gs:TRF085DiameterValue
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gs:TRF085RotationalSpeedValue
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:REV-PER-MIN
+    ] .

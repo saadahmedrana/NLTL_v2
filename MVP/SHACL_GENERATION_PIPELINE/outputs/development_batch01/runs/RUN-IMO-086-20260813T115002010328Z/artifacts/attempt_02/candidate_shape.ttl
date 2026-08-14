@@ -1,0 +1,86 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:NonMagneticHeadingMeansShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:nonMagneticHeadingMeansCount ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 2 ;
+        sh:message "The non-magnetic heading means count must be at least two."
+    ] ;
+    sh:property [
+        sh:path nltl:headingMeansIndependent ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "The non-magnetic heading means must be independent."
+    ] ;
+    sh:property [
+        sh:path nltl:connectedToMainPower ;
+        sh:minCount 2 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:benchmarkEntity ;
+        sh:message "At least two non-magnetic heading means must be connected to main power."
+    ] ;
+    sh:property [
+        sh:path nltl:connectedToEmergencyPower ;
+        sh:minCount 2 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:benchmarkEntity ;
+        sh:message "At least two non-magnetic heading means must be connected to emergency power."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every heading means on either power path must occur on both the main and emergency power paths." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                {
+                    $this nltl:connectedToMainPower ?target .
+                    FILTER NOT EXISTS {
+                        $this nltl:connectedToEmergencyPower ?target .
+                    }
+                }
+                UNION
+                {
+                    $this nltl:connectedToEmergencyPower ?target .
+                    FILTER NOT EXISTS {
+                        $this nltl:connectedToMainPower ?target .
+                    }
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The declared heading means count must equal the number of distinct targets connected to both power paths." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                {
+                    SELECT $this ?declaredCount
+                           (COUNT(DISTINCT ?target) AS ?pairedCount)
+                    WHERE {
+                        $this nltl:nonMagneticHeadingMeansCount ?declaredCount .
+                        OPTIONAL {
+                            $this nltl:connectedToMainPower ?target .
+                            $this nltl:connectedToEmergencyPower ?target .
+                        }
+                    }
+                    GROUP BY $this ?declaredCount
+                }
+                FILTER (xsd:integer(?pairedCount) != ?declaredCount)
+            }
+        """
+    ] .

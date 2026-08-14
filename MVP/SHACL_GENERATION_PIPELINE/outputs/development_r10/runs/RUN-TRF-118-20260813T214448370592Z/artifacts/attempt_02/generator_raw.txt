@@ -1,0 +1,201 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:ExtremeLoadQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:YieldSafetyFactorQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 1.3 ;
+        sh:maxInclusive 1.3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MaterialPropertiesShape
+    a sh:NodeShape ;
+    sh:class nltl:materialProperties ;
+    sh:property [
+        sh:path nltl:componentMaterialYieldStrength ;
+        sh:node gen:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Material properties must provide component material yield strength in MPa."
+    ] .
+
+gen:ThrusterComponentShape
+    a sh:NodeShape ;
+    sh:class nltl:shipComponent ;
+    sh:property [
+        sh:path nltl:materialYieldStrength ;
+        sh:node gen:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each linked component must provide material yield strength in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:hasMaterialProperties ;
+        sh:node gen:MaterialPropertiesShape ;
+        sh:minCount 1 ;
+        sh:message "Each linked component must link to its material properties."
+    ] .
+
+gen:ThrusterStaticLoadShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:nominalVonMisesStress ;
+        sh:node gen:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:localStressConcentration ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:yieldSafetyFactor ;
+        sh:node gen:YieldSafetyFactorQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The yield safety factor must be exactly 1.3."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterExtremeLoad ;
+        sh:node gen:ExtremeLoadQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterOperability ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:repairRequired ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasComponent ;
+        sh:node gen:ThrusterComponentShape
+    ] ;
+    sh:sparql [
+        sh:message "Nominal stress multiplied by 1.3 and local concentrated stress multiplied by 1.0 must not exceed the corresponding material yield strengths." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:nominalVonMisesStress ?nominalQuantity ;
+                      nltl:localStressConcentration ?localQuantity ;
+                      nltl:yieldSafetyFactor ?factorQuantity ;
+                      nltl:hasComponent ?component .
+                ?nominalQuantity qudt:numericValue ?nominalStress .
+                ?localQuantity qudt:numericValue ?localConcentration .
+                ?factorQuantity qudt:numericValue ?yieldFactor .
+                ?component nltl:materialYieldStrength ?materialYieldQuantity ;
+                           nltl:hasMaterialProperties ?materialProperties .
+                ?materialYieldQuantity qudt:numericValue ?materialYield .
+                ?materialProperties
+                    nltl:componentMaterialYieldStrength
+                        ?componentYieldQuantity .
+                ?componentYieldQuantity qudt:numericValue ?componentYield .
+                FILTER (
+                    (?nominalStress * ?yieldFactor > ?componentYield)
+                    ||
+                    (?nominalStress * ?localConcentration *
+                     "1.0"^^xsd:decimal > ?materialYield)
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The thruster must remain operable without repair-required damage under the extreme load multiplied by the 1.3 safety factor." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:thrusterExtremeLoad ?loadQuantity ;
+                      nltl:yieldSafetyFactor ?factorQuantity ;
+                      nltl:thrusterOperability ?operability ;
+                      nltl:repairRequired ?repairRequired .
+                ?loadQuantity qudt:numericValue ?extremeLoad .
+                ?factorQuantity qudt:numericValue ?yieldFactor .
+                BIND((?extremeLoad * ?yieldFactor) AS ?factoredExtremeLoad)
+                FILTER (
+                    BOUND(?factoredExtremeLoad)
+                    &&
+                    (
+                        ?operability != true
+                        ||
+                        ?repairRequired != false
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

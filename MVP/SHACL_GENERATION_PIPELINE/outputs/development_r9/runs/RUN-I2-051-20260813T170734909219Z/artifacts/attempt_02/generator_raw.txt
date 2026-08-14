@@ -1,0 +1,200 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PositiveVerticalIceShearForceShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:shearForceDirection ;
+        sh:hasValue nltl:positiveShearForce ;
+        sh:message "The shear force direction must be positive shear force."
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M
+            ]
+        ] ;
+        sh:message "LUI must be provided in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M
+            ]
+        ] ;
+        sh:message "The longitudinal position from aft must be provided in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaN
+            ]
+        ] ;
+        sh:message "FIB must be provided in meganewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDistributionFactor ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS
+            ]
+        ] ;
+        sh:message "Cf must be provided as a unitless decimal."
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceShearForce ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN
+            ]
+        ] ;
+        sh:message "FI must be provided in kilonewtons."
+    ] ;
+    sh:sparql [
+        sh:message "FI must equal Cf multiplied by FIB, including MN-to-kN conversion, within relative tolerance 1e-6 and absolute fallback 1e-6 kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shearForceDirection nltl:positiveShearForce ;
+                      nltl:designVerticalIceForceAtBow ?fibQuantity ;
+                      nltl:longitudinalDistributionFactor ?cfQuantity ;
+                      nltl:designVerticalIceShearForce ?fiQuantity .
+                ?fibQuantity qudt:numericValue ?fib ;
+                             qudt:unit <http://qudt.org/vocab/unit/MegaN> .
+                ?cfQuantity qudt:numericValue ?cf ;
+                            qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                ?fiQuantity qudt:numericValue ?fi ;
+                            qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                BIND((?cf * ?fib * 1000.0) AS ?expected)
+                BIND(ABS(?expected) * 0.000001 AS ?relativeTolerance)
+                BIND(IF(
+                    ?relativeTolerance > 0.000001,
+                    ?relativeTolerance,
+                    0.000001
+                ) AS ?tolerance)
+                FILTER(ABS(?fi - ?expected) > ?tolerance)
+            }
+        """
+    ] .
+
+gen:AftToPointSixLUIShape
+    a sh:NodeShape ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this a nltl:ship ;
+                      nltl:shearForceDirection nltl:positiveShearForce ;
+                      nltl:hullGirderLongitudinalPositionFromAft ?positionQuantity ;
+                      nltl:upperIceWaterlineLengthLUI ?luiQuantity .
+                ?positionQuantity qudt:numericValue ?position ;
+                                  qudt:unit <http://qudt.org/vocab/unit/M> .
+                ?luiQuantity qudt:numericValue ?lui ;
+                             qudt:unit <http://qudt.org/vocab/unit/M> .
+                FILTER(?position >= 0.0 && ?position <= (0.6 * ?lui))
+            }
+        """
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDistributionFactor ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "0.0"^^xsd:decimal ;
+                sh:maxInclusive "0.0"^^xsd:decimal
+            ]
+        ] ;
+        sh:message "Cf must equal 0.0 from the aft end through 0.6 LUI from aft."
+    ] .
+
+gen:PointNineLUIToForwardEndShape
+    a sh:NodeShape ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this a nltl:ship ;
+                      nltl:shearForceDirection nltl:positiveShearForce ;
+                      nltl:hullGirderLongitudinalPositionFromAft ?positionQuantity ;
+                      nltl:upperIceWaterlineLengthLUI ?luiQuantity .
+                ?positionQuantity qudt:numericValue ?position ;
+                                  qudt:unit <http://qudt.org/vocab/unit/M> .
+                ?luiQuantity qudt:numericValue ?lui ;
+                             qudt:unit <http://qudt.org/vocab/unit/M> .
+                FILTER(?position >= (0.9 * ?lui) && ?position <= ?lui)
+            }
+        """
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDistributionFactor ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "1.0"^^xsd:decimal ;
+                sh:maxInclusive "1.0"^^xsd:decimal
+            ]
+        ] ;
+        sh:message "Cf must equal 1.0 from 0.9 LUI from aft through the forward end of LUI."
+    ] .
+<END_SHACL>

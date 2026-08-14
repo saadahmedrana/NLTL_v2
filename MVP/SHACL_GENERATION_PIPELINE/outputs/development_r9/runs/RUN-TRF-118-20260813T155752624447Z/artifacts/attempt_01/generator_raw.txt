@@ -1,0 +1,142 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "A decimal stress or yield-strength value is required."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:MegaPA ) ;
+        sh:message "Stress and yield strength must be expressed in MPa."
+    ] .
+
+gen:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "A decimal dimensionless value is required."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:UNITLESS ) ;
+        sh:message "The quantity must use the unitless unit."
+    ] .
+
+gen:YieldSafetyFactorValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minInclusive "1.3"^^xsd:decimal ;
+        sh:maxInclusive "1.3"^^xsd:decimal ;
+        sh:message "The yield safety factor must be 1.3."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:UNITLESS ) ;
+        sh:message "The yield safety factor must use the unitless unit."
+    ] .
+
+gen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "A decimal extreme-load value is required."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:KiloN ) ;
+        sh:message "The thruster extreme load must be expressed in kN."
+    ] .
+
+gen:ThrusterStaticLoadShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:nominalVonMisesStress ;
+        sh:minCount 1 ;
+        sh:node gen:PressureQuantityShape ;
+        sh:message "Nominal von Mises stress is required."
+    ] ;
+    sh:property [
+        sh:path nltl:localStressConcentration ;
+        sh:minCount 1 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:message "A local stress-concentration factor is required."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldSafetyFactor ;
+        sh:minCount 1 ;
+        sh:node gen:YieldSafetyFactorValueShape ;
+        sh:message "A yield safety factor of 1.3 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterExtremeLoad ;
+        sh:minCount 1 ;
+        sh:node gen:ForceQuantityShape ;
+        sh:message "The extreme once-in-a-lifetime thruster load is required."
+    ] ;
+    sh:property [
+        sh:path ( nltl:hasComponent nltl:materialYieldStrength ) ;
+        sh:minCount 1 ;
+        sh:node gen:PressureQuantityShape ;
+        sh:message "Material yield strength is required on a ship component."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterOperability ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue true ;
+        sh:message "Thruster operability must be maintained under the extreme load."
+    ] ;
+    sh:property [
+        sh:path nltl:repairRequired ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue false ;
+        sh:message "The extreme load must not cause damage requiring repair."
+    ] ;
+    sh:sparql [
+        sh:message "Nominal stress times 1.3 and locally concentrated stress must not exceed material yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:nominalVonMisesStress ?nominalQuantity ;
+                      nltl:localStressConcentration ?concentrationQuantity ;
+                      nltl:yieldSafetyFactor ?factorQuantity ;
+                      nltl:hasComponent ?component .
+                ?component nltl:materialYieldStrength ?yieldQuantity .
+                ?nominalQuantity qudt:numericValue ?nominalStress .
+                ?concentrationQuantity qudt:numericValue ?concentrationFactor .
+                ?factorQuantity qudt:numericValue ?safetyFactor .
+                ?yieldQuantity qudt:numericValue ?yieldStrength .
+                FILTER (
+                    (?nominalStress * ?safetyFactor) > ?yieldStrength ||
+                    (?nominalStress * ?concentrationFactor) > ?yieldStrength
+                )
+            }
+        """
+    ] .
+<END_SHACL>

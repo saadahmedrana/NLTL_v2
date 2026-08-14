@@ -1,0 +1,182 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:SpeedQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:KN
+    ] .
+
+gen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:KiloN
+    ] .
+
+gen:ThrusterBodyShape
+    a sh:NodeShape ;
+    sh:class nltl:thrusterBody ;
+    sh:property [
+        sh:path nltl:thrusterResistanceCapacity ;
+        sh:minCount 1 ;
+        sh:node gen:ForceQuantityShape ;
+        sh:message "Each affected thruster body requires resistance capacity in kilonewtons."
+    ] .
+
+gen:ImpactLoadCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:thrusterIceImpactLoadCase ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoadCaseIdentifier ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "Each thruster ice impact load case requires its table load-case identifier."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoad ;
+        sh:minCount 1 ;
+        sh:node gen:ForceQuantityShape ;
+        sh:message "Each thruster ice impact load case requires its impact load in kilonewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactDemand ;
+        sh:minCount 1 ;
+        sh:node gen:ForceQuantityShape ;
+        sh:message "Each thruster ice impact load case requires its impact demand in kilonewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoadedAreaEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "Each thruster ice impact load case requires loaded-area evidence."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterImpactCaseAppliesToBody ;
+        sh:minCount 1 ;
+        sh:class nltl:thrusterBody ;
+        sh:node gen:ThrusterBodyShape ;
+        sh:message "Each thruster ice impact load case must identify the affected thruster body."
+    ] .
+
+gen:GeometryCorrespondenceCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:contactGeometryCorrespondenceEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "A non-hemispherical contact model requires geometry-correspondence evidence."
+    ] .
+
+gen:ThrusterIceImpactRequirementShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:designIceBlock ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "The design ice block used for the impact assessment must be identified."
+    ] ;
+    sh:property [
+        sh:path nltl:iceOperatingSpeed ;
+        sh:minCount 1 ;
+        sh:node gen:SpeedQuantityShape ;
+        sh:message "The typical ice operating speed must be supplied in knots."
+    ] ;
+    sh:property [
+        sh:path nltl:contactGeometry ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "The contact geometry used for the impact assessment must be identified."
+    ] ;
+    sh:property [
+        sh:path nltl:hasThrusterIceImpactLoadCase ;
+        sh:minCount 1 ;
+        sh:class nltl:thrusterIceImpactLoadCase ;
+        sh:node gen:ImpactLoadCaseShape ;
+        sh:message "At least one documented thruster ice impact load case is required."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:contactGeometry ;
+                sh:hasValue "hemispherical"^^xsd:string
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:equivalentImpactSphereRadius ;
+                sh:minCount 1 ;
+                sh:node gen:LengthQuantityShape ;
+                sh:message "An equivalent impact sphere radius in metres is required for differing contact geometry."
+            ] ;
+            sh:property [
+                sh:path nltl:hasThrusterIceImpactLoadCase ;
+                sh:minCount 1 ;
+                sh:node gen:GeometryCorrespondenceCaseShape
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Thruster resistance capacity must not be less than the linked impact load or impact demand." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?case ?body
+WHERE {
+    $this nltl:hasThrusterIceImpactLoadCase ?case .
+    ?case nltl:thrusterImpactCaseAppliesToBody ?body ;
+          nltl:thrusterIceImpactLoad ?loadQuantity ;
+          nltl:thrusterIceImpactDemand ?demandQuantity .
+    ?body nltl:thrusterResistanceCapacity ?capacityQuantity .
+    ?loadQuantity qudt:numericValue ?load ;
+                  qudt:unit unit:KiloN .
+    ?demandQuantity qudt:numericValue ?demand ;
+                    qudt:unit unit:KiloN .
+    ?capacityQuantity qudt:numericValue ?capacity ;
+                      qudt:unit unit:KiloN .
+    FILTER(
+        ?capacity < ?load ||
+        ?capacity < ?demand
+    )
+}
+"""
+    ] .
+<END_SHACL>

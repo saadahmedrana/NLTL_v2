@@ -1,0 +1,526 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_054_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PositiveLengthQuantityShape ;
+        sh:message "Upper ice waterline length L_UI must be provided in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:stemAngle ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:AngleQuantityShape ;
+        sh:message "Stem angle must be provided in degrees."
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:ForceQuantityShape ;
+        sh:message "Design vertical ice force at bow must be provided in meganewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:hasHullGirderBendingMomentCalculationCase ;
+        sh:minCount 1 ;
+        sh:class nltl:hullGirderBendingMomentCalculationCase ;
+        sh:node gen:I2_054_CalculationCaseShape ;
+        sh:message "At least one complete hull-girder bending-moment calculation case is required."
+    ] ;
+    sh:sparql [
+        sh:message "Each hull-girder bending-moment calculation case must also be linked as the ship's calculation case so its interpolation evidence is associated with that calculation." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasHullGirderBendingMomentCalculationCase ?case .
+                FILTER NOT EXISTS {
+                    $this nltl:hasCalculationCase ?case .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The case bending-moment distribution factor must follow the prescribed piecewise-linear envelope, using relative tolerance 1e-6 and absolute fallback 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?case
+            WHERE {
+                $this nltl:upperIceWaterlineLengthLUI ?lengthQuantity ;
+                      nltl:hasHullGirderBendingMomentCalculationCase ?case .
+                ?lengthQuantity qudt:numericValue ?length .
+                ?case nltl:caseHullGirderLongitudinalPositionFromAft ?positionQuantity ;
+                      nltl:caseBendingMomentDistributionFactor ?factorQuantity .
+                ?positionQuantity qudt:numericValue ?position .
+                ?factorQuantity qudt:numericValue ?factor .
+                BIND (?position / ?length AS ?coordinate)
+                BIND (
+                    IF(
+                        ?coordinate <= 0.5,
+                        2.0 * ?coordinate,
+                        IF(
+                            ?coordinate <= 0.7,
+                            1.0,
+                            IF(
+                                ?coordinate <= 0.95,
+                                2.96 - (2.8 * ?coordinate),
+                                6.0 - (6.0 * ?coordinate)
+                            )
+                        )
+                    )
+                    AS ?expectedFactor
+                )
+                BIND (
+                    IF(
+                        ABS(?expectedFactor) * 0.000001 > 0.000000001,
+                        ABS(?expectedFactor) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?factorTolerance
+                )
+                FILTER (
+                    ?coordinate < 0.0 ||
+                    ?coordinate > 1.0 ||
+                    ABS(?factor - ?expectedFactor) > ?factorTolerance
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Case M_I must equal 0.1*C_m*L_UI*sin(gamma_stem)^(-0.2)*F_IB in MN m, within relative tolerance 1e-6 and absolute fallback 1e-9 MN m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            SELECT $this ?case
+            WHERE {
+                $this nltl:upperIceWaterlineLengthLUI ?lengthQuantity ;
+                      nltl:stemAngle ?angleQuantity ;
+                      nltl:designVerticalIceForceAtBow ?forceQuantity ;
+                      nltl:hasHullGirderBendingMomentCalculationCase ?case .
+                ?lengthQuantity qudt:numericValue ?length .
+                ?angleQuantity qudt:numericValue ?angleDegrees .
+                ?forceQuantity qudt:numericValue ?force .
+                ?case nltl:caseBendingMomentDistributionFactor ?factorQuantity ;
+                      nltl:caseDesignVerticalIceBendingMoment ?momentQuantity .
+                ?factorQuantity qudt:numericValue ?factor .
+                ?momentQuantity qudt:numericValue ?moment .
+                BIND (math:sin(?angleDegrees * 0.017453292519943295) AS ?sine)
+                BIND (0.1 * ?factor * ?length * ?force AS ?baseMoment)
+                BIND (
+                    ?moment * ?moment * ?moment * ?moment * ?moment * ?sine
+                    AS ?actualPower
+                )
+                BIND (
+                    ?baseMoment * ?baseMoment * ?baseMoment * ?baseMoment * ?baseMoment
+                    AS ?expectedPower
+                )
+                BIND (
+                    IF(
+                        ?expectedPower != 0.0,
+                        ?actualPower / ?expectedPower,
+                        1.0
+                    )
+                    AS ?powerRatio
+                )
+                BIND (
+                    (1.0 - 0.000001) * (1.0 - 0.000001) *
+                    (1.0 - 0.000001) * (1.0 - 0.000001) *
+                    (1.0 - 0.000001)
+                    AS ?lowerPowerRatio
+                )
+                BIND (
+                    (1.0 + 0.000001) * (1.0 + 0.000001) *
+                    (1.0 + 0.000001) * (1.0 + 0.000001) *
+                    (1.0 + 0.000001)
+                    AS ?upperPowerRatio
+                )
+                FILTER (
+                    ?sine <= 0.0 ||
+                    (
+                        ?expectedPower = 0.0 &&
+                        ABS(?moment) > 0.000000001
+                    ) ||
+                    (
+                        ?expectedPower != 0.0 &&
+                        (
+                            ?powerRatio < ?lowerPowerRatio ||
+                            ?powerRatio > ?upperPowerRatio
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:I2_054_CalculationCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:caseHullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape ;
+        sh:message "Each calculation case must state its longitudinal position from aft in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:caseBendingMomentDistributionFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:message "Each calculation case must state its dimensionless bending-moment distribution factor."
+    ] ;
+    sh:property [
+        sh:path nltl:caseDesignVerticalIceBendingMoment ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MomentQuantityShape ;
+        sh:message "Each calculation case must state its design vertical ice bending moment in MN m."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:minCount 1 ;
+        sh:class nltl:interpolationPoint ;
+        sh:node gen:InterpolationPointShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedValueShape gen:Anchor_0_0_Shape ;
+        sh:message "Interpolation evidence must include the anchor pair (0, 0)."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedValueShape gen:Anchor_0_5_1_Shape ;
+        sh:message "Interpolation evidence must include the anchor pair (0.5, 1)."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedValueShape gen:Anchor_0_7_1_Shape ;
+        sh:message "Interpolation evidence must include the anchor pair (0.7, 1)."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedValueShape gen:Anchor_0_95_0_3_Shape ;
+        sh:message "Interpolation evidence must include the anchor pair (0.95, 0.3)."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedMinCount 1 ;
+        sh:qualifiedValueShape gen:Anchor_1_0_Shape ;
+        sh:message "Interpolation evidence must include the anchor pair (1, 0)."
+    ] .
+
+gen:InterpolationPointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:message "Each interpolation point must have one dimensionless coordinate."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:message "Each interpolation point must have one dimensionless result."
+    ] .
+
+gen:Anchor_0_0_Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_0_QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_0_QuantityShape
+    ] .
+
+gen:Anchor_0_5_1_Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_0_5_QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_1_QuantityShape
+    ] .
+
+gen:Anchor_0_7_1_Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_0_7_QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_1_QuantityShape
+    ] .
+
+gen:Anchor_0_95_0_3_Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_0_95_QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_0_3_QuantityShape
+    ] .
+
+gen:Anchor_1_0_Shape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_1_QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:Exact_0_QuantityShape
+    ] .
+
+gen:PositiveLengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:AngleQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:DEG
+    ] .
+
+gen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaN
+    ] .
+
+gen:MomentQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaN-M
+    ] .
+
+gen:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:Exact_0_QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal ;
+        sh:maxInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:Exact_0_3_QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0.3"^^xsd:decimal ;
+        sh:maxInclusive "0.3"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:Exact_0_5_QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0.5"^^xsd:decimal ;
+        sh:maxInclusive "0.5"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:Exact_0_7_QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0.7"^^xsd:decimal ;
+        sh:maxInclusive "0.7"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:Exact_0_95_QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0.95"^^xsd:decimal ;
+        sh:maxInclusive "0.95"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:Exact_1_QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "1"^^xsd:decimal ;
+        sh:maxInclusive "1"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+<END_SHACL>

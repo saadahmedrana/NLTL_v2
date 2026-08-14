@@ -1,0 +1,158 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF085Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        gen:TRF085KnownSpeedBranch
+        gen:TRF085TableLookupBranch
+    ) .
+
+gen:TRF085KnownSpeedBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bollardPropellerSpeedKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:in ( true ) ;
+        sh:message "Bollard propeller speed must be identified as known."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerRotationalSpeedAtMaximumContinuousRatingBollard ;
+        sh:minCount 1 ;
+        sh:node gen:TRF085RotationalSpeedQuantityShape ;
+        sh:message "Known bollard propeller speed at MCR must be provided in revolutions per minute."
+    ] .
+
+gen:TRF085TableLookupBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bollardPropellerSpeedKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:in ( false ) ;
+        sh:message "Use the Table 6-9 branch only when bollard propeller speed is not known."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:minCount 1 ;
+        sh:node gen:TRF085DiameterQuantityShape ;
+        sh:message "Propeller diameter must be provided in metres for the Table 6-9 lookup."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerRotationalSpeedAtMaximumContinuousRatingBollard ;
+        sh:minCount 1 ;
+        sh:node gen:TRF085RotationalSpeedQuantityShape ;
+        sh:message "The Table 6-9 selected propeller speed must be provided in revolutions per minute."
+    ] ;
+    sh:property [
+        sh:path nltl:hasTableLookupCase ;
+        sh:qualifiedValueShape gen:TRF085CompleteTableLookupCaseShape ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "A complete Table 6-9 lookup case is required when bollard propeller speed is not known."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The ship diameter and selected speed must exactly match the input and result of the same complete Table 6-9 lookup case." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:bollardPropellerSpeedKnown false ;
+          nltl:propellerDiameter ?diameter ;
+          nltl:propellerRotationalSpeedAtMaximumContinuousRatingBollard ?speed .
+    ?diameter qudt:numericValue ?diameterValue ;
+              qudt:unit unit:M .
+    ?speed qudt:numericValue ?speedValue ;
+           qudt:unit unit:REV-PER-MIN .
+    FILTER(
+        datatype(?diameterValue) = xsd:decimal &&
+        datatype(?speedValue) = xsd:decimal
+    )
+    FILTER NOT EXISTS {
+        $this nltl:hasTableLookupCase ?case .
+        ?case a nltl:tableLookupCase ;
+              nltl:tableLookupApplied true ;
+              nltl:tableReference nltl:traficomTable6Dash9 ;
+              nltl:lookupSelectionEvidence ?evidence ;
+              nltl:lookupInputQuantity ?input ;
+              nltl:lookupResultQuantity ?result .
+        ?evidence a nltl:evidenceArtifact .
+        ?input qudt:numericValue ?inputValue ;
+               qudt:unit unit:M .
+        ?result qudt:numericValue ?resultValue ;
+                qudt:unit unit:REV-PER-MIN .
+        FILTER(
+            datatype(?inputValue) = xsd:decimal &&
+            datatype(?resultValue) = xsd:decimal &&
+            ?diameterValue = ?inputValue &&
+            ?speedValue = ?resultValue
+        )
+    }
+}
+"""
+    ] .
+
+gen:TRF085CompleteTableLookupCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:tableLookupCase ;
+    sh:property [
+        sh:path nltl:tableLookupApplied ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:in ( true )
+    ] ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:minCount 1 ;
+        sh:in ( nltl:traficomTable6Dash9 )
+    ] ;
+    sh:property [
+        sh:path nltl:lookupSelectionEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact
+    ] ;
+    sh:property [
+        sh:path nltl:lookupInputQuantity ;
+        sh:minCount 1 ;
+        sh:node gen:TRF085DiameterQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:lookupResultQuantity ;
+        sh:minCount 1 ;
+        sh:node gen:TRF085RotationalSpeedQuantityShape
+    ] .
+
+gen:TRF085DiameterQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:M )
+    ] .
+
+gen:TRF085RotationalSpeedQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:REV-PER-MIN )
+    ] .

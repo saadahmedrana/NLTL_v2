@@ -1,0 +1,155 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gs:I2_019_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "For each boundary-spanning structural member, exactly one selected hull area factor and at least one ship hull area factor are required, and the selected value must equal the largest ship hull area factor within a relative tolerance of 1e-6." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?member
+            WHERE {
+                {
+                    SELECT $this ?member
+                           (COUNT(DISTINCT ?selected) AS ?selectedCount)
+                           (COUNT(DISTINCT ?candidate) AS ?candidateCount)
+                           (SAMPLE(?selectedNumber) AS ?selectedValue)
+                           (MAX(?candidateNumber) AS ?maximumValue)
+                    WHERE {
+                        $this nltl:hasStructuralMember ?member .
+                        ?member nltl:hasSpannedHullArea ?area1 ;
+                                nltl:hasSpannedHullArea ?area2 .
+                        FILTER (?area1 != ?area2)
+
+                        OPTIONAL {
+                            ?member nltl:selectedHullAreaFactor ?selected .
+                            OPTIONAL {
+                                ?selected rdf:type qudt:QuantityValue ;
+                                          qudt:numericValue ?selectedNumber ;
+                                          qudt:unit unit:UNITLESS .
+                                FILTER (DATATYPE(?selectedNumber) = xsd:decimal)
+                            }
+                        }
+
+                        OPTIONAL {
+                            $this nltl:hullAreaFactor ?candidate .
+                            OPTIONAL {
+                                ?candidate rdf:type qudt:QuantityValue ;
+                                           qudt:numericValue ?candidateNumber ;
+                                           qudt:unit unit:UNITLESS .
+                                FILTER (DATATYPE(?candidateNumber) = xsd:decimal)
+                            }
+                        }
+                    }
+                    GROUP BY $this ?member
+                }
+                FILTER (
+                    ?selectedCount != 1 ||
+                    ?candidateCount = 0 ||
+                    (
+                        BOUND(?selectedValue) &&
+                        BOUND(?maximumValue) &&
+                        ABS(?selectedValue - ?maximumValue) >
+                        IF(
+                            ABS(?maximumValue) * "0.000001"^^xsd:decimal >
+                            "0.000000000001"^^xsd:decimal,
+                            ABS(?maximumValue) * "0.000001"^^xsd:decimal,
+                            "0.000000000001"^^xsd:decimal
+                        )
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Every ship hull area factor used for a boundary-spanning member must be one QuantityValue with exactly one decimal numeric value and unit UNITLESS." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?member ?factor
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                      nltl:hullAreaFactor ?factor .
+                ?member nltl:hasSpannedHullArea ?area1 ;
+                        nltl:hasSpannedHullArea ?area2 .
+                FILTER (?area1 != ?area2)
+                FILTER (
+                    NOT EXISTS {
+                        ?factor rdf:type qudt:QuantityValue .
+                    } ||
+                    NOT EXISTS {
+                        ?factor qudt:numericValue ?number .
+                    } ||
+                    EXISTS {
+                        ?factor qudt:numericValue ?number .
+                        FILTER (DATATYPE(?number) != xsd:decimal)
+                    } ||
+                    EXISTS {
+                        ?factor qudt:numericValue ?number1 ;
+                                qudt:numericValue ?number2 .
+                        FILTER (!sameTerm(?number1, ?number2))
+                    } ||
+                    NOT EXISTS {
+                        ?factor qudt:unit unit:UNITLESS .
+                    } ||
+                    EXISTS {
+                        ?factor qudt:unit ?otherUnit .
+                        FILTER (?otherUnit != unit:UNITLESS)
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The selected hull area factor of a boundary-spanning structural member must be one QuantityValue with exactly one decimal numeric value and unit UNITLESS." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?member ?selected
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:hasSpannedHullArea ?area1 ;
+                        nltl:hasSpannedHullArea ?area2 ;
+                        nltl:selectedHullAreaFactor ?selected .
+                FILTER (?area1 != ?area2)
+                FILTER (
+                    NOT EXISTS {
+                        ?selected rdf:type qudt:QuantityValue .
+                    } ||
+                    NOT EXISTS {
+                        ?selected qudt:numericValue ?number .
+                    } ||
+                    EXISTS {
+                        ?selected qudt:numericValue ?number .
+                        FILTER (DATATYPE(?number) != xsd:decimal)
+                    } ||
+                    EXISTS {
+                        ?selected qudt:numericValue ?number1 ;
+                                  qudt:numericValue ?number2 .
+                        FILTER (!sameTerm(?number1, ?number2))
+                    } ||
+                    NOT EXISTS {
+                        ?selected qudt:unit unit:UNITLESS .
+                    } ||
+                    EXISTS {
+                        ?selected qudt:unit ?otherUnit .
+                        FILTER (?otherUnit != unit:UNITLESS)
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,212 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF130Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "The applicability state for the cooling-water chest volume and height requirements is required."
+    ] ;
+    sh:or (
+        gen:TRF130StandardArrangementShape
+        gen:TRF130AlternativeArrangementShape
+    ) .
+
+gen:TRF130CommonArrangementShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:seaInletLocation ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "The sea inlet location is required."
+    ] ;
+    sh:property [
+        sh:path nltl:nearCentrelineAndWellAftIfPossible ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:message "The sea inlet shall be near the centreline and well aft if possible."
+    ] ;
+    sh:property [
+        sh:path nltl:fullCapacityDischargePipeConnected ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:message "A full-capacity cooling-water discharge pipe shall be connected."
+    ] ;
+    sh:property [
+        sh:path nltl:strainerOpenArea ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M2 ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:inletPipeArea ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M2 ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The strainer open area shall be at least four times the inlet pipe area." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    FILTER NOT EXISTS {
+        $this nltl:strainerOpenArea ?strainerQuantity ;
+              nltl:inletPipeArea ?inletQuantity .
+        ?strainerQuantity qudt:numericValue ?strainerArea ;
+                          qudt:unit unit:M2 .
+        ?inletQuantity qudt:numericValue ?inletArea ;
+                       qudt:unit unit:M2 .
+        FILTER(
+            xsd:decimal(?strainerArea) >=
+            (xsd:decimal("4") * xsd:decimal(?inletArea))
+        )
+    }
+}
+"""
+    ] .
+
+gen:TRF130StandardArrangementShape a sh:NodeShape ;
+    sh:node gen:TRF130CommonArrangementShape ;
+    sh:property [
+        sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue false ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceAccumulationSpaceAboveInlet ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:message "The chest shall allow ice to accumulate above the inlet pipe."
+    ] ;
+    sh:property [
+        sh:path nltl:recommendedChestVolume ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M3 ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:totalRelevantEnginePower ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloW ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The recommended chest volume shall equal total relevant engine power divided by 750, within relative tolerance 1e-6 and absolute fallback 1e-12 cubic metres." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    FILTER NOT EXISTS {
+        $this nltl:recommendedChestVolume ?volumeQuantity ;
+              nltl:totalRelevantEnginePower ?powerQuantity .
+        ?volumeQuantity qudt:numericValue ?reportedVolume ;
+                        qudt:unit unit:M3 .
+        ?powerQuantity qudt:numericValue ?totalPower ;
+                       qudt:unit unit:KiloW .
+        BIND(
+            xsd:decimal(?totalPower) / xsd:decimal("750")
+            AS ?expectedVolume
+        )
+        BIND(
+            IF(
+                ABS(?expectedVolume) * xsd:decimal("0.000001") >
+                xsd:decimal("0.000000000001"),
+                ABS(?expectedVolume) * xsd:decimal("0.000001"),
+                xsd:decimal("0.000000000001")
+            )
+            AS ?tolerance
+        )
+        FILTER(
+            ABS(xsd:decimal(?reportedVolume) - ?expectedVolume) <= ?tolerance
+        )
+    }
+}
+"""
+    ] .
+
+gen:TRF130AlternativeArrangementShape a sh:NodeShape ;
+    sh:node gen:TRF130CommonArrangementShape ;
+    sh:property [
+        sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:coolingWaterChestAlternativeArrangementUsed ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:message "The alternative cooling-water chest arrangement shall be recorded as used."
+    ] ;
+    sh:property [
+        sh:path nltl:alternatingCoolingWaterIntakeAndDischarge ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:message "The alternative chests shall provide alternating cooling-water intake and discharge."
+    ] .
+<END_SHACL>

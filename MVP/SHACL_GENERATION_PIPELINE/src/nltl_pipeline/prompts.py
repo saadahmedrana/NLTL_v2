@@ -31,6 +31,7 @@ class PromptFactory:
             "requirement": context.requirement,
             "allowedVocabulary": context.terms,
             "nodePatterns": context.node_patterns,
+            "selection": context.selection,
             "usagePolicy": context.usage_policy,
             "fewShotExamples": few_shots,
             "repairFeedback": repair_feedback or "NONE",
@@ -48,6 +49,7 @@ class PromptFactory:
         return self._json({
             "task": "Review one candidate SHACL graph for freezing before later RDF evaluation",
             "requirement": context.requirement,
+            "selection": context.selection,
             "retrievedRelevantVocabulary": context.terms,
             "candidateUsedCanonicalTerms": used_canonical_terms,
             "candidateShacl": candidate_shacl,
@@ -72,6 +74,7 @@ class PromptFactory:
         return self._json({
             "task": "Resolve one canonical vocabulary mismatch",
             "requirement": context.requirement,
+            "selection": context.selection,
             "validatorFeedback": validator_feedback,
             "suspiciousIris": suspicious_iris,
             "candidates": candidates,

@@ -8,7 +8,7 @@ const batchRoot = process.argv[2]
 const batch = JSON.parse(await fs.readFile(path.join(batchRoot, "batch_definition.json"), "utf8"));
 const preflight = JSON.parse(await fs.readFile(path.join(batchRoot, "engineering_preflight.json"), "utf8"));
 const projectRoot = path.resolve(batchRoot, "../../..");
-const devRoot = path.join(projectRoot, "BENCHMARK_VOCABULARY", "DEVELOPMENT", "DEV_R8_STABILIZATION");
+const devRoot = path.join(projectRoot, "BENCHMARK_VOCABULARY", "DEVELOPMENT", "DEV_R8_1_POSTCONFIRMATION");
 const devManifest = JSON.parse(await fs.readFile(path.join(devRoot, "development_manifest.json"), "utf8"));
 const devRegistry = JSON.parse(await fs.readFile(path.join(devRoot, "registry", "term_registry.json"), "utf8"));
 const devIndex = JSON.parse(await fs.readFile(path.join(devRoot, "requirement_term_index.json"), "utf8"));
@@ -109,9 +109,9 @@ summary.getRange("B5:B13").format.numberFormat = "#,##0";
 summary.getRange("A16:D20").values = [
   ["PHASE", "Vocabulary development/calibration; do not report as final benchmark accuracy.", "", ""],
   ["ORDER", "RDF expectations are created before fresh SHACL generation.", "", ""],
-  ["VOCABULARY", "R2 is the source baseline; R8 stabilization preserves R7 and repairs two existing-term context gaps without adding vocabulary terms.", "", ""],
+  ["VOCABULARY", "R2 is the source baseline; R8.1 preserves the R8 confirmation evidence and records three post-confirmation schema/index corrections without adding vocabulary terms.", "", ""],
   ["LEAKAGE", "Development fixtures become regression tests. Official evaluation will be regenerated after the final vocabulary/pipeline freeze.", "", ""],
-  ["NEXT GATE", "Run a small non-official confirmation set only if desired, then scale to the remaining eligible requirements. Do not reopen first-50 prompt tuning unless a new general failure class is proven.", "", ""],
+  ["NEXT GATE", "R8 confirmation found no remaining vocabulary-name gap. R8.1 now needs only a no-API fixture/schema recheck, after which generation may scale with RDF evaluation kept separate.", "", ""],
 ];
 summary.getRange("A16:A20").format = { fill: colors.pale, font: { bold: true, color: colors.navy } };
 summary.getRange("B16:D20").format.wrapText = true;
@@ -213,12 +213,15 @@ const stabilizationRows = [
   ["TRF-025", "TOLERANCE_SCALE", "Generated C2 tolerance was based on the reported value rather than the expected formula result.", "RESOLVED_GENERAL_GUIDANCE", "Generator and validator now require derived tolerances to scale from the expected result."],
   ["TRF-011", "GENERATOR_SYNTAX", "Final repair contained a stray token and invalid Turtle.", "ALREADY_BLOCKED_AND_GUIDANCE_STRENGTHENED", "Existing parser gate prevents acceptance; generator now performs an explicit pre-return syntax self-check."],
   ["ALL", "STATUS_CLASSIFICATION", "Matcher exhaustion was previously labeled VOCABULARY_GAP even when a canonical term might exist outside retrieval candidates.", "RESOLVED", "Runtime status is TERM_RESOLUTION_UNRESOLVED; a true vocabulary gap requires registry/index audit evidence."],
+  ["TRF-025", "UNIT_METADATA_GAP", "C1 and C2 are formula outputs whose units were left unspecified, causing the generated shape and canonical fixtures to disagree.", "RESOLVED_R8_1", "Assign unit:N to C1 and C2 from the verified dimensions of every additive formula term."],
+  ["TRF-030", "OVER_STRONG_EXCLUSIVITY", "The semantic validator correctly noted that the clause does not prohibit a case from recording both coordinates.", "RESOLVED_R8_1", "Remove the R8 exclusivePropertyGroups declaration; retain the requirement for several vertical and horizontal cases."],
+  ["TRF-022", "UNSUPPORTED_APPLICABILITY", "The R8 shape inherited a construction-date branch although clause 3.2.2 contains no date condition, allowing the deliberate failure to pass.", "RESOLVED_R8_1", "Remove constructionStageDate from the TRF-022 scoped requirement index."],
 ];
 const stabilizationSheet = addSheet(workbook, "STABILIZATION", [
   "REQUIREMENT_ID", "FAILURE_CLASS", "R7_EVIDENCE", "R8_STATUS", "ENGINEERING_RESOLUTION",
 ], stabilizationRows, { REQUIREMENT_ID: 28, FAILURE_CLASS: 34, R7_EVIDENCE: 82, R8_STATUS: 38, ENGINEERING_RESOLUTION: 90 });
-stabilizationSheet.getRange("C5:E11").format.wrapText = true;
-stabilizationSheet.getRange("A5:E11").format.rowHeight = 54;
+stabilizationSheet.getRange("C5:E14").format.wrapText = true;
+stabilizationSheet.getRange("A5:E14").format.rowHeight = 54;
 
 const rdfRows = fixtureCatalog.caseRecords.map((item) => [
   item.caseId, item.requirementId, item.caseKind, item.expectedConforms, item.sourcePage, item.sourceClause,

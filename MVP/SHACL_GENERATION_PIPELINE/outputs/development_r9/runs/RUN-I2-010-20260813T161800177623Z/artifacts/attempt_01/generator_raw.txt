@@ -1,0 +1,148 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:NormalFrameAngleQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A normal frame angle requires one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:DEG ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A normal frame angle must use degree units."
+    ] .
+
+gs:I2_010_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:polarClass ;
+        sh:minCount 1 ;
+        sh:in (
+            nltl:polarClassPc1
+            nltl:polarClassPc2
+            nltl:polarClassPc3
+            nltl:polarClassPc4
+            nltl:polarClassPc5
+            nltl:polarClassPc6
+            nltl:polarClassPc7
+        ) ;
+        sh:message "Polar Class information is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalSidedBowForm ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:normalFrameAngle ;
+        sh:node gs:NormalFrameAngleQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:bowDesignForceMethod ;
+        sh:datatype xsd:string
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:polarClass ;
+                sh:minCount 1 ;
+                sh:in (
+                    nltl:polarClassPc1
+                    nltl:polarClassPc2
+                    nltl:polarClassPc3
+                    nltl:polarClassPc4
+                    nltl:polarClassPc5
+                )
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:polarClass ;
+                sh:minCount 1 ;
+                sh:in (
+                    nltl:polarClassPc6
+                    nltl:polarClassPc7
+                )
+            ] ;
+            sh:or (
+                [
+                    sh:property [
+                        sh:path nltl:verticalSidedBowForm ;
+                        sh:datatype xsd:boolean ;
+                        sh:minCount 1
+                    ]
+                ]
+                [
+                    sh:property [
+                        sh:path nltl:normalFrameAngle ;
+                        sh:minCount 1 ;
+                        sh:node gs:NormalFrameAngleQuantityShape
+                    ]
+                ]
+            )
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "For a PC6 or PC7 ship with a vertical-sided bow, the bow design force method must be I2.3.2.1 (iv)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:polarClass ?polarClass .
+                FILTER (
+                    ?polarClass IN (
+                        nltl:polarClassPc6,
+                        nltl:polarClassPc7
+                    )
+                )
+                FILTER (
+                    EXISTS {
+                        $this nltl:verticalSidedBowForm true .
+                    }
+                    ||
+                    (
+                        EXISTS {
+                            $this nltl:normalFrameAngle ?angleNode .
+                            ?angleNode qudt:numericValue ?angle ;
+                                       qudt:unit unit:DEG .
+                            FILTER (
+                                ?angle >= "0"^^xsd:decimal &&
+                                ?angle <= "10"^^xsd:decimal
+                            )
+                        }
+                        &&
+                        NOT EXISTS {
+                            $this nltl:normalFrameAngle ?otherAngleNode .
+                            ?otherAngleNode qudt:numericValue ?otherAngle .
+                            FILTER (
+                                ?otherAngle < "0"^^xsd:decimal ||
+                                ?otherAngle > "10"^^xsd:decimal
+                            )
+                        }
+                    )
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:bowDesignForceMethod ?method .
+                    FILTER (
+                        DATATYPE(?method) = xsd:string &&
+                        STR(?method) = "I2.3.2.1 (iv)"
+                    )
+                }
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,90 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO124Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:operatingArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Operating area is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:antarcticArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Antarctic area information is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:marpolAnnexVRegulation6Point1DischargeOccurs ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "The MARPOL Annex V regulation 6.1 discharge state is required to determine applicability."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable Antarctic discharge must be at least 12 nautical miles from the nearest fast ice." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:operatingArea ?operatingArea ;
+          nltl:antarcticArea ?antarcticArea ;
+          nltl:marpolAnnexVRegulation6Point1DischargeOccurs ?discharge .
+    FILTER(?operatingArea = ?antarcticArea && ?discharge = true)
+    FILTER NOT EXISTS {
+        $this nltl:distanceToNearestFastIce ?distance .
+        ?distance rdf:type qudt:QuantityValue ;
+                  qudt:numericValue ?distanceValue ;
+                  qudt:unit unit:MI_N .
+        FILTER(
+            datatype(?distanceValue) = xsd:decimal &&
+            ?distanceValue >= "12"^^xsd:decimal
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Food waste must not be discharged onto ice during an applicable Antarctic discharge." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:operatingArea ?operatingArea ;
+          nltl:antarcticArea ?antarcticArea ;
+          nltl:marpolAnnexVRegulation6Point1DischargeOccurs ?discharge .
+    FILTER(?operatingArea = ?antarcticArea && ?discharge = true)
+    FILTER(
+        NOT EXISTS {
+            $this nltl:foodWasteDischargeOntoIce ?permittedFoodWasteState .
+            FILTER(
+                isLiteral(?permittedFoodWasteState) &&
+                datatype(?permittedFoodWasteState) = xsd:boolean &&
+                ?permittedFoodWasteState = false
+            )
+        }
+        ||
+        EXISTS {
+            $this nltl:foodWasteDischargeOntoIce ?nonconformingFoodWasteState .
+            FILTER(
+                !isLiteral(?nonconformingFoodWasteState) ||
+                datatype(?nonconformingFoodWasteState) != xsd:boolean ||
+                ?nonconformingFoodWasteState != false
+            )
+        }
+    )
+}
+"""
+    ] .
+<END_SHACL>

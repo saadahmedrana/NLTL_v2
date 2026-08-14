@@ -1,0 +1,325 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_015_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hasBowSubregionCalculationCase ;
+                sh:maxCount 0
+            ]
+        ]
+        gen:I2_015_ApplicableShipShape
+    ) .
+
+gen:I2_015_ApplicableShipShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasBowSubregionCalculationCase ;
+        sh:minCount 1 ;
+        sh:node gen:I2_015_BowSubregionCaseShape
+    ] ;
+    sh:property [
+        sh:path nltl:betaIPrime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_015_PositiveUnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_015_PositiveMetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraughtDUI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_015_PositiveMetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:bowSubregionMidLengthPosition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_015_MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:crushingFailureClassFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_015_PositiveUnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:flexuralFailureClassFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_015_NonnegativeUnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:bowShapeCoefficient ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_015_NonnegativeUnitlessQuantityShape
+    ] ;
+    sh:sparql [
+        sh:message "The bow-form formula inputs must produce nonnegative f_ai1 and a positive sine denominator." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+SELECT $this
+WHERE {
+    $this nltl:betaIPrime/qudt:numericValue ?beta ;
+          nltl:upperIceWaterlineLengthLUI/qudt:numericValue ?lui ;
+          nltl:bowSubregionMidLengthPosition/qudt:numericValue ?x ;
+          nltl:crushingFailureClassFactor/qudt:numericValue ?cfc .
+    BIND((0.097 - 0.68 * ((?x / ?lui) - 0.15) * ((?x / ?lui) - 0.15)) AS ?a)
+    BIND(math:sin(?beta) AS ?sinBeta)
+    FILTER(?a < 0 || (?sinBeta * ?cfc) <= 0)
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "bowShapeCoefficient must equal min(f_ai1, f_ai2, 0.60) within relative tolerance 1e-6 or absolute tolerance 1e-12." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+SELECT $this
+WHERE {
+    $this nltl:betaIPrime/qudt:numericValue ?beta ;
+          nltl:upperIceWaterlineLengthLUI/qudt:numericValue ?lui ;
+          nltl:upperIceWaterlineDraughtDUI/qudt:numericValue ?dui ;
+          nltl:bowSubregionMidLengthPosition/qudt:numericValue ?x ;
+          nltl:crushingFailureClassFactor/qudt:numericValue ?cfc ;
+          nltl:flexuralFailureClassFactor/qudt:numericValue ?cff ;
+          nltl:bowShapeCoefficient/qudt:numericValue ?fai ;
+          nltl:hasBowSubregionCalculationCase ?case .
+    ?case nltl:bowSubregionWaterlineAngle/qudt:numericValue ?alpha .
+
+    FILTER(
+        ?beta > 0 && ?lui > 0 && ?dui > 0 &&
+        ?cfc > 0 && ?cff >= 0 && ?alpha >= 0 && ?fai >= 0
+    )
+
+    BIND((0.097 - 0.68 * ((?x / ?lui) - 0.15) * ((?x / ?lui) - 0.15)) AS ?a)
+    BIND(math:sin(?beta) AS ?sinBeta)
+    FILTER(?a >= 0 && (?sinBeta * ?cfc) > 0)
+
+    BIND((?a * ?alpha) AS ?fai1Numerator)
+    BIND((?fai1Numerator * ?fai1Numerator / ?beta) AS ?fai1Squared)
+
+    BIND((1.2 * ?cff) AS ?fai2Numerator)
+    BIND((?sinBeta * ?cfc) AS ?fai2DenominatorBase)
+
+    BIND((?fai2Numerator * ?fai2Numerator) AS ?n2)
+    BIND((?n2 * ?n2) AS ?n4)
+    BIND((?n4 * ?n4) AS ?n8)
+    BIND((?n8 * ?n8) AS ?n16)
+    BIND((?n16 * ?n8 * ?fai2Numerator) AS ?n25)
+
+    BIND((?fai2DenominatorBase * ?fai2DenominatorBase) AS ?b2)
+    BIND((?b2 * ?b2) AS ?b4)
+    BIND((?b4 * ?b4) AS ?b8)
+    BIND((?b8 * ?b8) AS ?b16)
+    BIND((?b16 * ?b8 * ?fai2DenominatorBase) AS ?b25)
+
+    BIND((?dui * ?dui) AS ?d2)
+    BIND((?d2 * ?d2) AS ?d4)
+    BIND((?d4 * ?d4) AS ?d8)
+    BIND((?d8 * ?d8) AS ?d16)
+
+    BIND((?n25 / (?b25 * ?d16)) AS ?fai2Power25)
+
+    BIND((?fai1Squared * ?fai1Squared) AS ?s2)
+    BIND((?s2 * ?s2) AS ?s4)
+    BIND((?s4 * ?s4) AS ?s8)
+    BIND((?s8 * ?s8) AS ?s16)
+    BIND((?s16 * ?s8 * ?fai1Squared) AS ?fai1Power50)
+    BIND((?fai2Power25 * ?fai2Power25) AS ?fai2Power50)
+
+    BIND(0.999999 AS ?relativeLow)
+    BIND(1.000001 AS ?relativeHigh)
+
+    BIND((?relativeLow * ?relativeLow) AS ?low2)
+    BIND((?low2 * ?low2) AS ?low4)
+    BIND((?low4 * ?low4) AS ?low8)
+    BIND((?low8 * ?low8) AS ?low16)
+    BIND((?low16 * ?low8 * ?relativeLow) AS ?low25)
+
+    BIND((?relativeHigh * ?relativeHigh) AS ?high2)
+    BIND((?high2 * ?high2) AS ?high4)
+    BIND((?high4 * ?high4) AS ?high8)
+    BIND((?high8 * ?high8) AS ?high16)
+    BIND((?high16 * ?high8 * ?relativeHigh) AS ?high25)
+
+    BIND((?fai * ?fai) AS ?reportedSquared)
+    BIND((?reportedSquared * ?reportedSquared) AS ?r4)
+    BIND((?r4 * ?r4) AS ?r8)
+    BIND((?r8 * ?r8) AS ?r16)
+    BIND((?r16 * ?r8 * ?fai) AS ?reportedPower25)
+
+    BIND((?fai + 0.000000000001) AS ?reportedPlusAbsolute)
+    BIND((?reportedPlusAbsolute * ?reportedPlusAbsolute) AS ?rp2)
+    BIND((?rp2 * ?rp2) AS ?rp4)
+    BIND((?rp4 * ?rp4) AS ?rp8)
+    BIND((?rp8 * ?rp8) AS ?rp16)
+    BIND((?rp16 * ?rp8 * ?reportedPlusAbsolute) AS ?reportedPlusPower25)
+
+    BIND(
+        IF(
+            ?fai > 0.000000000001,
+            ?fai - 0.000000000001,
+            0
+        ) AS ?reportedMinusAbsolute
+    )
+    BIND((?reportedMinusAbsolute * ?reportedMinusAbsolute) AS ?rm2)
+    BIND((?rm2 * ?rm2) AS ?rm4)
+    BIND((?rm4 * ?rm4) AS ?rm8)
+    BIND((?rm8 * ?rm8) AS ?rm16)
+    BIND((?rm16 * ?rm8 * ?reportedMinusAbsolute) AS ?reportedMinusPower25)
+
+    FILTER(
+        (
+            ?fai1Power50 <= ?fai2Power50 &&
+            ?fai1Squared <= 0.36 &&
+            !(
+                (
+                    ?reportedSquared >= (?low2 * ?fai1Squared) &&
+                    ?reportedSquared <= (?high2 * ?fai1Squared)
+                ) ||
+                (
+                    (?fai <= 0.000000000001 ||
+                     ((?fai - 0.000000000001) * (?fai - 0.000000000001)) <= ?fai1Squared) &&
+                    ((?fai + 0.000000000001) * (?fai + 0.000000000001)) >= ?fai1Squared
+                )
+            )
+        ) ||
+        (
+            ?fai2Power50 < ?fai1Power50 &&
+            ?fai2Power25 <= 0.0000028430288029929675037411328 &&
+            !(
+                (
+                    ?reportedPower25 >= (?low25 * ?fai2Power25) &&
+                    ?reportedPower25 <= (?high25 * ?fai2Power25)
+                ) ||
+                (
+                    ?reportedPlusPower25 >= ?fai2Power25 &&
+                    (?fai <= 0.000000000001 ||
+                     ?reportedMinusPower25 <= ?fai2Power25)
+                )
+            )
+        ) ||
+        (
+            ?fai1Squared > 0.36 &&
+            ?fai2Power25 > 0.0000028430288029929675037411328 &&
+            ABS(?fai - 0.60) > 0.0000006
+        )
+    )
+}
+"""
+    ] .
+
+gen:I2_015_BowSubregionCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:bowSubregionCalculationCase ;
+    sh:property [
+        sh:path nltl:bowSubregionWaterlineAngle ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_015_NonnegativeDegreeQuantityShape
+    ] .
+
+gen:I2_015_PositiveUnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:I2_015_NonnegativeUnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:I2_015_PositiveMetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:I2_015_MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:I2_015_NonnegativeDegreeQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:DEG
+    ] .
+<END_SHACL>

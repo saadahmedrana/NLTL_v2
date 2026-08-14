@@ -1,0 +1,189 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:IcePressureFactorQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:maxInclusive "1"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:DirectAnalysisCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:directAnalysisCase ;
+    sh:property [
+        sh:path nltl:iceLoadAreaFactorCa ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "A direct analysis case must provide exactly one unitless ice load area factor c_a."
+    ] .
+
+gen:IcePressureCalculationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PressureQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassFactorCp ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:nominalIcePressureP0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PressureQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputFactorCd ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:IcePressureFactorQuantityShape ;
+        sh:message "The ship size and engine output factor c_d must be unitless and no greater than 1."
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientA ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientB ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientK ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasDirectAnalysisCase ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:DirectAnalysisCaseShape ;
+        sh:message "Exactly one direct analysis case is required for the ice pressure calculation."
+    ] ;
+    sh:sparql [
+        sh:message "The reported values must satisfy c_d = (a*k + b)/1000 and p = c_d*c_p*c_a*p_0 within a relative tolerance of 1e-6 and an absolute fallback of 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:icePressure ?pQuantity ;
+                      nltl:iceClassFactorCp ?cpQuantity ;
+                      nltl:nominalIcePressureP0 ?p0Quantity ;
+                      nltl:shipSizeEngineOutputFactorCd ?cdQuantity ;
+                      nltl:shipSizeEngineOutputCoefficientA ?aQuantity ;
+                      nltl:shipSizeEngineOutputCoefficientB ?bQuantity ;
+                      nltl:shipSizeEngineOutputCoefficientK ?kQuantity ;
+                      nltl:hasDirectAnalysisCase ?case .
+
+                ?case nltl:iceLoadAreaFactorCa ?caQuantity .
+
+                ?pQuantity qudt:numericValue ?pValue .
+                ?cpQuantity qudt:numericValue ?cpValue .
+                ?p0Quantity qudt:numericValue ?p0Value .
+                ?cdQuantity qudt:numericValue ?cdValue .
+                ?aQuantity qudt:numericValue ?aValue .
+                ?bQuantity qudt:numericValue ?bValue .
+                ?kQuantity qudt:numericValue ?kValue .
+                ?caQuantity qudt:numericValue ?caValue .
+
+                BIND(
+                    (xsd:decimal(?aValue) * xsd:decimal(?kValue)
+                     + xsd:decimal(?bValue)) / "1000"^^xsd:decimal
+                    AS ?expectedCd
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedCd) * "0.000001"^^xsd:decimal
+                            > "0.000000001"^^xsd:decimal,
+                        ABS(?expectedCd) * "0.000001"^^xsd:decimal,
+                        "0.000000001"^^xsd:decimal
+                    )
+                    AS ?cdTolerance
+                )
+                BIND(
+                    xsd:decimal(?cdValue)
+                    * xsd:decimal(?cpValue)
+                    * xsd:decimal(?caValue)
+                    * xsd:decimal(?p0Value)
+                    AS ?expectedPressure
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedPressure) * "0.000001"^^xsd:decimal
+                            > "0.000000001"^^xsd:decimal,
+                        ABS(?expectedPressure) * "0.000001"^^xsd:decimal,
+                        "0.000000001"^^xsd:decimal
+                    )
+                    AS ?pressureTolerance
+                )
+                FILTER(
+                    ABS(xsd:decimal(?cdValue) - ?expectedCd) > ?cdTolerance
+                    ||
+                    ABS(xsd:decimal(?pValue) - ?expectedPressure)
+                        > ?pressureTolerance
+                )
+            }
+        """
+    ] .
+<END_SHACL>

@@ -148,6 +148,13 @@ class PipelineRunner:
                 f"{requirement_id} is not in the direct/deterministic generation queue: "
                 f"{requirement.get('activeStatus')}. Use an explicit review override only for development."
             )
+        if bool(self.config.raw["generation"].get("require_complete_dependency_contracts", False)):
+            contract = self.vocabulary.dependency_contracts.get(requirement_id, {})
+            if contract.get("status") != "COMPLETE":
+                raise ConfigurationError(
+                    f"{requirement_id} is blocked from API generation because its dependency "
+                    f"contract is {contract.get('status', 'MISSING')}, not COMPLETE."
+                )
 
         session_id = session_id or identifier("SESSION")
         run_id = identifier(f"RUN-{requirement_id}")

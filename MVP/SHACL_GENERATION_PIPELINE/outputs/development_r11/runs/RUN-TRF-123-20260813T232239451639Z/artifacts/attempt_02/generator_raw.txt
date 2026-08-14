@@ -1,0 +1,183 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF123ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:node gen:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Ship yield strength is required for the occasional-force analysis."
+    ] ;
+    sh:property [
+        sh:path nltl:hasOccasionalForceLoadCase ;
+        sh:node gen:OccasionalForceLoadCaseShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasPropellerShaftLineComponent ;
+        sh:class nltl:propellerShaftLineComponent
+    ] ;
+    sh:sparql [
+        sh:message "Each component assessed in an occasional-force load case must be linked to the ship as a propeller shaft-line component." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?case ?component
+            WHERE {
+                $this nltl:hasOccasionalForceLoadCase ?case .
+                ?case nltl:occasionalForceCaseAssessedComponent ?component .
+                FILTER NOT EXISTS {
+                    $this nltl:hasPropellerShaftLineComponent ?component .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Yield quantities must agree within relative tolerance 1e-6 with an absolute 1e-12 fallback, and component stress multiplied by the safety factor must not exceed the declared component-material yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?case ?component
+            WHERE {
+                $this nltl:yieldStrength ?shipYieldQuantity ;
+                      nltl:hasOccasionalForceLoadCase ?case ;
+                      nltl:hasPropellerShaftLineComponent ?component .
+
+                ?shipYieldQuantity
+                    qudt:numericValue ?shipYield ;
+                    qudt:unit unit:MegaPA .
+
+                ?case
+                    nltl:occasionalForceCaseAssessedComponent ?component ;
+                    nltl:componentYieldSafetyFactor ?factorQuantity .
+
+                ?factorQuantity
+                    qudt:numericValue ?factor ;
+                    qudt:unit unit:UNITLESS .
+
+                ?component
+                    nltl:occasionalForceComponentStress ?stressQuantity ;
+                    nltl:materialYieldStrength ?componentYieldQuantity ;
+                    nltl:hasMaterialProperties ?materialProperties .
+
+                ?stressQuantity
+                    qudt:numericValue ?stress ;
+                    qudt:unit unit:MegaPA .
+
+                ?componentYieldQuantity
+                    qudt:numericValue ?componentYield ;
+                    qudt:unit unit:MegaPA .
+
+                ?materialProperties
+                    nltl:componentMaterialYieldStrength ?declaredYieldQuantity .
+
+                ?declaredYieldQuantity
+                    qudt:numericValue ?declaredYield ;
+                    qudt:unit unit:MegaPA .
+
+                BIND(
+                    IF(
+                        ABS(?declaredYield) > 0.000001,
+                        ABS(?declaredYield) * 0.000001,
+                        0.000000000001
+                    )
+                    AS ?yieldTolerance
+                )
+
+                FILTER(
+                    ABS(?componentYield - ?declaredYield) > ?yieldTolerance ||
+                    ABS(?shipYield - ?declaredYield) > ?yieldTolerance ||
+                    (?stress * ?factor) > ?declaredYield
+                )
+            }
+        """
+    ] .
+
+gen:OccasionalForceLoadCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:occasionalForceLoadCase ;
+    sh:property [
+        sh:path nltl:propellerBladeExcludedFromOccasionalForceScope ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:message "The occasional-force load case must explicitly exclude the propeller blade."
+    ] ;
+    sh:property [
+        sh:path nltl:componentYieldSafetyFactor ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "A dimensionless component yield safety factor is required."
+    ] ;
+    sh:property [
+        sh:path nltl:occasionalForceCaseAssessedComponent ;
+        sh:node gen:AssessedComponentShape
+    ] .
+
+gen:AssessedComponentShape
+    a sh:NodeShape ;
+    sh:class nltl:shipComponent ;
+    sh:property [
+        sh:path nltl:occasionalForceComponentStress ;
+        sh:node gen:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Occasional-force component stress in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:materialYieldStrength ;
+        sh:node gen:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Component material yield strength in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasMaterialProperties ;
+        sh:node gen:MaterialPropertiesShape ;
+        sh:minCount 1 ;
+        sh:message "Material properties are required for each assessed component."
+    ] .
+
+gen:MaterialPropertiesShape
+    a sh:NodeShape ;
+    sh:class nltl:materialProperties ;
+    sh:property [
+        sh:path nltl:componentMaterialYieldStrength ;
+        sh:node gen:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Declared component-material yield strength in MPa is required."
+    ] .
+
+gen:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:in ( unit:MegaPA ) ;
+        sh:minCount 1
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:in ( unit:UNITLESS ) ;
+        sh:minCount 1
+    ] .
+<END_SHACL>

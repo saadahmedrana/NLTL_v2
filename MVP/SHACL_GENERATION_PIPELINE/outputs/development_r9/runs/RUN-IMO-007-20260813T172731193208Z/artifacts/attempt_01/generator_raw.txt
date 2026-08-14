@@ -1,0 +1,90 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:OpenWaterIceConditionShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceConditionValue ;
+        sh:message "An ice condition classification is required to determine whether the open-water requirements apply."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an open-water ice condition, sea ice concentration must be an xsd:decimal value below 1 with unit UNITLESS, and ice of land origin must be false." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceConditionClassification nltl:openWaterIceCondition .
+
+    FILTER (
+        NOT EXISTS {
+            $this nltl:seaIceConcentration ?concentration .
+            ?concentration a qudt:QuantityValue ;
+                qudt:unit unit:UNITLESS ;
+                qudt:numericValue ?value .
+            FILTER (
+                datatype(?value) = xsd:decimal &&
+                ?value < 1
+            )
+        }
+        ||
+        EXISTS {
+            $this nltl:seaIceConcentration ?invalidConcentration .
+            FILTER (
+                NOT EXISTS {
+                    ?invalidConcentration a qudt:QuantityValue .
+                }
+                ||
+                NOT EXISTS {
+                    ?invalidConcentration qudt:unit unit:UNITLESS .
+                }
+                ||
+                EXISTS {
+                    ?invalidConcentration qudt:unit ?invalidUnit .
+                    FILTER (?invalidUnit != unit:UNITLESS)
+                }
+                ||
+                NOT EXISTS {
+                    ?invalidConcentration qudt:numericValue ?anyValue .
+                }
+                ||
+                EXISTS {
+                    ?invalidConcentration qudt:numericValue ?invalidValue .
+                    FILTER (
+                        datatype(?invalidValue) != xsd:decimal ||
+                        ?invalidValue >= 1
+                    )
+                }
+            )
+        }
+        ||
+        NOT EXISTS {
+            $this nltl:iceOfLandOriginPresent ?landOriginState .
+            FILTER (
+                datatype(?landOriginState) = xsd:boolean &&
+                ?landOriginState = "false"^^xsd:boolean
+            )
+        }
+        ||
+        EXISTS {
+            $this nltl:iceOfLandOriginPresent ?invalidLandOriginState .
+            FILTER (
+                datatype(?invalidLandOriginState) != xsd:boolean ||
+                ?invalidLandOriginState != "false"^^xsd:boolean
+            )
+        }
+    )
+}
+"""
+    ] .
+<END_SHACL>

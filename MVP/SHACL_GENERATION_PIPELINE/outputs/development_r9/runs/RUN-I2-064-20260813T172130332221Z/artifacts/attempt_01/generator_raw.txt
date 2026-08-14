@@ -1,0 +1,129 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:StressQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA>
+    ] .
+
+gs:StructuralMemberWebShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMemberWeb ;
+    sh:property [
+        sh:path nltl:nominalShearStress ;
+        sh:minCount 1 ;
+        sh:node gs:StressQuantityShape ;
+        sh:message "Nominal web shear stress in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:bucklingCriteriaSatisfied ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue true ;
+        sh:message "The structural member web must satisfy the applicable buckling criteria."
+    ] .
+
+gs:StructuralMemberFlangeShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMemberFlange ;
+    sh:property [
+        sh:path nltl:nominalFlangeVonMisesStress ;
+        sh:minCount 1 ;
+        sh:node gs:StressQuantityShape ;
+        sh:message "Nominal flange von Mises stress in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:bucklingCriteriaSatisfied ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue true ;
+        sh:message "The structural member flange must satisfy the applicable buckling criteria."
+    ] .
+
+gs:StructuralMemberShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberWeb ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node gs:StructuralMemberWebShape ;
+        sh:message "A conforming structural member web is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberFlange ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node gs:StructuralMemberFlangeShape ;
+        sh:message "A conforming structural member flange is required."
+    ] .
+
+gs:I2_064_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node gs:StressQuantityShape ;
+        sh:message "Yield strength in MPa is required for the stress comparisons."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node gs:StructuralMemberShape ;
+        sh:message "A structural member with its web and flange is required."
+    ] ;
+    sh:sparql [
+        sh:message "Web shear stress must be less than yield strength divided by sqrt(3), and flange von Mises stress must be less than 1.15 times yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:yieldStrength ?yieldQuantity ;
+                      nltl:hasStructuralMember ?member .
+                ?yieldQuantity qudt:numericValue ?yield ;
+                               qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                ?member nltl:hasStructuralMemberWeb ?web ;
+                        nltl:hasStructuralMemberFlange ?flange .
+                ?web nltl:nominalShearStress ?shearQuantity .
+                ?shearQuantity qudt:numericValue ?shear ;
+                               qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                ?flange nltl:nominalFlangeVonMisesStress ?flangeQuantity .
+                ?flangeQuantity qudt:numericValue ?flangeStress ;
+                                qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                FILTER (
+                    (
+                        ?yield >= 0 &&
+                        ?shear >= 0 &&
+                        (3 * ?shear * ?shear) >= (?yield * ?yield)
+                    ) ||
+                    (
+                        ?yield < 0 &&
+                        (
+                            ?shear >= 0 ||
+                            (
+                                ?shear < 0 &&
+                                (3 * ?shear * ?shear) <= (?yield * ?yield)
+                            )
+                        )
+                    ) ||
+                    ?flangeStress >= (1.15 * ?yield)
+                )
+            }
+        """
+    ] .
+<END_SHACL>

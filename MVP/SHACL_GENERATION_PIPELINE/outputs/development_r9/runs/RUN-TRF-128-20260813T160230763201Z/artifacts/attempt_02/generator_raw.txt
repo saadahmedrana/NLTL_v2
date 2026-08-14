@@ -1,0 +1,131 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:AirReceiverCapacityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive "0"^^xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Air receiver capacity must have a positive decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:in ( unit:M3 ) ;
+        sh:minCount 1 ;
+        sh:message "Air receiver capacity must be expressed in cubic metres."
+    ] .
+
+gs:CompressorChargeTimeValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive "0"^^xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Compressor charge time must have a positive decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:in ( unit:HR ) ;
+        sh:minCount 1 ;
+        sh:message "Compressor charge time must be expressed in hours."
+    ] .
+
+gs:CompressorChargingSufficiencyShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "Ice class is required to determine the applicable compressor charging limit."
+    ] ;
+    sh:property [
+        sh:path nltl:propulsionEngineReversalRequiredForAstern ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "The propulsion-engine reversal condition is required to determine the applicable compressor charging limit."
+    ] ;
+    sh:property [
+        sh:path nltl:airReceiverCapacity ;
+        sh:node gs:AirReceiverCapacityValueShape ;
+        sh:minCount 1 ;
+        sh:message "Air receiver capacity is required for the compressor sufficiency calculation."
+    ] ;
+    sh:property [
+        sh:path nltl:compressorChargeTime ;
+        sh:node gs:CompressorChargeTimeValueShape ;
+        sh:minCount 1 ;
+        sh:message "Compressor charge time is required for the compressor sufficiency calculation."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:hasValue nltl:iceClassIaSuper
+            ] ;
+            sh:property [
+                sh:path nltl:propulsionEngineReversalRequiredForAstern ;
+                sh:hasValue true
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:hasValue nltl:iceClassIaSuper
+            ] ;
+            sh:property [
+                sh:path nltl:propulsionEngineReversalRequiredForAstern ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:in (
+                    nltl:iceClassIa
+                    nltl:iceClassIb
+                    nltl:iceClassIc
+                    nltl:iceClassIi
+                    nltl:iceClassIii
+                )
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Compressor capacity is insufficient: charging must take no more than 0.5 hours for IA Super ships requiring engine reversal for astern operation, and no more than 1.0 hour otherwise." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:propulsionEngineReversalRequiredForAstern ?reversalRequired ;
+                      nltl:airReceiverCapacity ?capacityValue ;
+                      nltl:compressorChargeTime ?timeValue .
+                ?capacityValue qudt:numericValue ?receiverCapacity .
+                ?timeValue qudt:numericValue ?chargeTime .
+                BIND(
+                    IF(
+                        ?iceClass = nltl:iceClassIaSuper &&
+                        ?reversalRequired = "true"^^xsd:boolean,
+                        "0.5"^^xsd:decimal,
+                        "1.0"^^xsd:decimal
+                    )
+                    AS ?limitHours
+                )
+                BIND((?receiverCapacity / ?chargeTime) AS ?availableChargingRate)
+                BIND((?receiverCapacity / ?limitHours) AS ?requiredChargingRate)
+                FILTER(?availableChargingRate < ?requiredChargingRate)
+            }
+        """
+    ] .
+<END_SHACL>

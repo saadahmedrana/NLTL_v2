@@ -1,0 +1,123 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:HullAreaFactorQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:StructuralMemberShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:hasSpannedHullArea ;
+        sh:class nltl:hullAreaValue
+    ] ;
+    sh:property [
+        sh:path nltl:spansHullArea ;
+        sh:class nltl:hullRegionValue
+    ] ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:node gen:HullAreaFactorQuantityShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hasSpannedHullArea ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:hasSpannedHullArea ;
+                sh:minCount 2
+            ] ;
+            sh:property [
+                sh:path nltl:selectedHullAreaFactor ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) .
+
+gen:I2_019_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gen:StructuralMemberShape
+    ] ;
+    sh:property [
+        sh:path nltl:hullAreaFactor ;
+        sh:node gen:HullAreaFactorQuantityShape
+    ] ;
+    sh:sparql [
+        sh:message "A ship must provide a hull area factor when a structural member spans at least two hull areas." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?member
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:hasSpannedHullArea ?area1 ;
+                        nltl:hasSpannedHullArea ?area2 .
+                FILTER (?area1 != ?area2)
+                FILTER NOT EXISTS {
+                    $this nltl:hullAreaFactor ?factor .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The selected hull area factor must equal the largest available hull area factor within a relative tolerance of 1e-6 and an absolute fallback of 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?member
+            WHERE {
+                {
+                    SELECT $this (MAX(xsd:decimal(?candidateValue)) AS ?expected)
+                    WHERE {
+                        $this nltl:hullAreaFactor ?candidateFactor .
+                        ?candidateFactor qudt:numericValue ?candidateValue ;
+                                         qudt:unit unit:UNITLESS .
+                    }
+                    GROUP BY $this
+                }
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:hasSpannedHullArea ?area1 ;
+                        nltl:hasSpannedHullArea ?area2 ;
+                        nltl:selectedHullAreaFactor ?selectedFactor .
+                ?selectedFactor qudt:numericValue ?selectedValue ;
+                                qudt:unit unit:UNITLESS .
+                FILTER (?area1 != ?area2)
+                BIND(xsd:decimal(?selectedValue) AS ?actual)
+                BIND(
+                    IF(
+                        ABS(?expected) * 0.000001 > 0.000000000001,
+                        ABS(?expected) * 0.000001,
+                        0.000000000001
+                    ) AS ?tolerance
+                )
+                FILTER (ABS(?actual - ?expected) > ?tolerance)
+            }
+        """
+    ] .

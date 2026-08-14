@@ -1,0 +1,164 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2_064_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:sparql [
+                sh:message "This non-applicable branch is not permitted when a direct calculation method is present." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:hasCalculationCase ?case .
+                        ?case nltl:calculationMethod nltl:directCalculationMethodValue .
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:hasCalculationCase ;
+                sh:qualifiedValueShape [
+                    sh:property [
+                        sh:path nltl:calculationMethod ;
+                        sh:hasValue nltl:directCalculationMethodValue
+                    ]
+                ] ;
+                sh:qualifiedMinCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:yieldStrength ;
+                sh:minCount 1 ;
+                sh:node gs:I2_064_StressQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMember ;
+                sh:node gs:I2_064_StructuralMemberShape
+            ] ;
+            sh:sparql [
+                sh:message "Buckling criteria must be recorded as satisfied when a direct calculation covers a linked web or flange." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:hasCalculationCase ?case ;
+                              nltl:hasStructuralMember ?member .
+                        ?case nltl:calculationMethod nltl:directCalculationMethodValue .
+                        ?member (nltl:hasStructuralMemberWeb|nltl:hasStructuralMemberFlange) ?element .
+                        FILTER (
+                            NOT EXISTS {
+                                $this nltl:bucklingCriteriaSatisfied true .
+                            }
+                            ||
+                            EXISTS {
+                                $this nltl:bucklingCriteriaSatisfied ?status .
+                                FILTER (!sameTerm(?status, true))
+                            }
+                        )
+                    }
+                """
+            ] ;
+            sh:sparql [
+                sh:message "Nominal shear stress in each linked member web must be less than yield strength divided by sqrt(3)." ;
+                sh:select """
+                    PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+                    PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX unit: <http://qudt.org/vocab/unit/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:hasCalculationCase ?case ;
+                              nltl:yieldStrength ?yieldValue ;
+                              nltl:hasStructuralMember ?member .
+                        ?case nltl:calculationMethod nltl:directCalculationMethodValue .
+                        ?yieldValue qudt:numericValue ?yield ;
+                                    qudt:unit unit:MegaPA .
+                        ?member nltl:hasStructuralMemberWeb ?web .
+                        ?web nltl:nominalShearStress ?stressValue .
+                        ?stressValue qudt:numericValue ?stress ;
+                                     qudt:unit unit:MegaPA .
+                        FILTER (?stress >= (?yield / math:sqrt(3)))
+                    }
+                """
+            ] ;
+            sh:sparql [
+                sh:message "Nominal von Mises stress in each linked member flange must be less than 1.15 times yield strength." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX unit: <http://qudt.org/vocab/unit/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:hasCalculationCase ?case ;
+                              nltl:yieldStrength ?yieldValue ;
+                              nltl:hasStructuralMember ?member .
+                        ?case nltl:calculationMethod nltl:directCalculationMethodValue .
+                        ?yieldValue qudt:numericValue ?yield ;
+                                    qudt:unit unit:MegaPA .
+                        ?member nltl:hasStructuralMemberFlange ?flange .
+                        ?flange nltl:nominalFlangeVonMisesStress ?stressValue .
+                        ?stressValue qudt:numericValue ?stress ;
+                                     qudt:unit unit:MegaPA .
+                        FILTER (?stress >= (1.15 * ?yield))
+                    }
+                """
+            ]
+        ]
+    ) .
+
+gs:I2_064_StructuralMemberShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberWeb ;
+        sh:class nltl:structuralMemberWeb ;
+        sh:node gs:I2_064_WebShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberFlange ;
+        sh:class nltl:structuralMemberFlange ;
+        sh:node gs:I2_064_FlangeShape
+    ] .
+
+gs:I2_064_WebShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:nominalShearStress ;
+        sh:minCount 1 ;
+        sh:node gs:I2_064_StressQuantityShape ;
+        sh:message "Each linked structural member web requires nominal shear stress in MPa."
+    ] .
+
+gs:I2_064_FlangeShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:nominalFlangeVonMisesStress ;
+        sh:minCount 1 ;
+        sh:node gs:I2_064_StressQuantityShape ;
+        sh:message "Each linked structural member flange requires nominal von Mises stress in MPa."
+    ] .
+
+gs:I2_064_StressQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA
+    ] .
+<END_SHACL>

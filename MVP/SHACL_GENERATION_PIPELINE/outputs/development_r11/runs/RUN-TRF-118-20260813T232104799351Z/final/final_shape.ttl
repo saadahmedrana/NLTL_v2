@@ -1,0 +1,229 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF118ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:thrusterExtremeLoad ;
+        sh:minCount 1 ;
+        sh:node gen:ForceQuantityShape ;
+        sh:message "Thruster extreme load in kN is required."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldSafetyFactor ;
+        sh:minCount 1 ;
+        sh:node gen:YieldSafetyFactorQuantityShape ;
+        sh:message "The yield safety factor must be 1.3."
+    ] ;
+    sh:property [
+        sh:path nltl:nominalVonMisesStress ;
+        sh:minCount 1 ;
+        sh:node gen:StressQuantityShape ;
+        sh:message "Nominal von Mises stress in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:localStressConcentration ;
+        sh:minCount 1 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:message "Local stress concentration is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasFactoredExtremeLoadOperabilityAssessment ;
+        sh:minCount 1 ;
+        sh:class nltl:factoredExtremeLoadOperabilityAssessment ;
+        sh:node gen:FactoredExtremeLoadOperabilityAssessmentShape ;
+        sh:message "A factored extreme-load operability assessment is required."
+    ] ;
+    sh:sparql [
+        sh:message "Each assessed thruster component must be a component of the ship." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasFactoredExtremeLoadOperabilityAssessment ?assessment .
+                ?assessment nltl:assessedThrusterComponent ?component .
+                FILTER NOT EXISTS {
+                    $this nltl:hasComponent ?component .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Assessed factored extreme load must equal thruster extreme load multiplied by the 1.3 safety factor within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:thrusterExtremeLoad ?loadQuantity ;
+                      nltl:yieldSafetyFactor ?factorQuantity ;
+                      nltl:hasFactoredExtremeLoadOperabilityAssessment ?assessment .
+                ?loadQuantity qudt:numericValue ?load ;
+                              qudt:unit unit:KiloN .
+                ?factorQuantity qudt:numericValue ?factor ;
+                                qudt:unit unit:UNITLESS .
+                ?assessment nltl:assessedFactoredExtremeLoad ?assessedQuantity .
+                ?assessedQuantity qudt:numericValue ?assessed ;
+                                  qudt:unit unit:KiloN .
+                BIND((?load * ?factor) AS ?expected)
+                BIND(IF(ABS(?expected) * 0.000001 > 0.000000001,
+                        ABS(?expected) * 0.000001,
+                        0.000000001) AS ?tolerance)
+                FILTER(ABS(?assessed - ?expected) > ?tolerance)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Nominal and locally concentrated stresses must remain within the component material yield strength at the required safety margins." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:nominalVonMisesStress ?stressQuantity ;
+                      nltl:localStressConcentration ?concentrationQuantity ;
+                      nltl:yieldSafetyFactor ?factorQuantity ;
+                      nltl:hasFactoredExtremeLoadOperabilityAssessment ?assessment .
+                ?stressQuantity qudt:numericValue ?stress ;
+                                qudt:unit unit:MegaPA .
+                ?concentrationQuantity qudt:numericValue ?concentration ;
+                                       qudt:unit unit:UNITLESS .
+                ?factorQuantity qudt:numericValue ?factor ;
+                                qudt:unit unit:UNITLESS .
+                ?assessment nltl:assessedThrusterComponent ?component .
+                ?component nltl:hasMaterialProperties ?materialProperties .
+                ?materialProperties nltl:componentMaterialYieldStrength ?yieldQuantity .
+                ?yieldQuantity qudt:numericValue ?yieldStrength ;
+                               qudt:unit unit:MegaPA .
+                FILTER(
+                    (?stress * ?factor > ?yieldStrength) ||
+                    (?stress * ?concentration > ?yieldStrength)
+                )
+            }
+        """
+    ] .
+
+gen:FactoredExtremeLoadOperabilityAssessmentShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:assessedThrusterComponent ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:shipComponent ;
+        sh:node gen:AssessedThrusterComponentShape ;
+        sh:message "The assessment must identify one assessed thruster component."
+    ] ;
+    sh:property [
+        sh:path nltl:assessedFactoredExtremeLoad ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:ForceQuantityShape ;
+        sh:message "The assessment must record one factored extreme load in kN."
+    ] ;
+    sh:property [
+        sh:path nltl:assessmentOperabilityMaintained ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:message "The assessment must record that operability is maintained."
+    ] ;
+    sh:property [
+        sh:path nltl:assessmentRepairRequired ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue false ;
+        sh:message "The assessment must record that damage requiring repair is not incurred."
+    ] .
+
+gen:AssessedThrusterComponentShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasMaterialProperties ;
+        sh:minCount 1 ;
+        sh:class nltl:materialProperties ;
+        sh:node gen:MaterialPropertiesShape ;
+        sh:message "Material properties are required for the assessed component."
+    ] .
+
+gen:MaterialPropertiesShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:componentMaterialYieldStrength ;
+        sh:minCount 1 ;
+        sh:node gen:StressQuantityShape ;
+        sh:message "Component material yield strength in MPa is required."
+    ] .
+
+gen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:KiloN
+    ] .
+
+gen:StressQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:YieldSafetyFactorQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 1.3 ;
+        sh:maxInclusive 1.3
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .

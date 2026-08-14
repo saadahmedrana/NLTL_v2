@@ -1,0 +1,154 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:I2-022-ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "Plating in hull area BI_b, M_b, or S_b must have a valid framing angle in degrees." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?plating
+            WHERE {
+                $this nltl:hasPlating ?plating .
+                ?plating nltl:platingHullAreaClassification ?area .
+                FILTER (
+                    ?area IN (
+                        nltl:bowIntermediateBottomHullArea,
+                        nltl:midbodyBottomHullArea,
+                        nltl:sternBottomHullArea
+                    )
+                )
+                FILTER NOT EXISTS {
+                    ?plating nltl:framingAngleOmega ?omegaQuantity .
+                    ?omegaQuantity qudt:numericValue ?omega ;
+                                   qudt:unit unit:DEG .
+                    FILTER (datatype(?omega) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Plating with framing angle Omega of at least 70 degrees must have a controlled hull-area classification." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?plating
+            WHERE {
+                $this nltl:hasPlating ?plating .
+                ?plating nltl:framingAngleOmega ?omegaQuantity .
+                ?omegaQuantity qudt:numericValue ?omega ;
+                               qudt:unit unit:DEG .
+                FILTER (
+                    datatype(?omega) = xsd:decimal &&
+                    ?omega >= "70"^^xsd:decimal
+                )
+                FILTER NOT EXISTS {
+                    ?plating nltl:platingHullAreaClassification ?area .
+                    FILTER (
+                        ?area IN (
+                            nltl:bowIntermediateBottomHullArea,
+                            nltl:midbodyBottomHullArea,
+                            nltl:sternBottomHullArea,
+                            nltl:otherIceStrengthenedArea
+                        )
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Applicable plating must provide the required formula inputs and report t_net within tolerance of 500*s*sqrt((AF*PPF_p*P_avg)/sigma_y)/(1+s/(2*b))." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            SELECT DISTINCT $this ?plating
+            WHERE {
+                $this nltl:hasPlating ?plating .
+                ?plating nltl:platingHullAreaClassification ?area ;
+                         nltl:framingAngleOmega ?omegaQuantity .
+                ?omegaQuantity qudt:numericValue ?omega ;
+                               qudt:unit unit:DEG .
+                FILTER (
+                    datatype(?omega) = xsd:decimal &&
+                    ?omega >= "70"^^xsd:decimal &&
+                    ?area IN (
+                        nltl:bowIntermediateBottomHullArea,
+                        nltl:midbodyBottomHullArea,
+                        nltl:sternBottomHullArea
+                    )
+                )
+                FILTER NOT EXISTS {
+                    ?plating nltl:platingSupportedByStructuralMember ?member ;
+                             nltl:iceLoadRequiredNetPlateThickness ?thicknessQuantity .
+                    ?member nltl:frameSpacing ?spacingQuantity ;
+                            nltl:selectedHullAreaFactor ?areaFactorQuantity .
+                    $this nltl:peakPressureFactor ?peakFactorQuantity ;
+                          nltl:averageIcePressure ?averagePressureQuantity ;
+                          nltl:yieldStrength ?yieldStrengthQuantity ;
+                          nltl:loadPatchHeight ?patchHeightQuantity .
+
+                    ?thicknessQuantity qudt:numericValue ?reportedThickness ;
+                                       qudt:unit unit:MilliM .
+                    ?spacingQuantity qudt:numericValue ?spacing ;
+                                     qudt:unit unit:M .
+                    ?areaFactorQuantity qudt:numericValue ?areaFactor ;
+                                        qudt:unit unit:UNITLESS .
+                    ?peakFactorQuantity qudt:numericValue ?peakFactor ;
+                                        qudt:unit unit:UNITLESS .
+                    ?averagePressureQuantity qudt:numericValue ?averagePressure ;
+                                             qudt:unit unit:MegaPA .
+                    ?yieldStrengthQuantity qudt:numericValue ?yieldStrength ;
+                                           qudt:unit unit:MegaPA .
+                    ?patchHeightQuantity qudt:numericValue ?patchHeight ;
+                                         qudt:unit unit:M .
+
+                    FILTER (
+                        datatype(?reportedThickness) = xsd:decimal &&
+                        datatype(?spacing) = xsd:decimal &&
+                        datatype(?areaFactor) = xsd:decimal &&
+                        datatype(?peakFactor) = xsd:decimal &&
+                        datatype(?averagePressure) = xsd:decimal &&
+                        datatype(?yieldStrength) = xsd:decimal &&
+                        datatype(?patchHeight) = xsd:decimal &&
+                        ?yieldStrength > 0 &&
+                        ?patchHeight != 0 &&
+                        (?areaFactor * ?peakFactor * ?averagePressure) / ?yieldStrength >= 0 &&
+                        1 + ?spacing / (2 * ?patchHeight) != 0
+                    )
+
+                    BIND (
+                        500 * ?spacing *
+                        math:sqrt(
+                            (?areaFactor * ?peakFactor * ?averagePressure) /
+                            ?yieldStrength
+                        ) /
+                        (1 + ?spacing / (2 * ?patchHeight))
+                        AS ?expectedThickness
+                    )
+                    BIND (
+                        IF (
+                            ABS(?expectedThickness) * 0.000001 > 0.000000001,
+                            ABS(?expectedThickness) * 0.000001,
+                            0.000000001
+                        )
+                        AS ?tolerance
+                    )
+                    FILTER (
+                        ABS(?reportedThickness - ?expectedThickness) <= ?tolerance
+                    )
+                }
+            }
+        """
+    ] .
+<END_SHACL>

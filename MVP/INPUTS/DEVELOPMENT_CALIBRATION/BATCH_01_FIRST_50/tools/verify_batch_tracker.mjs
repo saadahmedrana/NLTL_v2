@@ -18,7 +18,7 @@ const errors = await workbook.inspect({
 const specs = [
   ["SUMMARY", "A1:D20"], ["README", "A1:B15"], ["REQUIREMENTS", "A1:O20"],
   ["PREFLIGHT", "A1:K18"], ["DRAFT_TERMS", "A1:E28"], ["R2_INDEX_GAPS", "A1:D28"],
-  ["DEVELOPMENT_TERMS", "A1:J22"], ["OWNERSHIP", "A1:F22"], ["STABILIZATION", "A1:E12"], ["RDF_CASES", "A1:M22"],
+  ["DEVELOPMENT_TERMS", "A1:J22"], ["OWNERSHIP", "A1:F22"], ["STABILIZATION", "A1:E15"], ["RDF_CASES", "A1:M22"],
   ["CALIBRATION_ANALYSIS", "A1:L22"],
 ];
 const previews = [];

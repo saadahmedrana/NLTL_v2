@@ -1,0 +1,272 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PlatingRequirementShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PositiveMetreQuantityShape ;
+        sh:message "Design ice load height must be present, expressed in metres, and greater than zero."
+    ] ;
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PositiveMetreQuantityShape ;
+        sh:message "Spacing must be present, expressed in metres, and greater than zero."
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessDecimalQuantityShape ;
+        sh:message "Longitudinal plating factor f2 must be present as a unitless decimal quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:YieldStrengthQuantityShape ;
+        sh:message "Yield strength must be present and expressed in megapascals."
+    ] ;
+    sh:property [
+        sh:path nltl:hullStructuralSteelGrade ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:steelGradeValue ;
+        sh:message "Exactly one hull structural steel grade must be supplied."
+    ] ;
+    sh:property [
+        sh:path nltl:materialApprovalStatus ;
+        sh:maxCount 1 ;
+        sh:message "Material approval status must not have contradictory values."
+    ] ;
+    sh:property [
+        sh:path nltl:specialSurfaceCoatingMaintained ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:message "Special surface coating maintenance status must not have contradictory values."
+    ] ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:NonnegativeMillimetreQuantityShape ;
+        sh:message "Exactly one nonnegative corrosion and abrasion addition in millimetres must be supplied."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hullStructuralSteelGrade ;
+                sh:hasValue nltl:normalStrengthHullStructuralSteel
+            ] ;
+            sh:property [
+                sh:path nltl:yieldStrength ;
+                sh:node gen:NormalStrengthYieldShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:hullStructuralSteelGrade ;
+                sh:hasValue nltl:highStrengthHullStructuralSteel
+            ] ;
+            sh:property [
+                sh:path nltl:yieldStrength ;
+                sh:node gen:HighStrengthYieldShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:materialApprovalStatus ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue nltl:evidenceStateApproved
+            ] ;
+            sh:sparql [
+                sh:message "Approved actual yield strength values are permitted only for a steel grade other than the supplied normal-strength and high-strength grades." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:hullStructuralSteelGrade ?grade .
+                        FILTER (
+                            ?grade IN (
+                                nltl:normalStrengthHullStructuralSteel,
+                                nltl:highStrengthHullStructuralSteel
+                            )
+                        )
+                    }
+                """
+            ]
+        ]
+    ) ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:node gen:TwoMillimetreAdditionShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:node gen:ApprovedLowerAdditionShape
+            ] ;
+            sh:property [
+                sh:path nltl:materialApprovalStatus ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue nltl:evidenceStateApproved
+            ] ;
+            sh:property [
+                sh:path nltl:specialSurfaceCoatingMaintained ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "The ratio h/s must not exceed 1.8, and longitudinal plating factor f2 must match the applicable formula within relative tolerance 1e-6 with absolute fallback 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?heightQuantity ;
+                      nltl:spacing ?spacingQuantity ;
+                      nltl:longitudinalPlatingFactorF2 ?factorQuantity .
+                ?heightQuantity qudt:numericValue ?height .
+                ?spacingQuantity qudt:numericValue ?spacing .
+                ?factorQuantity qudt:numericValue ?reportedFactor .
+                BIND (?height / ?spacing AS ?ratio)
+                BIND (
+                    IF (
+                        ?ratio <= 1,
+                        0.4 / ?ratio + 0.6,
+                        1.4 - 0.4 * ?ratio
+                    )
+                    AS ?expectedFactor
+                )
+                BIND (
+                    IF (
+                        ABS(?expectedFactor) * 0.000001 > 0.000000000001,
+                        ABS(?expectedFactor) * 0.000001,
+                        0.000000000001
+                    )
+                    AS ?tolerance
+                )
+                FILTER (
+                    ?ratio > 1.8 ||
+                    ABS(?reportedFactor - ?expectedFactor) > ?tolerance
+                )
+            }
+        """
+    ] .
+
+gen:PositiveMetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:UnitlessDecimalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:YieldStrengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:NormalStrengthYieldShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minInclusive 235 ;
+        sh:maxInclusive 235
+    ] .
+
+gen:HighStrengthYieldShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minInclusive 315
+    ] .
+
+gen:NonnegativeMillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MilliM
+    ] .
+
+gen:TwoMillimetreAdditionShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minInclusive 2 ;
+        sh:maxInclusive 2
+    ] .
+
+gen:ApprovedLowerAdditionShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minInclusive 0 ;
+        sh:maxExclusive 2
+    ] .

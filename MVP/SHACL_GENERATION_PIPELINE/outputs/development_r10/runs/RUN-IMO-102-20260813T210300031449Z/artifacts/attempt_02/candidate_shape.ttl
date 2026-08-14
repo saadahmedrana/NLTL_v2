@@ -1,0 +1,179 @@
+@prefix g: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+g:IMO102Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceCondition ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "Ice free" "Open waters" "Other waters" ) ;
+        sh:message "Ice condition must identify one clause 12.3.1 table row."
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "Tankers" "Passenger ships" "Other" ) ;
+        sh:message "Ship type must identify one clause 12.3.1 table column."
+    ] ;
+    sh:property [
+        sh:path nltl:crewRole ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Crew-role information is required to derive the applicable polar training level."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredPolarTrainingLevel ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "The derived polar training outcome must be recorded."
+    ] ;
+    sh:property [
+        sh:path nltl:stcwQualificationStatus ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The required polar training level does not match the clause 12.3.1 matrix." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceCondition ?ice ;
+          nltl:shipType ?shipType ;
+          nltl:crewRole ?role .
+
+    FILTER(STR(?ice) IN ("Ice free", "Open waters", "Other waters"))
+    FILTER(STR(?shipType) IN ("Tankers", "Passenger ships", "Other"))
+    FILTER(STR(?role) IN (
+        "master",
+        "chief mate",
+        "officer in charge of a navigational watch"
+    ))
+
+    BIND(
+        IF(
+            STR(?ice) = "Ice free",
+            "Not applicable",
+            IF(
+                STR(?ice) = "Open waters" && STR(?shipType) = "Other",
+                "Not applicable",
+                IF(
+                    STR(?ice) = "Open waters",
+                    "Basic",
+                    IF(
+                        STR(?role) = "officer in charge of a navigational watch",
+                        "Basic",
+                        "Advanced"
+                    )
+                )
+            )
+        )
+        AS ?expected
+    )
+
+    FILTER NOT EXISTS {
+        $this nltl:requiredPolarTrainingLevel ?reported .
+        FILTER(STR(?reported) = ?expected)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Open-waters operation must use the canonical open-water ice-condition classification." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceCondition ?ice .
+    FILTER(STR(?ice) = "Open waters")
+    FILTER NOT EXISTS {
+        $this nltl:iceConditionClassification nltl:openWaterIceCondition .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The canonical open-water classification must correspond to the Open waters table selector." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceConditionClassification nltl:openWaterIceCondition ;
+          nltl:iceCondition ?ice .
+    FILTER(STR(?ice) != "Open waters")
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable Basic or Advanced training outcome requires a true ship-level STCW qualification status." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:requiredPolarTrainingLevel ?required .
+    FILTER(STR(?required) IN ("Basic", "Advanced"))
+    FILTER NOT EXISTS {
+        $this nltl:stcwQualificationStatus true .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each applicable derived training outcome requires matching valid STCW evidence through the declared crew and training-record relationships." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:requiredPolarTrainingLevel ?required .
+    FILTER(STR(?required) IN ("Basic", "Advanced"))
+
+    FILTER NOT EXISTS {
+        $this nltl:hasCrewMemberInventory ?crew .
+        ?crew a nltl:crewMember ;
+              nltl:hasCrewTrainingRecord ?crewRecord ;
+              nltl:hasPolarTrainingRecord ?polarRecord .
+
+        ?crewRecord a nltl:polarTrainingRecord ;
+                    nltl:stcwQualificationValid true ;
+                    nltl:requiredTrainingLevel ?crewRequiredLevel ;
+                    nltl:trainingRecordLevel ?crewRecordedLevel .
+
+        ?polarRecord a nltl:polarTrainingRecord ;
+                     nltl:stcwQualificationValid true ;
+                     nltl:requiredTrainingLevel ?polarRequiredLevel ;
+                     nltl:trainingRecordLevel ?polarRecordedLevel .
+
+        ?crewRequiredLevel a nltl:trainingLevelValue ;
+                           rdfs:label ?crewRequiredLabel .
+        ?crewRecordedLevel a nltl:trainingLevelValue ;
+                           rdfs:label ?crewRecordedLabel .
+        ?polarRequiredLevel a nltl:trainingLevelValue ;
+                            rdfs:label ?polarRequiredLabel .
+        ?polarRecordedLevel a nltl:trainingLevelValue ;
+                            rdfs:label ?polarRecordedLabel .
+
+        FILTER(STR(?crewRequiredLabel) = STR(?required))
+        FILTER(STR(?crewRecordedLabel) = STR(?required))
+        FILTER(STR(?polarRequiredLabel) = STR(?required))
+        FILTER(STR(?polarRecordedLabel) = STR(?required))
+    }
+}
+"""
+    ] .

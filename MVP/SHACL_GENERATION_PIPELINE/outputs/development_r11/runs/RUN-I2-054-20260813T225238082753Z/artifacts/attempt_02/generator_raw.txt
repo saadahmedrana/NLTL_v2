@@ -1,0 +1,486 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2_054_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:stemAngle ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:AngleQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:ForceQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasHullGirderBendingMomentCalculationCase ;
+        sh:minCount 1 ;
+        sh:node gs:I2_054_CaseShape
+    ] ;
+    sh:sparql [
+        sh:message "Each hull-girder bending-moment case must also be linked as the ship's calculation case so that its interpolation evidence belongs to the calculation being checked." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasHullGirderBendingMomentCalculationCase ?case .
+                FILTER NOT EXISTS {
+                    $this nltl:hasCalculationCase ?case .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The case position and distribution factor must follow the stated piecewise-linear envelope, and the reported bending moment must satisfy the formula. Derived comparisons use relative tolerance 1e-6 with absolute fallback 1e-9; the equivalent fifth-power comparison is used for the -0.2 exponent." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            SELECT $this ?case
+            WHERE {
+                $this nltl:upperIceWaterlineLengthLUI ?lq ;
+                      nltl:stemAngle ?gq ;
+                      nltl:designVerticalIceForceAtBow ?fq ;
+                      nltl:hasHullGirderBendingMomentCalculationCase ?case ;
+                      nltl:hasCalculationCase ?case .
+                ?lq qudt:numericValue ?l ;
+                    qudt:unit unit:M .
+                ?gq qudt:numericValue ?gamma ;
+                    qudt:unit unit:DEG .
+                ?fq qudt:numericValue ?force ;
+                    qudt:unit unit:MegaN .
+                ?case nltl:caseHullGirderLongitudinalPositionFromAft ?xq ;
+                      nltl:caseBendingMomentDistributionFactor ?cmq ;
+                      nltl:caseDesignVerticalIceBendingMoment ?miq .
+                ?xq qudt:numericValue ?x ;
+                    qudt:unit unit:M .
+                ?cmq qudt:numericValue ?cm ;
+                     qudt:unit unit:UNITLESS .
+                ?miq qudt:numericValue ?mi ;
+                     qudt:unit unit:MegaN-M .
+
+                BIND(xsd:double(?x) / xsd:double(?l) AS ?r)
+                BIND(
+                    IF(?r <= 0.5e0,
+                       2.0e0 * ?r,
+                       IF(?r <= 0.7e0,
+                          1.0e0,
+                          IF(?r <= 0.95e0,
+                             2.96e0 - 2.8e0 * ?r,
+                             6.0e0 - 6.0e0 * ?r)))
+                    AS ?expectedCm
+                )
+                BIND(
+                    IF(ABS(?expectedCm) > 1.0e-9,
+                       ABS(?expectedCm) * 1.0e-6,
+                       1.0e-9)
+                    AS ?cmTolerance
+                )
+                BIND(
+                    math:sin(
+                        xsd:double(?gamma) *
+                        3.141592653589793e0 /
+                        180.0e0
+                    )
+                    AS ?sinGamma
+                )
+                BIND(
+                    0.1e0 *
+                    ?expectedCm *
+                    xsd:double(?l) *
+                    xsd:double(?force)
+                    AS ?momentBase
+                )
+                BIND(
+                    ?momentBase * ?momentBase * ?momentBase *
+                    ?momentBase * ?momentBase
+                    AS ?expectedPower
+                )
+                BIND(
+                    xsd:double(?mi) * xsd:double(?mi) *
+                    xsd:double(?mi) * xsd:double(?mi) *
+                    xsd:double(?mi) * ?sinGamma
+                    AS ?reportedPower
+                )
+                BIND(
+                    IF(ABS(?expectedPower) > 1.0e-9,
+                       ABS(?expectedPower) * 1.0e-6,
+                       1.0e-9)
+                    AS ?powerTolerance
+                )
+
+                FILTER(
+                    xsd:double(?l) <= 0.0e0 ||
+                    xsd:double(?x) < 0.0e0 ||
+                    xsd:double(?x) > xsd:double(?l) ||
+                    ?sinGamma <= 0.0e0 ||
+                    ABS(xsd:double(?cm) - ?expectedCm) > ?cmTolerance ||
+                    IF(
+                        ABS(?momentBase) <= 1.0e-9,
+                        ABS(xsd:double(?mi)) > 1.0e-9,
+                        ABS(?reportedPower - ?expectedPower) > ?powerTolerance
+                    )
+                )
+            }
+        """
+    ] .
+
+gs:I2_054_CaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:class nltl:hullGirderBendingMomentCalculationCase ;
+    sh:property [
+        sh:path nltl:caseHullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:NonnegativeLengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:caseBendingMomentDistributionFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:DimensionlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:caseDesignVerticalIceBendingMoment ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:NonnegativeMomentQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:node gs:I2_054_InterpolationPointShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedValueShape gs:I2_054_Anchor_0_0 ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "The interpolation evidence must contain anchor (0, 0)."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedValueShape gs:I2_054_Anchor_0_5_1 ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "The interpolation evidence must contain anchor (0.5, 1)."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedValueShape gs:I2_054_Anchor_0_7_1 ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "The interpolation evidence must contain anchor (0.7, 1)."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedValueShape gs:I2_054_Anchor_0_95_0_3 ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "The interpolation evidence must contain anchor (0.95, 0.3)."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:qualifiedValueShape gs:I2_054_Anchor_1_0 ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "The interpolation evidence must contain anchor (1, 0)."
+    ] .
+
+gs:I2_054_InterpolationPointShape
+    a sh:NodeShape ;
+    sh:class nltl:interpolationPoint ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:DimensionlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:DimensionlessQuantityShape
+    ] .
+
+gs:I2_054_Anchor_0_0
+    a sh:NodeShape ;
+    sh:node gs:I2_054_InterpolationPointShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:node gs:ExactDecimal_0
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:node gs:ExactDecimal_0
+    ] .
+
+gs:I2_054_Anchor_0_5_1
+    a sh:NodeShape ;
+    sh:node gs:I2_054_InterpolationPointShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:node gs:ExactDecimal_0_5
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:node gs:ExactDecimal_1
+    ] .
+
+gs:I2_054_Anchor_0_7_1
+    a sh:NodeShape ;
+    sh:node gs:I2_054_InterpolationPointShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:node gs:ExactDecimal_0_7
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:node gs:ExactDecimal_1
+    ] .
+
+gs:I2_054_Anchor_0_95_0_3
+    a sh:NodeShape ;
+    sh:node gs:I2_054_InterpolationPointShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:node gs:ExactDecimal_0_95
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:node gs:ExactDecimal_0_3
+    ] .
+
+gs:I2_054_Anchor_1_0
+    a sh:NodeShape ;
+    sh:node gs:I2_054_InterpolationPointShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:node gs:ExactDecimal_1
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:node gs:ExactDecimal_0
+    ] .
+
+gs:ExactDecimal_0
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal ;
+        sh:maxInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gs:ExactDecimal_0_3
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0.3"^^xsd:decimal ;
+        sh:maxInclusive "0.3"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gs:ExactDecimal_0_5
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0.5"^^xsd:decimal ;
+        sh:maxInclusive "0.5"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gs:ExactDecimal_0_7
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0.7"^^xsd:decimal ;
+        sh:maxInclusive "0.7"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gs:ExactDecimal_0_95
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0.95"^^xsd:decimal ;
+        sh:maxInclusive "0.95"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gs:ExactDecimal_1
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "1"^^xsd:decimal ;
+        sh:maxInclusive "1"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gs:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gs:NonnegativeLengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gs:AngleQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:DEG
+    ] .
+
+gs:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaN
+    ] .
+
+gs:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gs:NonnegativeMomentQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaN-M
+    ] .
+<END_SHACL>

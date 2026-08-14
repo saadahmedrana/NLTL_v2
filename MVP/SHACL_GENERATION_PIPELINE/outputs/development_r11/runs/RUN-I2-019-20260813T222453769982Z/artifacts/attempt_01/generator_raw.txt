@@ -1,0 +1,120 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:UnitlessDecimalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:NonBoundaryMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasSpannedHullArea ;
+        sh:class nltl:hullAreaValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:BoundaryMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasSpannedHullArea ;
+        sh:class nltl:hullAreaValue ;
+        sh:minCount 2
+    ] ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:node gs:UnitlessDecimalQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A member spanning multiple hull areas must have one selected hull area factor."
+    ] .
+
+gs:StructuralMemberShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:spansHullArea ;
+        sh:class nltl:hullRegionValue ;
+        sh:minCount 1 ;
+        sh:message "Hull-region information is required for each structural member."
+    ] ;
+    sh:or (
+        [
+            sh:node gs:NonBoundaryMemberShape
+        ]
+        [
+            sh:node gs:BoundaryMemberShape
+        ]
+    ) .
+
+gs:I2_019_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gs:StructuralMemberShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hasStructuralMember ;
+                sh:node gs:NonBoundaryMemberShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:hasStructuralMember ;
+                sh:qualifiedValueShape gs:BoundaryMemberShape ;
+                sh:qualifiedMinCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:hullAreaFactor ;
+                sh:node gs:UnitlessDecimalQuantityShape ;
+                sh:minCount 1 ;
+                sh:message "Hull area factors are required when a structural member spans multiple hull areas."
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "The selected hull area factor must equal the largest available hull area factor." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?member
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                      nltl:hullAreaFactor ?factorNode .
+                ?member nltl:hasSpannedHullArea ?area1 ;
+                        nltl:hasSpannedHullArea ?area2 ;
+                        nltl:spansHullArea ?region ;
+                        nltl:selectedHullAreaFactor ?selectedNode .
+                FILTER (?area1 != ?area2)
+                ?factorNode qudt:numericValue ?candidateValue ;
+                            qudt:unit unit:UNITLESS .
+                ?selectedNode qudt:numericValue ?selectedValue ;
+                              qudt:unit unit:UNITLESS .
+            }
+            GROUP BY $this ?member ?selectedValue
+            HAVING (?selectedValue != MAX(?candidateValue))
+        """
+    ] .
+<END_SHACL>

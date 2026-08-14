@@ -1,0 +1,316 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_022_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPlating ;
+        sh:node gen:I2_022_PlatingConditionalShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hasPlating ;
+                sh:node gen:I2_022_NonApplicablePlatingShape
+            ]
+        ]
+        [
+            sh:node gen:I2_022_ShipInputsShape ;
+            sh:property [
+                sh:path nltl:hasPlating ;
+                sh:qualifiedValueShape gen:I2_022_ApplicablePlatingShape ;
+                sh:qualifiedMinCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "For plating with Omega at least 70 degrees, the selected hull area factor must correspond to AF and the reported net thickness must satisfy the formula within a 1e-6 relative thickness tolerance, evaluated by its squared equivalent with a 2e-6 relative tolerance and a 1e-12 absolute-scale fallback." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasPlating ?plating ;
+                      nltl:averageIcePressure ?averagePressureQuantity ;
+                      nltl:hullAreaFactor ?hullAreaFactorQuantity ;
+                      nltl:loadPatchHeight ?loadPatchHeightQuantity ;
+                      nltl:peakPressureFactor ?peakPressureFactorQuantity ;
+                      nltl:yieldStrength ?yieldStrengthQuantity .
+
+                ?plating nltl:framingAngleOmega ?angleQuantity ;
+                         nltl:iceLoadRequiredNetPlateThickness ?thicknessQuantity ;
+                         nltl:platingSupportedByStructuralMember ?member .
+
+                ?member nltl:frameSpacing ?spacingQuantity ;
+                        nltl:selectedHullAreaFactor ?selectedAreaFactorQuantity .
+
+                ?angleQuantity qudt:numericValue ?angle ;
+                               qudt:unit unit:DEG .
+                ?thicknessQuantity qudt:numericValue ?reportedThickness ;
+                                   qudt:unit unit:MilliM .
+                ?spacingQuantity qudt:numericValue ?spacing ;
+                                 qudt:unit unit:M .
+                ?selectedAreaFactorQuantity qudt:numericValue ?selectedAreaFactor ;
+                                            qudt:unit unit:UNITLESS .
+                ?averagePressureQuantity qudt:numericValue ?averagePressure ;
+                                         qudt:unit unit:MegaPA .
+                ?hullAreaFactorQuantity qudt:numericValue ?hullAreaFactor ;
+                                        qudt:unit unit:UNITLESS .
+                ?loadPatchHeightQuantity qudt:numericValue ?loadPatchHeight ;
+                                         qudt:unit unit:M .
+                ?peakPressureFactorQuantity qudt:numericValue ?peakPressureFactor ;
+                                            qudt:unit unit:UNITLESS .
+                ?yieldStrengthQuantity qudt:numericValue ?yieldStrength ;
+                                       qudt:unit unit:MegaPA .
+
+                FILTER (?angle >= 70)
+                BIND(
+                    ((500 * ?spacing) / (1 + (?spacing / (2 * ?loadPatchHeight))))
+                    AS ?thicknessCoefficient
+                )
+                BIND(
+                    (?thicknessCoefficient * ?thicknessCoefficient *
+                     ((?selectedAreaFactor * ?peakPressureFactor * ?averagePressure) /
+                      ?yieldStrength))
+                    AS ?expectedThicknessSquared
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedThicknessSquared) > 0.000000000001,
+                        ABS(?expectedThicknessSquared),
+                        0.000000000001
+                    )
+                    AS ?formulaScale
+                )
+                BIND(
+                    IF(
+                        ABS(?hullAreaFactor) > 0.000000000001,
+                        ABS(?hullAreaFactor),
+                        0.000000000001
+                    )
+                    AS ?areaFactorScale
+                )
+                FILTER (
+                    ABS((?reportedThickness * ?reportedThickness) -
+                        ?expectedThicknessSquared) >
+                        (0.000002 * ?formulaScale)
+                    ||
+                    ABS(?selectedAreaFactor - ?hullAreaFactor) >
+                        (0.000001 * ?areaFactorScale)
+                )
+            }
+        """
+    ] .
+
+gen:I2_022_ShipInputsShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_NonNegativeMegaPAQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_NonNegativeUnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_PositiveMetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:peakPressureFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_NonNegativeUnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_PositiveMegaPAQuantityShape
+    ] .
+
+gen:I2_022_PlatingConditionalShape
+    a sh:NodeShape ;
+    sh:or (
+        [ sh:node gen:I2_022_NonApplicablePlatingShape ]
+        [ sh:node gen:I2_022_ApplicablePlatingShape ]
+    ) .
+
+gen:I2_022_NonApplicablePlatingShape
+    a sh:NodeShape ;
+    sh:class nltl:plating ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_AngleBelow70Shape
+    ] .
+
+gen:I2_022_ApplicablePlatingShape
+    a sh:NodeShape ;
+    sh:class nltl:plating ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_AngleAtLeast70Shape
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadRequiredNetPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_NonNegativeMillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:platingSupportedByStructuralMember ;
+        sh:minCount 1 ;
+        sh:node gen:I2_022_StructuralMemberInputsShape
+    ] .
+
+gen:I2_022_StructuralMemberInputsShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_PositiveMetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_022_NonNegativeUnitlessQuantityShape
+    ] .
+
+gen:I2_022_AngleBelow70Shape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:maxExclusive "70"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:DEG
+    ] .
+
+gen:I2_022_AngleAtLeast70Shape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "70"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:DEG
+    ] .
+
+gen:I2_022_PositiveMetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:I2_022_PositiveMegaPAQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:I2_022_NonNegativeMegaPAQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:I2_022_NonNegativeUnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+
+gen:I2_022_NonNegativeMillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MilliM
+    ] .

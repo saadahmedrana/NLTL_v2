@@ -1,0 +1,99 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:NonlinearStructuralAssessmentShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:class nltl:calculationCase ;
+        sh:node [
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "A nonlinear calculation case requires acceptance evidence, dimensionless margins, deformations, and a relevant structural dimension with valid units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?case
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case nltl:calculationMethod nltl:nonlinearCalculationMethodValue .
+                FILTER NOT EXISTS {
+                    ?case nltl:nonlinearAnalysisAcceptanceEvidence ?evidence ;
+                          nltl:permanentLateralDeformation ?lateralQuantity ;
+                          nltl:permanentOutOfPlaneDeformation ?outOfPlaneQuantity ;
+                          nltl:relevantStructuralDimension ?dimensionQuantity .
+                    ?evidence a nltl:evidenceArtifact .
+
+                    $this nltl:fractureMargin ?fractureQuantity ;
+                          nltl:majorBucklingMargin ?bucklingQuantity ;
+                          nltl:yieldingMargin ?yieldingQuantity .
+
+                    ?fractureQuantity qudt:numericValue ?fractureMargin ;
+                                      qudt:unit unit:UNITLESS .
+                    ?bucklingQuantity qudt:numericValue ?bucklingMargin ;
+                                      qudt:unit unit:UNITLESS .
+                    ?yieldingQuantity qudt:numericValue ?yieldingMargin ;
+                                      qudt:unit unit:UNITLESS .
+
+                    ?lateralQuantity qudt:numericValue ?lateralDeformation ;
+                                     qudt:unit unit:MilliM .
+                    ?outOfPlaneQuantity qudt:numericValue ?outOfPlaneDeformation ;
+                                       qudt:unit unit:MilliM .
+                    ?dimensionQuantity qudt:numericValue ?structuralDimension ;
+                                       qudt:unit unit:MilliM .
+
+                    FILTER (
+                        datatype(?fractureMargin) = xsd:decimal &&
+                        datatype(?bucklingMargin) = xsd:decimal &&
+                        datatype(?yieldingMargin) = xsd:decimal &&
+                        datatype(?lateralDeformation) = xsd:decimal &&
+                        datatype(?outOfPlaneDeformation) = xsd:decimal &&
+                        datatype(?structuralDimension) = xsd:decimal
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Permanent lateral and out-of-plane deformation must each be less than the relevant structural dimension for the same nonlinear calculation case." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this ?case
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case nltl:calculationMethod nltl:nonlinearCalculationMethodValue ;
+                      nltl:permanentLateralDeformation ?lateralQuantity ;
+                      nltl:permanentOutOfPlaneDeformation ?outOfPlaneQuantity ;
+                      nltl:relevantStructuralDimension ?dimensionQuantity .
+
+                ?lateralQuantity qudt:numericValue ?lateralDeformation ;
+                                 qudt:unit unit:MilliM .
+                ?outOfPlaneQuantity qudt:numericValue ?outOfPlaneDeformation ;
+                                   qudt:unit unit:MilliM .
+                ?dimensionQuantity qudt:numericValue ?structuralDimension ;
+                                   qudt:unit unit:MilliM .
+
+                FILTER (
+                    datatype(?lateralDeformation) = xsd:decimal &&
+                    datatype(?outOfPlaneDeformation) = xsd:decimal &&
+                    datatype(?structuralDimension) = xsd:decimal &&
+                    (
+                        ?lateralDeformation >= ?structuralDimension ||
+                        ?outOfPlaneDeformation >= ?structuralDimension
+                    )
+                )
+            }
+        """
+    ] .

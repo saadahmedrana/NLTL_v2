@@ -1,0 +1,63 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO120Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:operatingArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Operating area is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:arcticWaters ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "The Arctic-waters value is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:foodWasteDischargeToSea ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "Food-waste discharge status is required to determine applicability."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For food-waste discharge in Arctic waters, the nearest land, ice-shelf, or fast-ice distance must be at least 12 nautical miles, and a nautical-mile distance from an area with nearby ice concentration exceeding one tenth must be recorded." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:operatingArea ?operatingArea ;
+          nltl:arcticWaters ?arcticWaters ;
+          nltl:foodWasteDischargeToSea ?discharge .
+    FILTER(
+        ?operatingArea = ?arcticWaters &&
+        ?discharge = "true"^^xsd:boolean
+    )
+    FILTER NOT EXISTS {
+        $this nltl:distanceToNearestLandIceShelfOrFastIce ?nearestDistanceNode ;
+              nltl:nearbyIceConcentration ?iceConcentrationNode ;
+              nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?iceAreaDistanceNode .
+        ?nearestDistanceNode qudt:numericValue ?nearestDistance ;
+                             qudt:unit unit:MI_N .
+        ?iceConcentrationNode qudt:numericValue ?iceConcentration ;
+                              qudt:unit unit:UNITLESS .
+        ?iceAreaDistanceNode qudt:numericValue ?iceAreaDistance ;
+                             qudt:unit unit:MI_N .
+        FILTER(
+            datatype(?nearestDistance) = xsd:decimal &&
+            datatype(?iceConcentration) = xsd:decimal &&
+            datatype(?iceAreaDistance) = xsd:decimal &&
+            ?nearestDistance >= "12"^^xsd:decimal &&
+            ?iceConcentration > "1"^^xsd:decimal
+        )
+    }
+}
+"""
+    ] .

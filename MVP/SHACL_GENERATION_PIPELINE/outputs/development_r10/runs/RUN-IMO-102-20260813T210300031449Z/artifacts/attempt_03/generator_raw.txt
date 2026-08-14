@@ -1,0 +1,223 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO102ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceCondition ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:in (
+            "Ice free"
+            "Open waters"
+            "Other waters"
+        ) ;
+        sh:message "Ice condition must identify Ice free, Open waters, or Other waters."
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:in (
+            "Tankers"
+            "Passenger ships"
+            "Other"
+        ) ;
+        sh:message "Ship type must identify Tankers, Passenger ships, or Other."
+    ] ;
+    sh:property [
+        sh:path nltl:crewRole ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:in (
+            "master"
+            "chief mate"
+            "officer in charge of a navigational watch"
+        ) ;
+        sh:message "Crew role must be master, chief mate, or officer in charge of a navigational watch."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredPolarTrainingLevel ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:in (
+            "Basic"
+            "Advanced"
+            "Not applicable"
+        ) ;
+        sh:message "A recognized required polar training level must be recorded."
+    ] ;
+    sh:property [
+        sh:path nltl:stcwQualificationStatus ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:hasCrewMemberInventory ;
+        sh:class nltl:crewMember
+    ] ;
+    sh:property [
+        sh:path nltl:hasPolarTrainingRecord ;
+        sh:class nltl:polarTrainingRecord
+    ] ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:class nltl:iceConditionValue ;
+        sh:in ( nltl:openWaterIceCondition )
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:requiredPolarTrainingLevel ;
+                sh:hasValue "Not applicable"
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:requiredPolarTrainingLevel ;
+                sh:in ( "Basic" "Advanced" )
+            ] ;
+            sh:property [
+                sh:path nltl:stcwQualificationStatus ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:hasValue true
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The required polar training level does not include the outcome derived from ice condition, ship type, and crew role." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?ice ?shipType ?role ?expected
+WHERE {
+    $this nltl:iceCondition ?ice ;
+          nltl:shipType ?shipType ;
+          nltl:crewRole ?role .
+    BIND(
+        IF(
+            ?ice = "Ice free",
+            "Not applicable",
+            IF(
+                ?ice = "Open waters",
+                IF(
+                    ?shipType = "Tankers" || ?shipType = "Passenger ships",
+                    "Basic",
+                    "Not applicable"
+                ),
+                IF(
+                    ?role = "officer in charge of a navigational watch",
+                    "Basic",
+                    "Advanced"
+                )
+            )
+        ) AS ?expected
+    )
+    FILTER NOT EXISTS {
+        $this nltl:requiredPolarTrainingLevel ?expected .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A reported polar training level is not justified by the clause 12.3.1 matrix inputs." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?reported
+WHERE {
+    $this nltl:requiredPolarTrainingLevel ?reported .
+    FILTER NOT EXISTS {
+        $this nltl:iceCondition ?ice ;
+              nltl:shipType ?shipType ;
+              nltl:crewRole ?role .
+        BIND(
+            IF(
+                ?ice = "Ice free",
+                "Not applicable",
+                IF(
+                    ?ice = "Open waters",
+                    IF(
+                        ?shipType = "Tankers" || ?shipType = "Passenger ships",
+                        "Basic",
+                        "Not applicable"
+                    ),
+                    IF(
+                        ?role = "officer in charge of a navigational watch",
+                        "Basic",
+                        "Advanced"
+                    )
+                )
+            ) AS ?expected
+        )
+        FILTER(?reported = ?expected)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Open-water classification must be normalized as the Open waters ice condition." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceConditionClassification nltl:openWaterIceCondition .
+    FILTER NOT EXISTS {
+        $this nltl:iceCondition "Open waters" .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each inventory crew member subject to an applicable training outcome must have a valid STCW polar training record linked through both declared evidence paths." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?crew
+WHERE {
+    $this nltl:hasCrewMemberInventory ?crew ;
+          nltl:requiredPolarTrainingLevel ?requiredLevel .
+    FILTER(?requiredLevel = "Basic" || ?requiredLevel = "Advanced")
+    FILTER NOT EXISTS {
+        ?crew nltl:hasCrewTrainingRecord ?record .
+        $this nltl:hasPolarTrainingRecord ?record .
+        ?record a nltl:polarTrainingRecord ;
+                nltl:stcwQualificationValid true ;
+                nltl:trainingRecordLevel ?recordLevel .
+        ?recordLevel a nltl:trainingLevelValue .
+    }
+}
+"""
+    ] .
+
+gen:IMO102CrewMemberShape
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasCrewMemberInventory ;
+    sh:class nltl:crewMember ;
+    sh:property [
+        sh:path nltl:hasCrewTrainingRecord ;
+        sh:class nltl:polarTrainingRecord
+    ] .
+
+gen:IMO102PolarTrainingRecordShape
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasCrewTrainingRecord ;
+    sh:class nltl:polarTrainingRecord ;
+    sh:property [
+        sh:path nltl:stcwQualificationValid ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:trainingRecordLevel ;
+        sh:class nltl:trainingLevelValue
+    ] .
+<END_SHACL>

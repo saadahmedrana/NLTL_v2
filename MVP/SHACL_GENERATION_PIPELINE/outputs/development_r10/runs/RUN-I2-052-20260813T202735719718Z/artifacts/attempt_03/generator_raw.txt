@@ -1,0 +1,231 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ShipLinearInterpolationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:calculationCase ;
+        sh:node gen:LinearInterpolationCaseShape ;
+        sh:minCount 1 ;
+        sh:message "A linear-interpolation calculation case is required."
+    ] .
+
+gen:LinearInterpolationCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint ;
+        sh:node gen:InterpolationPointShape ;
+        sh:minCount 2 ;
+        sh:message "At least two interpolation points are required."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationLowerEndpoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint ;
+        sh:node gen:InterpolationPointShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one lower interpolation endpoint is required."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationUpperEndpoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint ;
+        sh:node gen:InterpolationPointShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one upper interpolation endpoint is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+        sh:node gen:LongitudinalPositionQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one longitudinal interpolation position in metres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolatedLongitudinalDistributionFactor ;
+        sh:node gen:DimensionlessFactorQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one interpolated dimensionless distribution factor is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The endpoints must be distinct linked interpolation points with ordered coordinates bracketing the requested position and compatible coordinate and value units." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+  $this nltl:interpolationLowerEndpoint ?lower ;
+        nltl:interpolationUpperEndpoint ?upper ;
+        nltl:hullGirderLongitudinalPositionFromAft ?xQuantity ;
+        nltl:interpolatedLongitudinalDistributionFactor ?resultQuantity .
+
+  ?xQuantity qudt:numericValue ?x ;
+             qudt:unit ?xUnit .
+  ?resultQuantity qudt:unit ?resultUnit .
+
+  ?lower nltl:interpolationCoordinate ?lowerCoordinateQuantity ;
+         nltl:interpolationPointValue ?lowerValueQuantity .
+  ?upper nltl:interpolationCoordinate ?upperCoordinateQuantity ;
+         nltl:interpolationPointValue ?upperValueQuantity .
+
+  ?lowerCoordinateQuantity qudt:numericValue ?lowerX ;
+                           qudt:unit ?lowerXUnit .
+  ?upperCoordinateQuantity qudt:numericValue ?upperX ;
+                           qudt:unit ?upperXUnit .
+  ?lowerValueQuantity qudt:unit ?lowerValueUnit .
+  ?upperValueQuantity qudt:unit ?upperValueUnit .
+
+  FILTER (
+    ?lower = ?upper ||
+    NOT EXISTS { $this nltl:hasInterpolationPoint ?lower } ||
+    NOT EXISTS { $this nltl:hasInterpolationPoint ?upper } ||
+    ?xUnit != ?lowerXUnit ||
+    ?xUnit != ?upperXUnit ||
+    ?resultUnit != ?lowerValueUnit ||
+    ?resultUnit != ?upperValueUnit ||
+    ?upperX <= ?lowerX ||
+    ?x <= ?lowerX ||
+    ?x >= ?upperX
+  )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The reported distribution factor must equal the linear-interpolation result within relative tolerance 1e-6 and absolute fallback 1e-12." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+  $this nltl:interpolationLowerEndpoint ?lower ;
+        nltl:interpolationUpperEndpoint ?upper ;
+        nltl:hasInterpolationPoint ?lower ;
+        nltl:hasInterpolationPoint ?upper ;
+        nltl:hullGirderLongitudinalPositionFromAft ?xQuantity ;
+        nltl:interpolatedLongitudinalDistributionFactor ?resultQuantity .
+
+  ?xQuantity qudt:numericValue ?x ;
+             qudt:unit ?xUnit .
+  ?resultQuantity qudt:numericValue ?reported ;
+                  qudt:unit ?resultUnit .
+
+  ?lower nltl:interpolationCoordinate ?lowerCoordinateQuantity ;
+         nltl:interpolationPointValue ?lowerValueQuantity .
+  ?upper nltl:interpolationCoordinate ?upperCoordinateQuantity ;
+         nltl:interpolationPointValue ?upperValueQuantity .
+
+  ?lowerCoordinateQuantity qudt:numericValue ?lowerX ;
+                           qudt:unit ?lowerXUnit .
+  ?upperCoordinateQuantity qudt:numericValue ?upperX ;
+                           qudt:unit ?upperXUnit .
+  ?lowerValueQuantity qudt:numericValue ?lowerValue ;
+                      qudt:unit ?lowerValueUnit .
+  ?upperValueQuantity qudt:numericValue ?upperValue ;
+                      qudt:unit ?upperValueUnit .
+
+  FILTER (?lower != ?upper)
+  FILTER (?xUnit = ?lowerXUnit && ?xUnit = ?upperXUnit)
+  FILTER (?resultUnit = ?lowerValueUnit && ?resultUnit = ?upperValueUnit)
+  FILTER (?upperX > ?lowerX)
+  FILTER (?x > ?lowerX && ?x < ?upperX)
+
+  BIND(
+    ?lowerValue +
+    ((?x - ?lowerX) * (?upperValue - ?lowerValue) / (?upperX - ?lowerX))
+    AS ?expected
+  )
+  BIND(ABS(?expected) * 0.000001 AS ?relativeTolerance)
+  BIND(
+    IF(
+      ?relativeTolerance > 0.000000000001,
+      ?relativeTolerance,
+      0.000000000001
+    )
+    AS ?tolerance
+  )
+  FILTER (ABS(?reported - ?expected) > ?tolerance)
+}
+"""
+    ] .
+
+gen:InterpolationPointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationCoordinate ;
+        sh:node gen:GenericQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each interpolation point requires exactly one coordinate quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointValue ;
+        sh:node gen:GenericQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each interpolation point requires exactly one value quantity."
+    ] .
+
+gen:GenericQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LongitudinalPositionQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:DimensionlessFactorQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

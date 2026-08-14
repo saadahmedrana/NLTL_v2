@@ -1,0 +1,247 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2-030-ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasComponent ;
+        sh:qualifiedValueShape [
+            sh:class nltl:calculationCase ;
+            sh:node gs:I2-030-CalculationCaseShape
+        ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "A calculation case containing the I2.5.8-I2.5.9 operands and results is required."
+    ] .
+
+gs:I2-030-CalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:shipComponent ;
+    sh:class nltl:structuralMember ;
+    sh:class nltl:plating ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:DegreeQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:localFrameFlangeCentreHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:netAttachedShellPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:netEffectivePlasticSectionModulus ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:CubicCentimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:netLocalFrameFlangeArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:SquareCentimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:netWebThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:plasticNeutralAxisHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webAngleToShellPlate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:DegreeQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webToFlangeCentreDistance ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:sparql [
+        sh:message "When the local-frame area exceeds the attached-plate-flange area, the plastic neutral-axis height or the directly calculated section modulus is non-conforming." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameSpacing/qudt:numericValue ?s ;
+                      nltl:framingAngleOmega/qudt:numericValue ?omega ;
+                      nltl:localFrameFlangeCentreHeight/qudt:numericValue ?hfc ;
+                      nltl:netAttachedShellPlateThickness/qudt:numericValue ?tpn ;
+                      nltl:netEffectivePlasticSectionModulus/qudt:numericValue ?reportedZp ;
+                      nltl:netLocalFrameFlangeArea/qudt:numericValue ?afn ;
+                      nltl:netWebThickness/qudt:numericValue ?twn ;
+                      nltl:plasticNeutralAxisHeight/qudt:numericValue ?reportedZna ;
+                      nltl:webAngleToShellPlate/qudt:numericValue ?phi ;
+                      nltl:webHeight/qudt:numericValue ?hw ;
+                      nltl:webToFlangeCentreDistance/qudt:numericValue ?bw .
+
+                FILTER ((100 * ?afn) > (1000 * ?tpn * ?s))
+
+                BIND(
+                    IF(
+                        ?twn = 0,
+                        0,
+                        ((100 * ?afn) + (?hw * ?twn) - (1000 * ?tpn * ?s))
+                        / (2 * ?twn)
+                    )
+                    AS ?expectedZna
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedZna) * 0.000001 > 0.000000001,
+                        ABS(?expectedZna) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?znaTolerance
+                )
+                BIND(
+                    ?phi * 3.1415926535897932384626433832795 / 180
+                    AS ?phiRadians
+                )
+                BIND(
+                    (?tpn * ?s * (?expectedZna + (?tpn / 2))
+                        * math:sin(?phiRadians))
+                    +
+                    (((((?hw - ?expectedZna) * (?hw - ?expectedZna))
+                        + (?expectedZna * ?expectedZna))
+                        * ?twn * math:sin(?phiRadians)) / 2000)
+                    +
+                    (?afn * (((?hfc - ?expectedZna)
+                        * math:sin(?phiRadians))
+                        - (?bw * math:cos(?phiRadians))) / 10)
+                    AS ?expectedZp
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedZp) * 0.000001 > 0.000000001,
+                        ABS(?expectedZp) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?zpTolerance
+                )
+
+                FILTER (
+                    ?twn = 0
+                    ||
+                    ABS(?reportedZna - ?expectedZna) > ?znaTolerance
+                    ||
+                    (
+                        (?omega <= 20 || ?omega >= 70)
+                        &&
+                        ABS(?reportedZp - ?expectedZp) > ?zpTolerance
+                    )
+                )
+            }
+        """
+    ] .
+
+gs:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:MillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:DegreeQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:DEG ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:SquareCentimetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:CentiM2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:CubicCentimetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:CentiM3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

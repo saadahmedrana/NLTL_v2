@@ -1,0 +1,124 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO111Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        gen:IMO111CategoryCBranch
+        gen:IMO111Pre2017Branch
+        gen:IMO111Post2017Branch
+    ) .
+
+gen:IMO111CategoryCBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:hasValue nltl:polarShipCategoryC
+    ] .
+
+gen:IMO111Pre2017Branch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+        ) ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:maxInclusive "2016-12-31"^^xsd:date ;
+        sh:minCount 1
+    ] .
+
+gen:IMO111Post2017Branch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+        ) ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "2017-01-01"^^xsd:date ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:tankType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1
+    ] ;
+    sh:sparql [
+        sh:message "A regulated tank type requires an individual tank capacity expressed as an xsd:decimal quantity in cubic metres." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:tankType ?tankType .
+                FILTER (
+                    ?tankType IN (
+                        "oil_residue_tank"^^xsd:string,
+                        "oily_bilge_water_holding_tank"^^xsd:string
+                    )
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:individualTankCapacity ?capacity .
+                    ?capacity a qudt:QuantityValue ;
+                        qudt:numericValue ?capacityValue ;
+                        qudt:unit unit:M3 .
+                    FILTER (DATATYPE(?capacityValue) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "A regulated tank with individual capacity greater than 30 cubic metres must have an outer-shell separation of at least 0.76 metres." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:tankType ?tankType ;
+                    nltl:individualTankCapacity ?capacity .
+                ?capacity a qudt:QuantityValue ;
+                    qudt:numericValue ?capacityValue ;
+                    qudt:unit unit:M3 .
+                FILTER (DATATYPE(?capacityValue) = xsd:decimal)
+                FILTER (
+                    ?tankType IN (
+                        "oil_residue_tank"^^xsd:string,
+                        "oily_bilge_water_holding_tank"^^xsd:string
+                    )
+                )
+                FILTER (?capacityValue > "30"^^xsd:decimal)
+                FILTER NOT EXISTS {
+                    $this nltl:tankOuterShellSeparation ?separation .
+                    ?separation a qudt:QuantityValue ;
+                        qudt:numericValue ?separationValue ;
+                        qudt:unit unit:M .
+                    FILTER (
+                        DATATYPE(?separationValue) = xsd:decimal &&
+                        ?separationValue >= "0.76"^^xsd:decimal
+                    )
+                }
+            }
+        """
+    ] .

@@ -1,0 +1,201 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF114Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:designIceBlock ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "The design ice block selection from Table 6-3 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:impactLoadCase ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "The impact load case selection from Table 6-16 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:iceOperatingSpeed ;
+        sh:minCount 1 ;
+        sh:node gs:KnotVelocityQuantityShape ;
+        sh:message "The typical ice operating speed is required in knots."
+    ] ;
+    sh:property [
+        sh:path nltl:hasThrusterIceImpactLoadCase ;
+        sh:minCount 1 ;
+        sh:node gs:ThrusterIceImpactLoadCaseShape ;
+        sh:message "At least one thruster ice impact load case is required."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoad ;
+        sh:minCount 1 ;
+        sh:node gs:KiloNewtonForceQuantityShape ;
+        sh:message "The governing thruster ice impact load is required in kilonewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactLoadedAreaEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "Evidence for the loaded area used for the thruster ice impact load is required."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:contactGeometry ;
+                sh:minCount 1 ;
+                sh:datatype xsd:string ;
+                sh:hasValue "hemispherical"^^xsd:string
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:contactGeometry ;
+                sh:minCount 1 ;
+                sh:datatype xsd:string
+            ] ;
+            sh:property [
+                sh:path nltl:equivalentImpactSphereRadius ;
+                sh:minCount 1 ;
+                sh:node gs:MetreLengthQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:contactGeometryCorrespondenceEvidence ;
+                sh:minCount 1 ;
+                sh:class nltl:evidenceArtifact
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "A non-hemispherical contact-geometry alternative must identify an actual geometry distinct from hemispherical geometry." ;
+                sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    FILTER NOT EXISTS {
+        $this nltl:contactGeometry ?geometry .
+        FILTER(LCASE(STR(?geometry)) != "hemispherical")
+    }
+}
+"""
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each linked thruster body must provide a resistance capacity in kilonewtons." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?thruster
+WHERE {
+    $this nltl:hasComponent ?thruster .
+    ?thruster a nltl:thrusterBody .
+    FILTER NOT EXISTS {
+        ?thruster nltl:thrusterResistanceCapacity ?capacityQuantity .
+        ?capacityQuantity a qudt:QuantityValue ;
+            qudt:numericValue ?capacity ;
+            qudt:unit unit:KiloN .
+        FILTER(datatype(?capacity) = xsd:decimal)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The governing thruster ice impact load must not be less than an associated load-case demand." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?loadCase
+WHERE {
+    $this nltl:hasThrusterIceImpactLoadCase ?loadCase ;
+        nltl:thrusterIceImpactLoad ?loadQuantity .
+    ?loadCase nltl:thrusterIceImpactDemand ?demandQuantity .
+    ?loadQuantity qudt:numericValue ?load .
+    ?demandQuantity qudt:numericValue ?demand .
+    FILTER(xsd:decimal(?load) < xsd:decimal(?demand))
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A linked thruster body's resistance capacity must not be less than the ship's governing thruster ice impact load." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?thruster
+WHERE {
+    $this nltl:hasComponent ?thruster ;
+        nltl:thrusterIceImpactLoad ?loadQuantity .
+    ?thruster a nltl:thrusterBody ;
+        nltl:thrusterResistanceCapacity ?capacityQuantity .
+    ?loadQuantity qudt:numericValue ?load .
+    ?capacityQuantity qudt:numericValue ?capacity .
+    FILTER(xsd:decimal(?capacity) < xsd:decimal(?load))
+}
+"""
+    ] .
+
+gs:ThrusterIceImpactLoadCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:thrusterIceImpactLoadCase ;
+    sh:property [
+        sh:path nltl:thrusterIceImpactDemand ;
+        sh:minCount 1 ;
+        sh:node gs:KiloNewtonForceQuantityShape ;
+        sh:message "Each thruster ice impact load case must state its demand in kilonewtons."
+    ] .
+
+gs:KiloNewtonForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:KiloN
+    ] .
+
+gs:KnotVelocityQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:KN
+    ] .
+
+gs:MetreLengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:hasValue unit:M
+    ] .
+<END_SHACL>

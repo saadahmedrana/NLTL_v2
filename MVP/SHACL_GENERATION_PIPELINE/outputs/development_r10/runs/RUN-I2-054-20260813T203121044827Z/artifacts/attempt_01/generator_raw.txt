@@ -1,0 +1,252 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:DesignVerticalIceBendingMomentShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:stemAngle ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceBendingMoment ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaN-M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:class nltl:calculationCase ;
+        sh:node gen:IceBendingMomentCalculationCaseShape
+    ] ;
+    sh:sparql [
+        sh:message "Each calculation case must use the prescribed linearly interpolated distribution factor and satisfy the ice bending-moment formula; formula comparison uses fifth-power equivalence with 5e-6 relative tolerance and a 1e-9 MNm absolute fallback near zero." ;
+        sh:select """
+PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:upperIceWaterlineLengthLUI ?lengthQuantity ;
+          nltl:stemAngle ?angleQuantity ;
+          nltl:designVerticalIceForceAtBow ?forceQuantity ;
+          nltl:designVerticalIceBendingMoment ?momentQuantity ;
+          nltl:hasCalculationCase ?case .
+
+    ?lengthQuantity qudt:numericValue ?lengthValue .
+    ?angleQuantity qudt:numericValue ?angleValue .
+    ?forceQuantity qudt:numericValue ?forceValue .
+    ?momentQuantity qudt:numericValue ?momentValue .
+
+    ?case nltl:hullGirderLongitudinalPositionFromAft ?positionQuantity ;
+          nltl:bendingMomentDistributionFactor ?factorQuantity .
+
+    ?positionQuantity qudt:numericValue ?positionValue .
+    ?factorQuantity qudt:numericValue ?factorValue .
+
+    BIND(xsd:double(?lengthValue) AS ?length)
+    BIND(xsd:double(?angleValue) AS ?angle)
+    BIND(xsd:double(?forceValue) AS ?force)
+    BIND(xsd:double(?momentValue) AS ?moment)
+    BIND(xsd:double(?positionValue) AS ?position)
+    BIND(xsd:double(?factorValue) AS ?factor)
+
+    BIND(IF(?length = 0.0, 1.0, ?length) AS ?safeLength)
+    BIND(?position / ?safeLength AS ?relativePosition)
+
+    BIND(
+        IF(
+            ?relativePosition <= 0.5,
+            2.0 * ?relativePosition,
+            IF(
+                ?relativePosition <= 0.7,
+                1.0,
+                IF(
+                    ?relativePosition <= 0.95,
+                    1.0 - 2.8 * (?relativePosition - 0.7),
+                    0.3 - 6.0 * (?relativePosition - 0.95)
+                )
+            )
+        )
+        AS ?expectedFactor
+    )
+
+    BIND(ABS(?expectedFactor) * 0.000001 AS ?relativeFactorTolerance)
+    BIND(
+        IF(
+            ?relativeFactorTolerance > 0.000000001,
+            ?relativeFactorTolerance,
+            0.000000001
+        )
+        AS ?factorTolerance
+    )
+
+    BIND(
+        math:sin(
+            ?angle *
+            0.017453292519943295769236907684886
+        )
+        AS ?sine
+    )
+
+    BIND(0.1 * ?factor * ?length * ?force AS ?baseMoment)
+    BIND(
+        ?moment * ?moment * ?moment * ?moment * ?moment * ?sine
+        AS ?reportedFifthPower
+    )
+    BIND(
+        ?baseMoment * ?baseMoment * ?baseMoment * ?baseMoment * ?baseMoment
+        AS ?expectedFifthPower
+    )
+    BIND(ABS(?expectedFifthPower) * 0.000005 AS ?relativeMomentTolerance)
+    BIND(
+        ?sine *
+        0.000000000000000000000000000000000000000000001
+        AS ?absoluteMomentFallback
+    )
+    BIND(
+        IF(
+            ?relativeMomentTolerance > ?absoluteMomentFallback,
+            ?relativeMomentTolerance,
+            ?absoluteMomentFallback
+        )
+        AS ?momentTolerance
+    )
+
+    FILTER(
+        ?length <= 0.0 ||
+        ?position < 0.0 ||
+        ?position > ?length ||
+        ?sine <= 0.0 ||
+        ABS(?factor - ?expectedFactor) > ?factorTolerance ||
+        ABS(?reportedFifthPower - ?expectedFifthPower) > ?momentTolerance
+    )
+}
+        """
+    ] .
+
+gen:IceBendingMomentCalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:bendingMomentDistributionFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:class nltl:interpolationPoint
+    ] .
+<END_SHACL>

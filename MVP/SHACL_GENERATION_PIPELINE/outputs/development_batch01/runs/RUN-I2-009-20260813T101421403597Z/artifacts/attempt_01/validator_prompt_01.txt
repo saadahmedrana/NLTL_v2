@@ -1,0 +1,504 @@
+PROMPT_ID: NLTL-SEMANTIC-VALIDATOR-0.1.6
+
+You review a candidate maritime SHACL graph. You do not determine whether a
+ship complies and you do not execute RDF data. Deterministic parser, SHACL
+structure, vocabulary, datatype, range, and unit reports are supplied to you.
+
+Check whether the candidate faithfully encodes the verified requirement with
+the correct applicability, targets, paths, alternatives, comparison direction,
+thresholds, formula operands, readiness/evidence boundary, datatypes, and
+units. Be strict about accidental pass logic, invented terms, and checks that
+target the wrong entity.
+
+The complete locked vocabulary is enforced by the deterministic report and is
+not repeated in this prompt. Review the retrieved relevant terms, the verified
+records for terms actually used by the candidate, and any deterministic
+mismatch candidates. Do not infer that an absent full-registry entry is
+unavailable: rely on the deterministic unknown/out-of-scope lists.
+
+Set activate_variable_matcher to true only when the repair requires locating a
+canonical term that was absent, misspelled, invented, or not supplied in the
+generator's scoped vocabulary. Activate it even when no candidate was supplied;
+the deterministic search will run after your decision. Ordinary semantic or
+SHACL corrections do not activate the matcher.
+
+Set accept to true only when deterministicValidation.valid is true and the
+candidate is semantically faithful enough to freeze for later RDF evaluation.
+If accept is true, activate_variable_matcher must be false.
+
+Also reject: a property placed on an entity incompatible with its supplied
+canonical domain; exact equality for a derived decimal formula result; dynamic
+xsd:date(CONCAT(...)) construction; needless ship/component indirection; or a
+combinatorial SPARQL query where SHACL Core plus one bounded formula query is
+sufficient. Do not request a convenience applicability boolean when the
+verified date/class inputs already determine applicability.
+
+Treat each term's requiredOwner and selection.requiredTargetOwner as
+authoritative. Reject a candidate that checks the right property on the wrong
+node, duplicates a fact across ship and component, targets benchmarkEntity
+instead of the supplied specific owner, or omits any semanticObligations item.
+Do not accept a presence-only approximation of an envelope, formula,
+comparison, alternative, or relationship requirement. Reject OPTIONAL nested
+inside FILTER NOT EXISTS because it is non-portable and prone to accidental
+passes in the deterministic evaluator.
+
+The evaluator supports only the explicitly registered XPath math-function IRIs
+math:sin, math:cos, math:tan, and math:atan for trigonometry. Reject bare
+SIN/COS/TAN/ATAN syntax. Treat two values on the same supplied case node as an
+explicit pairing; do not demand a redundant pairing property. Reject
+conditional alternatives that let missing branch-selection evidence pass.
+Reject numeric sh:hasValue on qudt:numericValue. Exact regulatory numeric
+constants must use equal inclusive bounds; derived values must use a tolerance
+scaled from the expected formula result, not the reported value. Enforce every
+selection.exclusivePropertyGroups entry and reject a node shape that makes
+mutually exclusive alternatives conjunctively mandatory.
+
+Return exactly one physical line of JSON with exactly these keys:
+{"accept":false,"activate_variable_matcher":false,"feedback":"Concrete repair instruction."}
+
+The first two values must be JSON booleans. feedback must be a JSON string.
+Do not return Markdown, analysis, additional keys, or additional lines.
+
+
+--- USER INPUT ---
+{
+  "candidateShacl": "@prefix gen: <urn:nltl:generated-shape:> .\n@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\ngen:IceLoadParametersShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:ship ;\n    sh:property [\n        sh:path nltl:hullArea ;\n        sh:datatype xsd:string\n    ] ;\n    sh:property [\n        sh:path nltl:averageIcePressure ;\n        sh:node gen:PressureValueShape\n    ] ;\n    sh:property [\n        sh:path nltl:nonBowLoadPatchHeight ;\n        sh:node gen:LengthValueShape\n    ] ;\n    sh:property [\n        sh:path nltl:nonBowLoadPatchLength ;\n        sh:node gen:LengthValueShape\n    ] ;\n    sh:property [\n        sh:path nltl:loadPatchAspectRatio ;\n        sh:node gen:DimensionlessValueShape\n    ] ;\n    sh:property [\n        sh:path nltl:buttockAngle ;\n        sh:minCount 1 ;\n        sh:node gen:AngleValueShape ;\n        sh:message \"A buttock angle in degrees is required to determine bow-form applicability.\"\n    ] ;\n    sh:property [\n        sh:path nltl:normalFrameAngle ;\n        sh:minCount 1 ;\n        sh:node gen:AngleValueShape ;\n        sh:message \"A normal frame angle in degrees is required to determine bow-form applicability.\"\n    ] ;\n    sh:property [\n        sh:path nltl:bowFormApplicability ;\n        sh:minCount 1 ;\n        sh:datatype xsd:boolean ;\n        sh:message \"Bow-form applicability must be recorded as a boolean.\"\n    ] ;\n    sh:or (\n        gen:ApplicableBowFormShape\n        gen:NonApplicableBowFormShape\n    ) ;\n    sh:sparql [\n        sh:message \"Other ice-strengthened areas require average ice pressure, non-bow load-patch dimensions, and a load-patch aspect ratio of 3.6.\" ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n            PREFIX unit: <http://qudt.org/vocab/unit/>\n            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n            SELECT DISTINCT $this\n            WHERE {\n                $this nltl:hullArea ?area .\n                FILTER (LCASE(STR(?area)) = \"other ice-strengthened areas\")\n\n                OPTIONAL {\n                    $this nltl:averageIcePressure ?pressure .\n                    ?pressure qudt:numericValue ?pressureValue ;\n                              qudt:unit unit:MegaPA .\n                }\n                OPTIONAL {\n                    $this nltl:nonBowLoadPatchHeight ?height .\n                    ?height qudt:numericValue ?heightValue ;\n                            qudt:unit unit:M .\n                }\n                OPTIONAL {\n                    $this nltl:nonBowLoadPatchLength ?length .\n                    ?length qudt:numericValue ?lengthValue ;\n                            qudt:unit unit:M .\n                }\n                OPTIONAL {\n                    $this nltl:loadPatchAspectRatio ?ratio .\n                    ?ratio qudt:numericValue ?ratioValue ;\n                           qudt:unit unit:UNITLESS .\n                    FILTER (?ratioValue = \"3.6\"^^xsd:decimal)\n                }\n\n                FILTER (\n                    !BOUND(?pressureValue) ||\n                    !BOUND(?heightValue) ||\n                    !BOUND(?lengthValue) ||\n                    !BOUND(?ratioValue)\n                )\n            }\n        \"\"\"\n    ] .\n\ngen:PressureValueShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:minCount 1 ;\n        sh:datatype xsd:decimal\n    ] ;\n    sh:property [\n        sh:path qudt:unit ;\n        sh:minCount 1 ;\n        sh:nodeKind sh:IRI ;\n        sh:in ( unit:MegaPA )\n    ] .\n\ngen:LengthValueShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:minCount 1 ;\n        sh:datatype xsd:decimal\n    ] ;\n    sh:property [\n        sh:path qudt:unit ;\n        sh:minCount 1 ;\n        sh:nodeKind sh:IRI ;\n        sh:in ( unit:M )\n    ] .\n\ngen:DimensionlessValueShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:minCount 1 ;\n        sh:datatype xsd:decimal\n    ] ;\n    sh:property [\n        sh:path qudt:unit ;\n        sh:minCount 1 ;\n        sh:nodeKind sh:IRI ;\n        sh:in ( unit:UNITLESS )\n    ] .\n\ngen:AngleValueShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:minCount 1 ;\n        sh:datatype xsd:decimal\n    ] ;\n    sh:property [\n        sh:path qudt:unit ;\n        sh:minCount 1 ;\n        sh:nodeKind sh:IRI ;\n        sh:in ( unit:DEG )\n    ] .\n\ngen:ApplicableBowFormShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path nltl:buttockAngle ;\n        sh:node gen:PositiveButLessThan80AngleShape\n    ] ;\n    sh:property [\n        sh:path nltl:normalFrameAngle ;\n        sh:node gen:GreaterThan10AngleShape\n    ] ;\n    sh:property [\n        sh:path nltl:bowFormApplicability ;\n        sh:in ( true )\n    ] .\n\ngen:NonApplicableBowFormShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path nltl:bowFormApplicability ;\n        sh:in ( false )\n    ] ;\n    sh:or (\n        gen:NonPositiveButtockAngleShape\n        gen:ButtockAngleAtLeast80Shape\n        gen:NormalFrameAngleAtMost10Shape\n    ) .\n\ngen:PositiveButLessThan80AngleShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:minExclusive \"0\"^^xsd:decimal ;\n        sh:maxExclusive \"80\"^^xsd:decimal\n    ] .\n\ngen:GreaterThan10AngleShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:minExclusive \"10\"^^xsd:decimal\n    ] .\n\ngen:NonPositiveButtockAngleShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path nltl:buttockAngle ;\n        sh:node gen:AtMostZeroAngleValueShape\n    ] .\n\ngen:ButtockAngleAtLeast80Shape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path nltl:buttockAngle ;\n        sh:node gen:AtLeast80AngleValueShape\n    ] .\n\ngen:NormalFrameAngleAtMost10Shape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path nltl:normalFrameAngle ;\n        sh:node gen:AtMost10AngleValueShape\n    ] .\n\ngen:AtMostZeroAngleValueShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:maxInclusive \"0\"^^xsd:decimal\n    ] .\n\ngen:AtLeast80AngleValueShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:minInclusive \"80\"^^xsd:decimal\n    ] .\n\ngen:AtMost10AngleValueShape\n    a sh:NodeShape ;\n    sh:property [\n        sh:path qudt:numericValue ;\n        sh:maxInclusive \"10\"^^xsd:decimal\n    ] .\n",
+  "candidateUsedCanonicalTerms": [
+    {
+      "aliases": [
+        "P_avg",
+        "averageIcePressure"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#averageIcePressure",
+      "kind": "QuantityProperty",
+      "label": "Average ice pressure",
+      "localName": "averageIcePressure",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA"
+    },
+    {
+      "aliases": [
+        "bowFormApplicability"
+      ],
+      "datatype": "xsd:boolean",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#bowFormApplicability",
+      "kind": "DatatypeProperty",
+      "label": "Bow form applicability",
+      "localName": "bowFormApplicability",
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [
+        "buttockAngle"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#buttockAngle",
+      "kind": "QuantityProperty",
+      "label": "Buttock angle",
+      "localName": "buttockAngle",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/DEG"
+    },
+    {
+      "aliases": [
+        "hullArea"
+      ],
+      "datatype": "xsd:string",
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hullArea",
+      "kind": "DatatypeProperty",
+      "label": "Hull area",
+      "localName": "hullArea",
+      "range": "http://www.w3.org/2001/XMLSchema#string",
+      "recommendedUnit": null
+    },
+    {
+      "aliases": [
+        "loadPatchAspectRatio"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#loadPatchAspectRatio",
+      "kind": "QuantityProperty",
+      "label": "Load patch aspect ratio",
+      "localName": "loadPatchAspectRatio",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/UNITLESS"
+    },
+    {
+      "aliases": [
+        "nonBowLoadPatchHeight"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#nonBowLoadPatchHeight",
+      "kind": "QuantityProperty",
+      "label": "Non bow load patch height",
+      "localName": "nonBowLoadPatchHeight",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M"
+    },
+    {
+      "aliases": [
+        "nonBowLoadPatchLength"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#nonBowLoadPatchLength",
+      "kind": "QuantityProperty",
+      "label": "Non bow load patch length",
+      "localName": "nonBowLoadPatchLength",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M"
+    },
+    {
+      "aliases": [
+        "normalFrameAngle"
+      ],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#normalFrameAngle",
+      "kind": "QuantityProperty",
+      "label": "Normal frame angle",
+      "localName": "normalFrameAngle",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/DEG"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ship",
+      "kind": "Class",
+      "label": "Ship",
+      "localName": "ship",
+      "range": "",
+      "recommendedUnit": null
+    }
+  ],
+  "deterministicValidation": {
+    "datatype_unit_valid": true,
+    "errors": [],
+    "extraction_valid": true,
+    "meta_shacl_valid": true,
+    "out_of_scope_canonical_iris": [],
+    "shacl_structure_valid": true,
+    "suspicious_external_iris": [],
+    "target_path_valid": true,
+    "turtle_valid": true,
+    "unknown_canonical_iris": [],
+    "used_canonical_iris": [
+      "https://w3id.org/nltl-benchmark/vocab#averageIcePressure",
+      "https://w3id.org/nltl-benchmark/vocab#bowFormApplicability",
+      "https://w3id.org/nltl-benchmark/vocab#buttockAngle",
+      "https://w3id.org/nltl-benchmark/vocab#hullArea",
+      "https://w3id.org/nltl-benchmark/vocab#loadPatchAspectRatio",
+      "https://w3id.org/nltl-benchmark/vocab#nonBowLoadPatchHeight",
+      "https://w3id.org/nltl-benchmark/vocab#nonBowLoadPatchLength",
+      "https://w3id.org/nltl-benchmark/vocab#normalFrameAngle",
+      "https://w3id.org/nltl-benchmark/vocab#ship"
+    ],
+    "valid": true,
+    "vocabulary_valid": true,
+    "warnings": []
+  },
+  "importantBoundary": "No ship graph or expected RDF outcome is part of this review.",
+  "mismatchCandidates": [],
+  "registryBoundary": "The complete locked registry was checked deterministically but is intentionally not embedded. Treat unknown/out-of-scope findings as authoritative. Activate the vocabulary matcher whenever a repair requires locating a canonical term or controlled value absent from the scoped context, even when no deterministic candidate was supplied yet.",
+  "requirement": {
+    "activeStatus": "Stage 2 candidate - direct/deterministic",
+    "anchorMapField": "No direct AnchorMap term found; propose a code-safe alias during SHACL design",
+    "canonicalVariables": "No explicit data variable identified",
+    "category": "Static Calculation",
+    "clause": "I2.3.1",
+    "codability": "High",
+    "conceptIds": "VOC-0071; VOC-0100; VOC-0115; VOC-0328; VOC-0426; VOC-0492; VOC-0493; VOC-0497",
+    "coverageStatus": "Covered by candidate concepts",
+    "edition": "Rev.4 Dec 2019",
+    "encodingPattern": "Formula-derived constraint",
+    "figureDependent": "No",
+    "id": "I2-009",
+    "normalizedRequirement": "(iv) In other ice-strengthened areas, the ice load parameters (Pavg, bNonBow and wNonBow) are determined independently of the hull shape and based on a fixed load patch aspect ratio, AR = 3.6. (v) Design ice forces calculated according to I2.3.2.1 (iii) are applicable for bow forms where the buttock angle gamma at the stem is positive and less than 80 deg, and the normal frame angle beta' at the centre of the foremost sub-region, as defined in I2.3.2.1 (i), is greater than 10 deg.",
+    "page": 3,
+    "requiredInputs": "No explicit data variable identified",
+    "section": "Design ice loads",
+    "source": "UR I2 Structural Requirements for Polar Class Ships",
+    "sourceSheet": "IACS_UR_I2",
+    "sourceText": "(iv) In other ice-strengthened areas, the ice load parameters (Pavg, bNonBow and wNonBow) are determined independently of the hull shape and based on a fixed load patch aspect ratio, AR = 3.6. (v) Design ice forces calculated according to I2.3.2.1 (iii) are applicable for bow forms where the buttock angle gamma at the stem is positive and less than 80 deg, and the normal frame angle beta' at the centre of the foremost sub-region, as defined in I2.3.2.1 (i), is greater than 10 deg.",
+    "sourceUrl": "https://iacs.org.uk/resolutions/unified-requirements/ur-i/ur-i2-rev4-cln"
+  },
+  "retrievedRelevantVocabulary": [
+    {
+      "aliases": [
+        "P_avg",
+        "averageIcePressure"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for averageIcePressure derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#averageIcePressure",
+      "kind": "QuantityProperty",
+      "label": "Average ice pressure",
+      "localName": "averageIcePressure",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "PressureOrStress",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/MegaPA",
+      "requiredOwner": "ship",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "I2-008 | IACS_UR_I2 p.3 | I2.3.1; I2-009 | IACS_UR_I2 p.3 | I2.3.1; I2-017 | IACS_UR_I2 p.6 | I2.3.2.2; I2-018 | IACS_UR_I2 p.7 | I2.3.4; I2-022 | IACS_UR_I2 p.8 | I2.4.2; I2-023 | IACS_UR_I2 p.9 | I2.4.2; I2-032 | IACS_UR_I2 p.12 | I2.6.2; I2-035 | IACS_UR_I2 p.13 | I2.7.2",
+      "unitSymbol": "MPa"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity",
+      "kind": "Class",
+      "label": "Benchmark entity",
+      "localName": "benchmarkEntity",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "requiredOwner": "ship",
+      "selectionReason": "baseline target infrastructure; domain dependency of averageIcePressure; domain dependency of bowFormApplicability; domain dependency of buttockAngle; domain dependency of hullArea; domain dependency of loadPatchAspectRatio; domain dependency of nonBowLoadPatchHeight; domain dependency of nonBowLoadPatchLength; domain dependency of normalFrameAngle",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "bowFormApplicability"
+      ],
+      "datatype": "xsd:boolean",
+      "definition": "NORMALIZED (Stage 1): candidate concept for bowFormApplicability derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#bowFormApplicability",
+      "kind": "DatatypeProperty",
+      "label": "Bow form applicability",
+      "localName": "bowFormApplicability",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "regulation",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#boolean",
+      "recommendedUnit": null,
+      "requiredOwner": "ship",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "I2-009 | IACS_UR_I2 p.3 | I2.3.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "buttockAngle"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for buttockAngle derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#buttockAngle",
+      "kind": "QuantityProperty",
+      "label": "Buttock angle",
+      "localName": "buttockAngle",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "Angle",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/DEG",
+      "requiredOwner": "ship",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "I2-009 | IACS_UR_I2 p.3 | I2.3.1",
+      "unitSymbol": "deg"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#ship"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hasComponent",
+      "kind": "ObjectProperty",
+      "label": "has component",
+      "localName": "hasComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "recommendedUnit": null,
+      "requiredOwner": "ship",
+      "selectionReason": "component-path dependency inferred from the linked term module",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "hullArea"
+      ],
+      "datatype": "xsd:string",
+      "definition": "NORMALIZED (Stage 1): candidate concept for hullArea derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#hullArea",
+      "kind": "DatatypeProperty",
+      "label": "Hull area",
+      "localName": "hullArea",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": null,
+      "range": "http://www.w3.org/2001/XMLSchema#string",
+      "recommendedUnit": null,
+      "requiredOwner": "ship",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "I2-008 | IACS_UR_I2 p.3 | I2.3.1; I2-009 | IACS_UR_I2 p.3 | I2.3.1",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [
+        "loadPatchAspectRatio"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for loadPatchAspectRatio derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#loadPatchAspectRatio",
+      "kind": "QuantityProperty",
+      "label": "Load patch aspect ratio",
+      "localName": "loadPatchAspectRatio",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "DimensionlessRatio",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/UNITLESS",
+      "requiredOwner": "ship",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "I2-009 | IACS_UR_I2 p.3 | I2.3.1; I2-011 | IACS_UR_I2 p.3 | I2.3.1",
+      "unitSymbol": "1"
+    },
+    {
+      "aliases": [
+        "nonBowLoadPatchHeight"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for nonBowLoadPatchHeight derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#nonBowLoadPatchHeight",
+      "kind": "QuantityProperty",
+      "label": "Non bow load patch height",
+      "localName": "nonBowLoadPatchHeight",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M",
+      "requiredOwner": "ship",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "I2-009 | IACS_UR_I2 p.3 | I2.3.1; I2-017 | IACS_UR_I2 p.6 | I2.3.2.2",
+      "unitSymbol": "m"
+    },
+    {
+      "aliases": [
+        "nonBowLoadPatchLength"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for nonBowLoadPatchLength derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#nonBowLoadPatchLength",
+      "kind": "QuantityProperty",
+      "label": "Non bow load patch length",
+      "localName": "nonBowLoadPatchLength",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "Length",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/M",
+      "requiredOwner": "ship",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "I2-009 | IACS_UR_I2 p.3 | I2.3.1; I2-017 | IACS_UR_I2 p.6 | I2.3.2.2",
+      "unitSymbol": "m"
+    },
+    {
+      "aliases": [
+        "normalFrameAngle"
+      ],
+      "datatype": null,
+      "definition": "NORMALIZED (Stage 1): candidate concept for normalFrameAngle derived from the linked locked requirements; scope and final semantics require vocabulary approval.",
+      "domains": [
+        "https://w3id.org/nltl-benchmark/vocab#benchmarkEntity"
+      ],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#normalFrameAngle",
+      "kind": "QuantityProperty",
+      "label": "Normal frame angle",
+      "localName": "normalFrameAngle",
+      "mappingStatus": "No exact current Haitham SSP local-name match",
+      "module": "hull",
+      "namingBasis": "Benchmark-coined descriptive engineering term",
+      "quantityKind": "Angle",
+      "range": "http://qudt.org/schema/qudt/QuantityValue",
+      "recommendedUnit": "http://qudt.org/vocab/unit/DEG",
+      "requiredOwner": "ship",
+      "selectionReason": "linked by the locked 313-requirement index",
+      "sourceReferences": "I2-009 | IACS_UR_I2 p.3 | I2.3.1; I2-010 | IACS_UR_I2 p.3 | I2.3.1",
+      "unitSymbol": "deg"
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#ship",
+      "kind": "Class",
+      "label": "Ship",
+      "localName": "ship",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "requiredOwner": "ship",
+      "selectionReason": "authoritative required owner class; authoritative requirement target owner; baseline target infrastructure",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    },
+    {
+      "aliases": [],
+      "datatype": null,
+      "definition": "Locked ontology infrastructure term.",
+      "domains": [],
+      "iri": "https://w3id.org/nltl-benchmark/vocab#shipComponent",
+      "kind": "Class",
+      "label": "Ship component",
+      "localName": "shipComponent",
+      "mappingStatus": "Locked ontology term",
+      "module": "ontology-infrastructure",
+      "namingBasis": "Locked ontology infrastructure",
+      "quantityKind": null,
+      "range": "",
+      "recommendedUnit": null,
+      "requiredOwner": "ship",
+      "selectionReason": "component-path dependency inferred from the linked term module",
+      "sourceReferences": "Locked Stage 2 ontology",
+      "unitSymbol": null
+    }
+  ],
+  "task": "Review one candidate SHACL graph for freezing before later RDF evaluation"
+}

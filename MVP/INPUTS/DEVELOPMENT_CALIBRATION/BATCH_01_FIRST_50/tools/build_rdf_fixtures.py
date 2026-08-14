@@ -13,8 +13,8 @@ from rdflib.namespace import OWL, XSD
 
 MVP = Path(__file__).resolve().parents[4]
 BATCH = Path(__file__).resolve().parents[1]
-DEV = MVP / "BENCHMARK_VOCABULARY" / "DEVELOPMENT" / "DEV_R7_BATCH01"
-DEVELOPMENT_ID = "VOCAB-DEV-2026-08-13-BATCH01-R7"
+DEV = MVP / "BENCHMARK_VOCABULARY" / "DEVELOPMENT" / "DEV_R8_1_POSTCONFIRMATION"
+DEVELOPMENT_ID = "VOCAB-DEV-2026-08-13-BATCH01-R8.1-POSTCONFIRMATION"
 OUT = BATCH / "rdf_fixtures"
 BASE = "https://w3id.org/nltl-benchmark/vocab#"
 EX_BASE = "urn:nltl:batch01-fixture:"
@@ -253,6 +253,7 @@ def build_graph(rid: str, case_kind: str, terms: list[str], registry: dict[str, 
         "TRF-016": {"hasUpperIceWaterline", "hasLowerIceWaterline", "hasIntendedIceOperatingWaterline", "hasWaterlineProfilePoint", "waterlineDisplacement", "hasBallastTank"},
         "TRF-020": {"hasUpperIceWaterline", "hasLowerIceWaterline", "iceWaterline", "upperIceWaterlineLength", "upperIceWaterlineBreadth"},
         "TRF-030": {"directAnalysisCase", "hasDirectAnalysisCase", "capacityMinimizingLoadPositionConfirmed", "combinedBendingAndShearEvaluated", "verticalLoadPosition", "verticalLoadPositionType", "horizontalLoadPosition", "horizontalLoadPositionType", "loadPatchLength", "iceLoadAreaFactorCa", "upperIceWaterlineReferencePosition", "lowerIceWaterlineReferencePosition"},
+        "TRF-037": {"directAnalysisCase", "hasDirectAnalysisCase", "iceLoadAreaFactorCa"},
         "TRF-034": {"hasClassificationSocietySectionPropertyCalculationEvidence", "hasEffectiveMemberCrossSection", "effectiveMemberCrossSection"},
         "TRF-036": {"hasIceClassDesignParameterSet", "levelIceThickness", "designIceLoadHeight", "iceClassDesignParameterSet"},
         "TRF-044": {"mainTransverseFrame", "intermediateTransverseFrame"},
@@ -465,6 +466,18 @@ def build_graph(rid: str, case_kind: str, terms: list[str], registry: dict[str, 
                 if unit: graph.add((qnode, QUDT.unit, URIRef(unit)))
             graph.add((case, NLTL.loadPatchLength, length))
             graph.add((case, NLTL.iceLoadAreaFactorCa, factor))
+
+    # Clause 4.2.2 uses c_a in the pressure formula. R8 assigns that operand to
+    # a direct-analysis case and supplies the canonical ship-to-case relation.
+    if rid == "TRF-037":
+        case = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:analysis-case")
+        factor = URIRef(f"{EX_BASE}{rid}:{case_kind.lower()}:q:iceLoadAreaFactorCa")
+        graph.add((case, RDF.type, NLTL.directAnalysisCase))
+        graph.add((ship, NLTL.hasDirectAnalysisCase, case))
+        graph.add((factor, RDF.type, QUDT.QuantityValue))
+        graph.add((factor, QUDT.numericValue, Literal(Decimal(str(values["iceLoadAreaFactorCa"])), datatype=XSD.decimal)))
+        graph.add((factor, QUDT.unit, URIRef("http://qudt.org/vocab/unit/UNITLESS")))
+        graph.add((case, NLTL.iceLoadAreaFactorCa, factor))
 
     # Cross-component end/attachment alternatives need explicit nodes and paths.
     if rid in {"TRF-046", "TRF-047"}:

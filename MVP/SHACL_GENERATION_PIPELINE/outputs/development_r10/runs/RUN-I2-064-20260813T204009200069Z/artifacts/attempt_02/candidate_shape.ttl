@@ -1,0 +1,177 @@
+@prefix g: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+g:I2_064_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node g:I2_064_CalculationCaseShape ;
+        sh:message "A calculation case with a calculation method is required to determine applicability."
+    ] ;
+    sh:or (
+        [ sh:node g:I2_064_ApplicableLinearCalculationShape ]
+        [ sh:node g:I2_064_NonApplicableCalculationShape ]
+    ) .
+
+g:I2_064_CalculationCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:calculationMethod ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Each calculation case must identify its calculation method."
+    ] .
+
+g:I2_064_NonApplicableCalculationShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node g:I2_064_NonApplicableCalculationCaseShape
+    ] .
+
+g:I2_064_NonApplicableCalculationCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:calculationMethod ;
+        sh:minCount 1 ;
+        sh:in (
+            nltl:nonlinearCalculationMethodValue
+            nltl:prescribedAnalyticalProcedure
+        )
+    ] .
+
+g:I2_064_ApplicableLinearCalculationShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:qualifiedValueShape [
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:hasValue nltl:directCalculationMethodValue
+            ]
+        ] ;
+        sh:qualifiedMinCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node g:I2_064_StressQuantityShape ;
+        sh:message "Yield strength in MPa is required for the linear structural calculation."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node g:I2_064_StructuralMemberShape
+    ] ;
+    sh:sparql [
+        sh:message "Nominal shear stress in a member web must be less than yield strength divided by SQRT(3)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:yieldStrength ?yieldQuantity ;
+                      nltl:hasStructuralMember ?member .
+                ?yieldQuantity qudt:numericValue ?yield ;
+                               qudt:unit unit:MegaPA .
+                ?member nltl:hasStructuralMemberWeb ?web .
+                ?web nltl:nominalShearStress ?stressQuantity .
+                ?stressQuantity qudt:numericValue ?stress ;
+                                qudt:unit unit:MegaPA .
+                FILTER (
+                    xsd:decimal(?stress) >=
+                    (xsd:decimal(?yield) / SQRT(3))
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Nominal von Mises stress in a member flange must be less than 1.15 times yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:yieldStrength ?yieldQuantity ;
+                      nltl:hasStructuralMember ?member .
+                ?yieldQuantity qudt:numericValue ?yield ;
+                               qudt:unit unit:MegaPA .
+                ?member nltl:hasStructuralMemberFlange ?flange .
+                ?flange nltl:nominalFlangeVonMisesStress ?stressQuantity .
+                ?stressQuantity qudt:numericValue ?stress ;
+                                qudt:unit unit:MegaPA .
+                FILTER (
+                    xsd:decimal(?stress) >=
+                    (1.15 * xsd:decimal(?yield))
+                )
+            }
+        """
+    ] .
+
+g:I2_064_StructuralMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberWeb ;
+        sh:node g:I2_064_StructuralMemberWebShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberFlange ;
+        sh:node g:I2_064_StructuralMemberFlangeShape
+    ] .
+
+g:I2_064_StructuralMemberWebShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bucklingCriteriaSatisfied ;
+        sh:minCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:message "The member web must be recorded as satisfying the applicable buckling criteria."
+    ] ;
+    sh:property [
+        sh:path nltl:nominalShearStress ;
+        sh:minCount 1 ;
+        sh:node g:I2_064_StressQuantityShape ;
+        sh:message "Nominal member-web shear stress in MPa is required."
+    ] .
+
+g:I2_064_StructuralMemberFlangeShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bucklingCriteriaSatisfied ;
+        sh:minCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:message "The member flange must be recorded as satisfying the applicable buckling criteria."
+    ] ;
+    sh:property [
+        sh:path nltl:nominalFlangeVonMisesStress ;
+        sh:minCount 1 ;
+        sh:node g:I2_064_StressQuantityShape ;
+        sh:message "Nominal member-flange von Mises stress in MPa is required."
+    ] .
+
+g:I2_064_StressQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal ;
+        sh:message "The stress quantity must have a decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:in ( unit:MegaPA ) ;
+        sh:message "The stress quantity unit must be MPa."
+    ] .

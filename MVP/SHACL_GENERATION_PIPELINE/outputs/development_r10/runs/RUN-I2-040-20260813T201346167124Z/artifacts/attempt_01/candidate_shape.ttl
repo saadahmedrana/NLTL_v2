@@ -1,0 +1,170 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_040_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gen:I2_040_StructuralMemberShape
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:node gen:I2_040_YieldStrengthShape
+    ] ;
+    sh:sparql [
+        sh:message "Yield strength in MPa is required when an applicable structural member is present." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralSectionType ?sectionType .
+                FILTER (
+                    ?sectionType IN (
+                        nltl:flatBarSection,
+                        nltl:bulbSection,
+                        nltl:teeSection,
+                        nltl:angleSection
+                    )
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:yieldStrength ?yieldQuantity .
+                    ?yieldQuantity qudt:numericValue ?yield ;
+                                   qudt:unit unit:MegaPA .
+                    FILTER (
+                        datatype(?yield) = xsd:decimal &&
+                        ?yield > 0
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The web height to net web thickness ratio exceeds the limit for the structural section type and yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                      nltl:yieldStrength ?yieldQuantity .
+
+                ?member nltl:structuralSectionType ?sectionType ;
+                        nltl:webHeight ?heightQuantity ;
+                        nltl:netWebThickness ?thicknessQuantity .
+
+                ?heightQuantity qudt:numericValue ?height ;
+                                qudt:unit unit:MilliM .
+                ?thicknessQuantity qudt:numericValue ?thickness ;
+                                   qudt:unit unit:MilliM .
+                ?yieldQuantity qudt:numericValue ?yield ;
+                               qudt:unit unit:MegaPA .
+
+                FILTER (
+                    datatype(?height) = xsd:decimal &&
+                    datatype(?thickness) = xsd:decimal &&
+                    datatype(?yield) = xsd:decimal &&
+                    ?height > 0 &&
+                    ?thickness > 0 &&
+                    ?yield > 0
+                )
+                FILTER (
+                    (
+                        ?sectionType = nltl:flatBarSection &&
+                        (?height * ?height * ?yield) >
+                        (79524 * ?thickness * ?thickness)
+                    ) ||
+                    (
+                        ?sectionType IN (
+                            nltl:bulbSection,
+                            nltl:teeSection,
+                            nltl:angleSection
+                        ) &&
+                        (?height * ?height * ?yield) >
+                        (648025 * ?thickness * ?thickness)
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:I2_040_StructuralMemberShape
+    a sh:NodeShape ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:structuralSectionType ;
+                sh:hasValue nltl:flatBarSection
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:structuralSectionType ;
+                sh:hasValue nltl:bulbSection
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:structuralSectionType ;
+                sh:hasValue nltl:teeSection
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:structuralSectionType ;
+                sh:hasValue nltl:angleSection
+            ]
+        ]
+    ) ;
+    sh:property [
+        sh:path nltl:webHeight ;
+        sh:minCount 1 ;
+        sh:node gen:I2_040_LengthQuantityShape ;
+        sh:message "Web height in millimetres is required."
+    ] ;
+    sh:property [
+        sh:path nltl:netWebThickness ;
+        sh:minCount 1 ;
+        sh:node gen:I2_040_LengthQuantityShape ;
+        sh:message "Net web thickness in millimetres is required."
+    ] .
+
+gen:I2_040_LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1
+    ] .
+
+gen:I2_040_YieldStrengthShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:minExclusive "0"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1
+    ] .

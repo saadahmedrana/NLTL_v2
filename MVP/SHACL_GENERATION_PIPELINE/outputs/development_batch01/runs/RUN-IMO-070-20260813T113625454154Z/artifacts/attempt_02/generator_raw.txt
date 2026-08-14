@@ -1,0 +1,95 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PassengerSurvivalEquipmentShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship must have exactly one ship type."
+    ] ;
+    sh:property [
+        sh:path nltl:personOnBoard ;
+        sh:datatype xsd:integer ;
+        sh:maxCount 1 ;
+        sh:message "The persons-on-board value must be single-valued."
+    ] ;
+    sh:property [
+        sh:path nltl:sizeCompatibilityStatus ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+        sh:message "The size-compatibility status must be single-valued."
+    ] ;
+    sh:property [
+        sh:path nltl:assignedImmersionSuit ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:assignedThermalProtectiveAid ;
+        sh:datatype xsd:string
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A passenger ship requires one persons-on-board value and a sole size-compatibility status of true." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:shipType ?shipType .
+    FILTER(?shipType = "passenger_ship")
+    FILTER NOT EXISTS {
+        $this nltl:personOnBoard ?persons ;
+              nltl:sizeCompatibilityStatus ?sizeStatus .
+        FILTER(?sizeStatus = true)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a passenger ship, the total immersion-suit and thermal-protective-aid assignments must equal the number of persons on board." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:shipType ?shipType ;
+          nltl:personOnBoard ?persons .
+    FILTER(?shipType = "passenger_ship")
+
+    {
+        SELECT $this (COUNT(?immersionSuit) AS ?immersionSuitCount)
+        WHERE {
+            $this nltl:shipType ?immersionBranchType .
+            FILTER(?immersionBranchType = "passenger_ship")
+            OPTIONAL {
+                $this nltl:assignedImmersionSuit ?immersionSuit .
+            }
+        }
+        GROUP BY $this
+    }
+
+    {
+        SELECT $this (COUNT(?thermalAid) AS ?thermalAidCount)
+        WHERE {
+            $this nltl:shipType ?thermalBranchType .
+            FILTER(?thermalBranchType = "passenger_ship")
+            OPTIONAL {
+                $this nltl:assignedThermalProtectiveAid ?thermalAid .
+            }
+        }
+        GROUP BY $this
+    }
+
+    FILTER((?immersionSuitCount + ?thermalAidCount) != ?persons)
+}
+"""
+    ] .
+<END_SHACL>

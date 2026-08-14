@@ -1,0 +1,140 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gs:I2-022Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "Applicable plating must provide correctly paired formula inputs, QUDT units, and a net thickness satisfying the I2.4.2 formula within a squared relative tolerance of 2.000001e-6 or an absolute fallback of 1e-18." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasPlating ?plating .
+
+                ?plating
+                    nltl:platingHullAreaClassification ?area ;
+                    nltl:framingAngleOmega ?omega .
+
+                ?omega qudt:numericValue ?omegaValue .
+
+                FILTER (
+                    ?area IN (
+                        nltl:bowIntermediateBottomHullArea,
+                        nltl:midbodyBottomHullArea,
+                        nltl:sternBottomHullArea
+                    )
+                )
+                FILTER (
+                    datatype(?omegaValue) = xsd:decimal &&
+                    ?omegaValue >= 70
+                )
+
+                FILTER NOT EXISTS {
+                    ?plating
+                        a nltl:plating ;
+                        nltl:platingSupportedByStructuralMember ?member ;
+                        nltl:iceLoadRequiredNetPlateThickness ?thickness .
+
+                    ?member
+                        a nltl:structuralMember ;
+                        nltl:frameSpacing ?spacing ;
+                        nltl:selectedHullAreaFactor ?areaFactor .
+
+                    $this
+                        nltl:peakPressureFactor ?peakFactor ;
+                        nltl:averageIcePressure ?averagePressure ;
+                        nltl:yieldStrength ?yieldStrength ;
+                        nltl:loadPatchHeight ?patchHeight .
+
+                    ?omega
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?omegaValue ;
+                        qudt:unit unit:DEG .
+
+                    ?spacing
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?s ;
+                        qudt:unit unit:M .
+
+                    ?areaFactor
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?af ;
+                        qudt:unit unit:UNITLESS .
+
+                    ?peakFactor
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?ppf ;
+                        qudt:unit unit:UNITLESS .
+
+                    ?averagePressure
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?pavg ;
+                        qudt:unit unit:MegaPA .
+
+                    ?yieldStrength
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?sigma ;
+                        qudt:unit unit:MegaPA .
+
+                    ?patchHeight
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?b ;
+                        qudt:unit unit:M .
+
+                    ?thickness
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?tnet ;
+                        qudt:unit unit:MilliM .
+
+                    FILTER (
+                        datatype(?s) = xsd:decimal &&
+                        datatype(?af) = xsd:decimal &&
+                        datatype(?ppf) = xsd:decimal &&
+                        datatype(?pavg) = xsd:decimal &&
+                        datatype(?sigma) = xsd:decimal &&
+                        datatype(?b) = xsd:decimal &&
+                        datatype(?tnet) = xsd:decimal
+                    )
+                    FILTER (
+                        ?s > 0 &&
+                        ?af >= 0 &&
+                        ?ppf >= 0 &&
+                        ?pavg >= 0 &&
+                        ?sigma > 0 &&
+                        ?b > 0 &&
+                        ?tnet >= 0
+                    )
+
+                    BIND(
+                        ((500 * ?s) / (1 + (?s / (2 * ?b))))
+                        AS ?scale
+                    )
+                    BIND(
+                        (?scale * ?scale * ((?af * ?ppf * ?pavg) / ?sigma))
+                        AS ?expectedSquared
+                    )
+                    BIND((?tnet * ?tnet) AS ?reportedSquared)
+                    BIND(
+                        IF(
+                            ABS(?expectedSquared) * 0.000002000001 >
+                                0.000000000000000001,
+                            ABS(?expectedSquared) * 0.000002000001,
+                            0.000000000000000001
+                        )
+                        AS ?tolerance
+                    )
+                    FILTER(
+                        ABS(?reportedSquared - ?expectedSquared) <= ?tolerance
+                    )
+                }
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,190 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl-benchmark/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:GenericQuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MetreQuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UnitlessQuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:interpolationLowerEndpoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint ;
+        sh:minCount 1 ;
+        sh:message "A calculation case requires a lower interpolation endpoint."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationUpperEndpoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint ;
+        sh:minCount 1 ;
+        sh:message "A calculation case requires an upper interpolation endpoint."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolatedLongitudinalDistributionFactor ;
+        sh:node gen:UnitlessQuantityValueShape ;
+        sh:minCount 1 ;
+        sh:message "A calculation case requires a unitless interpolated longitudinal distribution factor."
+    ] .
+
+gen:LinearInterpolationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:calculationCase ;
+        sh:node gen:CalculationCaseShape ;
+        sh:minCount 1 ;
+        sh:message "The ship requires a calculation case for linear interpolation."
+    ] ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:interpolationPoint ;
+        sh:minCount 2 ;
+        sh:message "The ship requires interpolation-point relationships for both endpoints."
+    ] ;
+    sh:property [
+        sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+        sh:node gen:MetreQuantityValueShape ;
+        sh:minCount 1 ;
+        sh:message "The ship requires the hull-girder longitudinal position from aft in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationCoordinate ;
+        sh:node gen:GenericQuantityValueShape ;
+        sh:minCount 2 ;
+        sh:message "The ship requires interpolation coordinates for the lower and upper endpoints."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointValue ;
+        sh:node gen:GenericQuantityValueShape ;
+        sh:minCount 2 ;
+        sh:message "The ship requires values for the lower and upper interpolation points."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The reported longitudinal distribution factor is not a linear interpolation between the linked endpoints, or the required units and endpoint relationships are inconsistent." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl-benchmark/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?case ?reportedQuantity
+WHERE {
+    $this nltl:hasCalculationCase ?case .
+    ?case nltl:interpolatedLongitudinalDistributionFactor ?reportedQuantity .
+
+    FILTER NOT EXISTS {
+        $this nltl:hasInterpolationPoint ?lowerEndpoint .
+        $this nltl:hasInterpolationPoint ?upperEndpoint .
+        $this nltl:hullGirderLongitudinalPositionFromAft ?positionQuantity .
+        $this nltl:interpolationCoordinate ?lowerCoordinateQuantity .
+        $this nltl:interpolationCoordinate ?upperCoordinateQuantity .
+        $this nltl:interpolationPointValue ?lowerValueQuantity .
+        $this nltl:interpolationPointValue ?upperValueQuantity .
+
+        ?case nltl:interpolationLowerEndpoint ?lowerEndpoint .
+        ?case nltl:interpolationUpperEndpoint ?upperEndpoint .
+
+        ?positionQuantity qudt:numericValue ?positionRaw ;
+            qudt:unit ?positionUnit .
+        ?lowerCoordinateQuantity qudt:numericValue ?lowerCoordinateRaw ;
+            qudt:unit ?lowerCoordinateUnit .
+        ?upperCoordinateQuantity qudt:numericValue ?upperCoordinateRaw ;
+            qudt:unit ?upperCoordinateUnit .
+        ?lowerValueQuantity qudt:numericValue ?lowerValueRaw ;
+            qudt:unit ?lowerValueUnit .
+        ?upperValueQuantity qudt:numericValue ?upperValueRaw ;
+            qudt:unit ?upperValueUnit .
+        ?reportedQuantity qudt:numericValue ?reportedRaw ;
+            qudt:unit ?reportedUnit .
+
+        FILTER(?lowerEndpoint != ?upperEndpoint)
+        FILTER(?positionUnit = ?lowerCoordinateUnit)
+        FILTER(?positionUnit = ?upperCoordinateUnit)
+        FILTER(?reportedUnit = ?lowerValueUnit)
+        FILTER(?reportedUnit = ?upperValueUnit)
+
+        BIND(xsd:decimal(?positionRaw) AS ?position)
+        BIND(xsd:decimal(?lowerCoordinateRaw) AS ?lowerCoordinate)
+        BIND(xsd:decimal(?upperCoordinateRaw) AS ?upperCoordinate)
+        BIND(xsd:decimal(?lowerValueRaw) AS ?lowerValue)
+        BIND(xsd:decimal(?upperValueRaw) AS ?upperValue)
+        BIND(xsd:decimal(?reportedRaw) AS ?reported)
+
+        FILTER(?lowerCoordinate < ?position)
+        FILTER(?position < ?upperCoordinate)
+
+        BIND(
+            ?lowerValue +
+            ((?position - ?lowerCoordinate) /
+             (?upperCoordinate - ?lowerCoordinate)) *
+            (?upperValue - ?lowerValue)
+            AS ?expected
+        )
+        BIND(
+            IF(
+                ABS(?expected) * 0.000001 > 0.000000000001,
+                ABS(?expected) * 0.000001,
+                0.000000000001
+            )
+            AS ?tolerance
+        )
+        FILTER(ABS(?reported - ?expected) <= ?tolerance)
+    }
+}
+"""
+    ] .
+<END_SHACL>
