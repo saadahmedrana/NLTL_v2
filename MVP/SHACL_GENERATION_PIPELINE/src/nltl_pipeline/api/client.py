@@ -146,6 +146,10 @@ class AaltoResponsesClient:
                 {"role": "user", "content": [{"type": "input_text", "text": user_prompt}]},
             ],
         }
+        output_limits = self.config.raw.get("api", {}).get("max_output_tokens", {})
+        configured_limit = output_limits.get(role) if isinstance(output_limits, dict) else None
+        if configured_limit is not None:
+            payload["max_output_tokens"] = int(configured_limit)
         call_started = time.monotonic()
         transport_attempt = 0
         retry_cycle = 0

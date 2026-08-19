@@ -1,0 +1,543 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:nodeKind sh:IRI ;
+        sh:node gen:CalculationCaseShape
+    ] .
+
+gen:StructuralMemberShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:hasLocalFrameSectionCalculationCase ;
+        sh:nodeKind sh:IRI ;
+        sh:node gen:LocalFrameSectionCalculationCaseShape
+    ] .
+
+gen:CalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:interpolationLowerEndpoint ;
+        sh:nodeKind sh:IRI ;
+        sh:node gen:InterpolationPointShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationUpperEndpoint ;
+        sh:nodeKind sh:IRI ;
+        sh:node gen:InterpolationPointShape
+    ] .
+
+gen:InterpolationPointShape
+    a sh:NodeShape ;
+    sh:class nltl:interpolationPoint ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:node gen:NumericQuantityShape
+    ] .
+
+gen:LocalFrameSectionCalculationCaseShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:localFrameSectionCalculationCase ;
+    sh:class nltl:localFrameSectionCalculationCase ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:sectionCalculationCaseStructuralMember ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:node gen:SelectorStructuralMemberShape ;
+        sh:message "Each represented local-frame section case requires a structural member with the applicability inputs."
+    ] ;
+    sh:property [
+        sh:path nltl:sectionCalculationCasePlating ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:class nltl:plating ;
+        sh:message "Each represented local-frame section case requires its plating relationship."
+    ] ;
+    sh:or (
+        gen:NonApplicableAreaBranch
+        gen:ApplicableAreaBranch
+    ) .
+
+gen:SelectorStructuralMemberShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:netLocalFrameFlangeArea ;
+        sh:minCount 1 ;
+        sh:node gen:SquareCentimetreQuantityShape ;
+        sh:message "Net local-frame flange area is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:netAttachedShellPlateThickness ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape ;
+        sh:message "Net attached-shell plate thickness is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape ;
+        sh:message "Frame spacing is required to determine applicability."
+    ] .
+
+gen:NonApplicableAreaBranch
+    a sh:NodeShape ;
+    sh:sparql [
+        sh:message "The non-applicable branch requires the local-frame area not to exceed the attached-plate-flange area." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member .
+                ?member nltl:netLocalFrameFlangeArea/qudt:numericValue ?area ;
+                        nltl:netAttachedShellPlateThickness/qudt:numericValue ?plateThickness ;
+                        nltl:frameSpacing/qudt:numericValue ?spacing .
+                FILTER ((100 * ?area) > (1000 * ?plateThickness * ?spacing))
+            }
+        """
+    ] .
+
+gen:ApplicableAreaBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:sectionCalculationCaseStructuralMember ;
+        sh:minCount 1 ;
+        sh:node gen:ApplicableStructuralMemberShape
+    ] ;
+    sh:property [
+        sh:path nltl:sectionCalculationCasePlating ;
+        sh:minCount 1 ;
+        sh:node gen:ApplicablePlatingShape
+    ] ;
+    sh:property [
+        sh:path nltl:plasticNeutralAxisHeight ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape ;
+        sh:message "Plastic neutral-axis height is required when the local-frame area exceeds the attached-plate-flange area."
+    ] ;
+    sh:sparql [
+        sh:message "The applicable formula branch requires the local-frame area to exceed the attached-plate-flange area." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member .
+                ?member nltl:netLocalFrameFlangeArea/qudt:numericValue ?area ;
+                        nltl:netAttachedShellPlateThickness/qudt:numericValue ?plateThickness ;
+                        nltl:frameSpacing/qudt:numericValue ?spacing .
+                FILTER ((100 * ?area) <= (1000 * ?plateThickness * ?spacing))
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Net web thickness must be non-zero for the plastic neutral-axis calculation." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member .
+                ?member nltl:netWebThickness/qudt:numericValue ?webThickness .
+                FILTER (?webThickness = 0)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Plastic neutral-axis height must satisfy the specified z_na formula within a relative tolerance of 1e-6 and an absolute fallback of 1e-9 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:plasticNeutralAxisHeight/qudt:numericValue ?reportedZna .
+                ?member nltl:netLocalFrameFlangeArea/qudt:numericValue ?area ;
+                        nltl:webHeight/qudt:numericValue ?webHeight ;
+                        nltl:netWebThickness/qudt:numericValue ?webThickness ;
+                        nltl:netAttachedShellPlateThickness/qudt:numericValue ?plateThickness ;
+                        nltl:frameSpacing/qudt:numericValue ?spacing .
+                FILTER (?webThickness != 0)
+                BIND (
+                    ((100 * ?area) + (?webHeight * ?webThickness) -
+                     (1000 * ?plateThickness * ?spacing)) /
+                    (2 * ?webThickness)
+                    AS ?expectedZna
+                )
+                BIND (ABS(?expectedZna) * 0.000001 AS ?relativeTolerance)
+                BIND (
+                    IF (?relativeTolerance > 0.000000001,
+                        ?relativeTolerance,
+                        0.000000001)
+                    AS ?tolerance
+                )
+                FILTER (ABS(?reportedZna - ?expectedZna) > ?tolerance)
+            }
+        """
+    ] ;
+    sh:or (
+        gen:DirectSectionModulusBranch
+        gen:InterpolatedSectionModulusBranch
+    ) .
+
+gen:ApplicableStructuralMemberShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:netLocalFrameFlangeArea ;
+        sh:minCount 1 ;
+        sh:node gen:SquareCentimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webHeight ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:netWebThickness ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:netAttachedShellPlateThickness ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:node gen:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:localFrameFlangeCentreHeight ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webAngleToShellPlate ;
+        sh:minCount 1 ;
+        sh:node gen:DegreeQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webToFlangeCentreDistance ;
+        sh:minCount 1 ;
+        sh:node gen:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:netEffectivePlasticSectionModulus ;
+        sh:minCount 1 ;
+        sh:node gen:CubicCentimetreQuantityShape ;
+        sh:message "Net effective plastic section modulus is required for an applicable calculation case."
+    ] .
+
+gen:ApplicablePlatingShape
+    a sh:NodeShape ;
+    sh:class nltl:plating ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:node gen:DegreeQuantityShape ;
+        sh:message "Framing angle Omega is required to select direct calculation or interpolation."
+    ] .
+
+gen:DirectSectionModulusBranch
+    a sh:NodeShape ;
+    sh:sparql [
+        sh:message "Angles strictly between 20 and 70 degrees require the interpolation branch." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCasePlating ?plating .
+                ?plating nltl:framingAngleOmega/qudt:numericValue ?omega .
+                FILTER (?omega > 20 && ?omega < 70)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Net effective plastic section modulus must satisfy the specified direct formula within a relative tolerance of 1e-6 and an absolute fallback of 1e-9 cm3." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member .
+                ?member nltl:netLocalFrameFlangeArea/qudt:numericValue ?area ;
+                        nltl:webHeight/qudt:numericValue ?webHeight ;
+                        nltl:netWebThickness/qudt:numericValue ?webThickness ;
+                        nltl:netAttachedShellPlateThickness/qudt:numericValue ?plateThickness ;
+                        nltl:frameSpacing/qudt:numericValue ?spacing ;
+                        nltl:localFrameFlangeCentreHeight/qudt:numericValue ?flangeHeight ;
+                        nltl:webAngleToShellPlate/qudt:numericValue ?webAngle ;
+                        nltl:webToFlangeCentreDistance/qudt:numericValue ?webFlangeDistance ;
+                        nltl:netEffectivePlasticSectionModulus/qudt:numericValue ?reportedModulus .
+                FILTER (?webThickness != 0)
+                BIND (
+                    ((100 * ?area) + (?webHeight * ?webThickness) -
+                     (1000 * ?plateThickness * ?spacing)) /
+                    (2 * ?webThickness)
+                    AS ?expectedZna
+                )
+                BIND ((?webAngle * 3.141592653589793) / 180 AS ?angleRadians)
+                BIND (math:sin(?angleRadians) AS ?sinAngle)
+                BIND (math:cos(?angleRadians) AS ?cosAngle)
+                BIND (
+                    (?plateThickness * ?spacing *
+                        (?expectedZna + (?plateThickness / 2)) * ?sinAngle)
+                    +
+                    (((((?webHeight - ?expectedZna) *
+                        (?webHeight - ?expectedZna)) +
+                        (?expectedZna * ?expectedZna)) *
+                        ?webThickness * ?sinAngle) / 2000)
+                    +
+                    (?area *
+                        (((?flangeHeight - ?expectedZna) * ?sinAngle) -
+                         (?webFlangeDistance * ?cosAngle)) / 10)
+                    AS ?expectedModulus
+                )
+                BIND (ABS(?expectedModulus) * 0.000001 AS ?relativeTolerance)
+                BIND (
+                    IF (?relativeTolerance > 0.000000001,
+                        ?relativeTolerance,
+                        0.000000001)
+                    AS ?tolerance
+                )
+                FILTER (ABS(?reportedModulus - ?expectedModulus) > ?tolerance)
+            }
+        """
+    ] .
+
+gen:InterpolatedSectionModulusBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationLowerEndpoint ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node gen:RequiredInterpolationPointShape ;
+        sh:message "A lower interpolation endpoint is required for oblique framing."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationUpperEndpoint ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node gen:RequiredInterpolationPointShape ;
+        sh:message "An upper interpolation endpoint is required for oblique framing."
+    ] ;
+    sh:sparql [
+        sh:message "Linear interpolation applies only when framing angle Omega is strictly between 20 and 70 degrees." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCasePlating ?plating .
+                ?plating nltl:framingAngleOmega/qudt:numericValue ?omega .
+                FILTER (!(?omega > 20 && ?omega < 70))
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The interpolation endpoints must bracket framing angle Omega in increasing coordinate order." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCasePlating ?plating ;
+                      nltl:interpolationLowerEndpoint ?lower ;
+                      nltl:interpolationUpperEndpoint ?upper .
+                ?plating nltl:framingAngleOmega/qudt:numericValue ?omega .
+                ?lower nltl:interpolationPointCoordinate/qudt:numericValue ?lowerCoordinate .
+                ?upper nltl:interpolationPointCoordinate/qudt:numericValue ?upperCoordinate .
+                FILTER (
+                    ?lowerCoordinate >= ?omega ||
+                    ?omega >= ?upperCoordinate
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Net effective plastic section modulus must equal the linear interpolation result within a relative tolerance of 1e-6 and an absolute fallback of 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:sectionCalculationCasePlating ?plating ;
+                      nltl:interpolationLowerEndpoint ?lower ;
+                      nltl:interpolationUpperEndpoint ?upper .
+                ?member nltl:netEffectivePlasticSectionModulus/qudt:numericValue ?reportedModulus .
+                ?plating nltl:framingAngleOmega/qudt:numericValue ?omega .
+                ?lower nltl:interpolationPointCoordinate/qudt:numericValue ?lowerCoordinate ;
+                       nltl:interpolationPointResult/qudt:numericValue ?lowerResult .
+                ?upper nltl:interpolationPointCoordinate/qudt:numericValue ?upperCoordinate ;
+                       nltl:interpolationPointResult/qudt:numericValue ?upperResult .
+                FILTER (?upperCoordinate > ?lowerCoordinate)
+                BIND (
+                    ?lowerResult +
+                    ((?omega - ?lowerCoordinate) *
+                     (?upperResult - ?lowerResult) /
+                     (?upperCoordinate - ?lowerCoordinate))
+                    AS ?expectedModulus
+                )
+                BIND (ABS(?expectedModulus) * 0.000001 AS ?relativeTolerance)
+                BIND (
+                    IF (?relativeTolerance > 0.000000001,
+                        ?relativeTolerance,
+                        0.000000001)
+                    AS ?tolerance
+                )
+                FILTER (ABS(?reportedModulus - ?expectedModulus) > ?tolerance)
+            }
+        """
+    ] .
+
+gen:RequiredInterpolationPointShape
+    a sh:NodeShape ;
+    sh:class nltl:interpolationPoint ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:node gen:NumericQuantityShape
+    ] .
+
+gen:NumericQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:SquareCentimetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:CentiM2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CubicCentimetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:CentiM3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:DegreeQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:DEG ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

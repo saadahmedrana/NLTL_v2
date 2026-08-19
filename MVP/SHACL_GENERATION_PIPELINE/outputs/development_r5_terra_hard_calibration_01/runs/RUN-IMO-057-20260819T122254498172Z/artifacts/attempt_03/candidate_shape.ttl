@@ -1,0 +1,95 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+gs:IMO057ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "Each linked fire pump must identify a containing compartment." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasComponent ?pump .
+                ?pump rdf:type ?pumpType .
+                FILTER(?pumpType IN (
+                    nltl:firePump,
+                    nltl:emergencyFirePump,
+                    nltl:waterMistPump,
+                    nltl:waterSprayPump
+                ))
+                FILTER NOT EXISTS {
+                    ?pump nltl:hasContainingCompartment ?compartment .
+                }
+            }
+        """
+    ] .
+
+gs:IMO057FirePumpShape
+    a sh:NodeShape ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            SELECT ?this
+            WHERE {
+                ?ship nltl:hasComponent ?this .
+                ?this rdf:type ?pumpType .
+                FILTER(?pumpType IN (
+                    nltl:firePump,
+                    nltl:emergencyFirePump,
+                    nltl:waterMistPump,
+                    nltl:waterSprayPump
+                ))
+            }
+        """
+    ] ;
+    sh:property [
+        sh:path nltl:hasContainingCompartment ;
+        sh:node gs:IMO057CompartmentShape
+    ] .
+
+gs:IMO057CompartmentShape
+    a sh:NodeShape ;
+    sh:class nltl:compartment ;
+    sh:property [
+        sh:path nltl:maintainedTemperature ;
+        sh:minCount 1 ;
+        sh:node gs:IMO057TemperatureQuantityShape ;
+        sh:message "The containing compartment must have a maintained temperature above freezing."
+    ] .
+
+gs:IMO057TemperatureQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:DEG_C ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "Maintained temperature must be a numeric literal greater than 0 degrees Celsius." ;
+        sh:select """
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this qudt:numericValue ?value .
+                FILTER(
+                    !isLiteral(?value) ||
+                    !isNumeric(?value) ||
+                    (isLiteral(?value) && isNumeric(?value) && ?value <= 0)
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,404 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:class nltl:calculationCase
+    ] ;
+    sh:sparql [
+        sh:message "A represented local-frame section case must identify its structural member and plating, and the structural member must link back to the same case." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case a nltl:localFrameSectionCalculationCase .
+                FILTER NOT EXISTS {
+                    ?case nltl:sectionCalculationCaseStructuralMember ?member ;
+                          nltl:sectionCalculationCasePlating ?plating .
+                    ?member a nltl:structuralMember ;
+                            nltl:hasLocalFrameSectionCalculationCase ?case .
+                    ?plating a nltl:plating .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Every structural member represented by a local-frame section case must link back to that same case." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?case ?member
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case a nltl:localFrameSectionCalculationCase ;
+                      nltl:sectionCalculationCaseStructuralMember ?member .
+                FILTER NOT EXISTS {
+                    ?member nltl:hasLocalFrameSectionCalculationCase ?case .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "A local-frame section case requires decimal applicability inputs in their specified units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case a nltl:localFrameSectionCalculationCase .
+                FILTER NOT EXISTS {
+                    ?case nltl:sectionCalculationCaseStructuralMember ?member ;
+                          nltl:sectionCalculationCasePlating ?plating .
+                    ?member nltl:hasLocalFrameSectionCalculationCase ?case ;
+                            nltl:netLocalFrameFlangeArea ?areaQuantity ;
+                            nltl:netAttachedShellPlateThickness ?plateThicknessQuantity ;
+                            nltl:frameSpacing ?spacingQuantity .
+                    ?plating nltl:framingAngleOmega ?omegaQuantity .
+
+                    ?areaQuantity qudt:numericValue ?area ;
+                                  qudt:unit unit:CentiM2 .
+                    ?plateThicknessQuantity qudt:numericValue ?plateThickness ;
+                                            qudt:unit unit:MilliM .
+                    ?spacingQuantity qudt:numericValue ?spacing ;
+                                     qudt:unit unit:M .
+                    ?omegaQuantity qudt:numericValue ?omega ;
+                                   qudt:unit unit:DEG .
+
+                    FILTER (
+                        datatype(?area) = xsd:decimal &&
+                        datatype(?plateThickness) = xsd:decimal &&
+                        datatype(?spacing) = xsd:decimal &&
+                        datatype(?omega) = xsd:decimal
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "When the local-frame area exceeds the attached-plate-flange area, all formula operands and results must be decimal quantities in their specified units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case a nltl:localFrameSectionCalculationCase ;
+                      nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:sectionCalculationCasePlating ?plating .
+                ?member nltl:netLocalFrameFlangeArea ?areaQuantity ;
+                        nltl:netAttachedShellPlateThickness ?plateThicknessQuantity ;
+                        nltl:frameSpacing ?spacingQuantity .
+                ?areaQuantity qudt:numericValue ?area ;
+                              qudt:unit unit:CentiM2 .
+                ?plateThicknessQuantity qudt:numericValue ?plateThickness ;
+                                        qudt:unit unit:MilliM .
+                ?spacingQuantity qudt:numericValue ?spacing ;
+                                 qudt:unit unit:M .
+
+                FILTER (
+                    datatype(?area) = xsd:decimal &&
+                    datatype(?plateThickness) = xsd:decimal &&
+                    datatype(?spacing) = xsd:decimal &&
+                    (100 * ?area) > (1000 * ?plateThickness * ?spacing)
+                )
+
+                FILTER NOT EXISTS {
+                    ?member nltl:webHeight ?webHeightQuantity ;
+                            nltl:netWebThickness ?webThicknessQuantity ;
+                            nltl:localFrameFlangeCentreHeight ?flangeHeightQuantity ;
+                            nltl:webAngleToShellPlate ?webAngleQuantity ;
+                            nltl:webToFlangeCentreDistance ?flangeDistanceQuantity ;
+                            nltl:netEffectivePlasticSectionModulus ?modulusQuantity .
+
+                    ?webHeightQuantity qudt:numericValue ?webHeight ;
+                                       qudt:unit unit:MilliM .
+                    ?webThicknessQuantity qudt:numericValue ?webThickness ;
+                                          qudt:unit unit:MilliM .
+                    ?flangeHeightQuantity qudt:numericValue ?flangeHeight ;
+                                         qudt:unit unit:MilliM .
+                    ?webAngleQuantity qudt:numericValue ?webAngle ;
+                                      qudt:unit unit:DEG .
+                    ?flangeDistanceQuantity qudt:numericValue ?flangeDistance ;
+                                           qudt:unit unit:MilliM .
+                    ?modulusQuantity qudt:numericValue ?modulus ;
+                                     qudt:unit unit:CentiM3 .
+
+                    ?case nltl:plasticNeutralAxisHeight ?neutralAxisQuantity .
+                    ?neutralAxisQuantity qudt:numericValue ?neutralAxis ;
+                                         qudt:unit unit:MilliM .
+
+                    FILTER (
+                        datatype(?webHeight) = xsd:decimal &&
+                        datatype(?webThickness) = xsd:decimal &&
+                        datatype(?flangeHeight) = xsd:decimal &&
+                        datatype(?webAngle) = xsd:decimal &&
+                        datatype(?flangeDistance) = xsd:decimal &&
+                        datatype(?modulus) = xsd:decimal &&
+                        datatype(?neutralAxis) = xsd:decimal
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The reported plastic neutral-axis height does not match the required formula within relative tolerance 1e-6 and absolute fallback 1e-9 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case a nltl:localFrameSectionCalculationCase ;
+                      nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:plasticNeutralAxisHeight ?neutralAxisQuantity .
+
+                ?member nltl:netLocalFrameFlangeArea/qudt:numericValue ?area ;
+                        nltl:webHeight/qudt:numericValue ?webHeight ;
+                        nltl:netWebThickness/qudt:numericValue ?webThickness ;
+                        nltl:netAttachedShellPlateThickness/qudt:numericValue ?plateThickness ;
+                        nltl:frameSpacing/qudt:numericValue ?spacing .
+                ?neutralAxisQuantity qudt:numericValue ?reportedNeutralAxis .
+
+                FILTER (
+                    datatype(?area) = xsd:decimal &&
+                    datatype(?webHeight) = xsd:decimal &&
+                    datatype(?webThickness) = xsd:decimal &&
+                    datatype(?plateThickness) = xsd:decimal &&
+                    datatype(?spacing) = xsd:decimal &&
+                    datatype(?reportedNeutralAxis) = xsd:decimal &&
+                    (100 * ?area) > (1000 * ?plateThickness * ?spacing)
+                )
+
+                BIND(
+                    ((100 * ?area) + (?webHeight * ?webThickness) -
+                     (1000 * ?plateThickness * ?spacing)) /
+                    (2 * ?webThickness)
+                    AS ?expectedNeutralAxis
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedNeutralAxis) * 0.000001 > 0.000000001,
+                        ABS(?expectedNeutralAxis) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?tolerance
+                )
+                FILTER (
+                    ?webThickness = 0 ||
+                    ABS(?reportedNeutralAxis - ?expectedNeutralAxis) > ?tolerance
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Outside the oblique-framing interpolation range, the reported net effective plastic section modulus does not match the required formula within relative tolerance 1e-6 and absolute fallback 1e-9 cm3." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case a nltl:localFrameSectionCalculationCase ;
+                      nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:sectionCalculationCasePlating ?plating ;
+                      nltl:plasticNeutralAxisHeight/qudt:numericValue ?neutralAxis .
+
+                ?member nltl:netLocalFrameFlangeArea/qudt:numericValue ?area ;
+                        nltl:webHeight/qudt:numericValue ?webHeight ;
+                        nltl:netWebThickness/qudt:numericValue ?webThickness ;
+                        nltl:netAttachedShellPlateThickness/qudt:numericValue ?plateThickness ;
+                        nltl:frameSpacing/qudt:numericValue ?spacing ;
+                        nltl:localFrameFlangeCentreHeight/qudt:numericValue ?flangeHeight ;
+                        nltl:webAngleToShellPlate/qudt:numericValue ?webAngle ;
+                        nltl:webToFlangeCentreDistance/qudt:numericValue ?flangeDistance ;
+                        nltl:netEffectivePlasticSectionModulus/qudt:numericValue ?reportedModulus .
+                ?plating nltl:framingAngleOmega/qudt:numericValue ?omega .
+
+                FILTER (
+                    datatype(?area) = xsd:decimal &&
+                    datatype(?webHeight) = xsd:decimal &&
+                    datatype(?webThickness) = xsd:decimal &&
+                    datatype(?plateThickness) = xsd:decimal &&
+                    datatype(?spacing) = xsd:decimal &&
+                    datatype(?flangeHeight) = xsd:decimal &&
+                    datatype(?webAngle) = xsd:decimal &&
+                    datatype(?flangeDistance) = xsd:decimal &&
+                    datatype(?neutralAxis) = xsd:decimal &&
+                    datatype(?reportedModulus) = xsd:decimal &&
+                    datatype(?omega) = xsd:decimal &&
+                    (100 * ?area) > (1000 * ?plateThickness * ?spacing) &&
+                    (?omega <= 20 || ?omega >= 70)
+                )
+
+                BIND((?webAngle * 0.017453292519943295) AS ?webAngleRadians)
+                BIND(
+                    (?plateThickness * ?spacing *
+                        (?neutralAxis + (?plateThickness / 2)) *
+                        math:sin(?webAngleRadians))
+                    +
+                    (((((?webHeight - ?neutralAxis) * (?webHeight - ?neutralAxis)) +
+                        (?neutralAxis * ?neutralAxis)) *
+                        ?webThickness * math:sin(?webAngleRadians)) / 2000)
+                    +
+                    (?area *
+                        (((?flangeHeight - ?neutralAxis) *
+                            math:sin(?webAngleRadians)) -
+                         (?flangeDistance * math:cos(?webAngleRadians))) / 10)
+                    AS ?expectedModulus
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedModulus) * 0.000001 > 0.000000001,
+                        ABS(?expectedModulus) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?tolerance
+                )
+                FILTER (
+                    ABS(?reportedModulus - ?expectedModulus) > ?tolerance
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Oblique framing requires distinct ordered interpolation endpoints with decimal coordinates, decimal results, and unitless coordinates." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case a nltl:localFrameSectionCalculationCase ;
+                      nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:sectionCalculationCasePlating ?plating .
+                ?member nltl:netLocalFrameFlangeArea/qudt:numericValue ?area ;
+                        nltl:netAttachedShellPlateThickness/qudt:numericValue ?plateThickness ;
+                        nltl:frameSpacing/qudt:numericValue ?spacing .
+                ?plating nltl:framingAngleOmega/qudt:numericValue ?omega .
+
+                FILTER (
+                    datatype(?area) = xsd:decimal &&
+                    datatype(?plateThickness) = xsd:decimal &&
+                    datatype(?spacing) = xsd:decimal &&
+                    datatype(?omega) = xsd:decimal &&
+                    (100 * ?area) > (1000 * ?plateThickness * ?spacing) &&
+                    ?omega > 20 &&
+                    ?omega < 70
+                )
+
+                FILTER NOT EXISTS {
+                    ?case nltl:interpolationLowerEndpoint ?lowerPoint ;
+                          nltl:interpolationUpperEndpoint ?upperPoint .
+                    ?lowerPoint a nltl:interpolationPoint ;
+                                nltl:interpolationPointCoordinate ?lowerCoordinateQuantity ;
+                                nltl:interpolationPointResult ?lowerResultQuantity .
+                    ?upperPoint a nltl:interpolationPoint ;
+                                nltl:interpolationPointCoordinate ?upperCoordinateQuantity ;
+                                nltl:interpolationPointResult ?upperResultQuantity .
+
+                    ?lowerCoordinateQuantity qudt:numericValue ?lowerCoordinate ;
+                                             qudt:unit unit:UNITLESS .
+                    ?upperCoordinateQuantity qudt:numericValue ?upperCoordinate ;
+                                             qudt:unit unit:UNITLESS .
+                    ?lowerResultQuantity qudt:numericValue ?lowerResult .
+                    ?upperResultQuantity qudt:numericValue ?upperResult .
+
+                    FILTER (
+                        datatype(?lowerCoordinate) = xsd:decimal &&
+                        datatype(?upperCoordinate) = xsd:decimal &&
+                        datatype(?lowerResult) = xsd:decimal &&
+                        datatype(?upperResult) = xsd:decimal &&
+                        ?lowerCoordinate < ?upperCoordinate
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For oblique framing, the reported net effective plastic section modulus does not match linear interpolation within relative tolerance 1e-6 and absolute fallback 1e-9 cm3." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this ?case
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case a nltl:localFrameSectionCalculationCase ;
+                      nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:sectionCalculationCasePlating ?plating ;
+                      nltl:interpolationLowerEndpoint ?lowerPoint ;
+                      nltl:interpolationUpperEndpoint ?upperPoint .
+
+                ?member nltl:netLocalFrameFlangeArea/qudt:numericValue ?area ;
+                        nltl:netAttachedShellPlateThickness/qudt:numericValue ?plateThickness ;
+                        nltl:frameSpacing/qudt:numericValue ?spacing ;
+                        nltl:netEffectivePlasticSectionModulus/qudt:numericValue ?reportedModulus .
+                ?plating nltl:framingAngleOmega/qudt:numericValue ?omega .
+                ?lowerPoint nltl:interpolationPointCoordinate/qudt:numericValue ?lowerCoordinate ;
+                            nltl:interpolationPointResult/qudt:numericValue ?lowerResult .
+                ?upperPoint nltl:interpolationPointCoordinate/qudt:numericValue ?upperCoordinate ;
+                            nltl:interpolationPointResult/qudt:numericValue ?upperResult .
+
+                FILTER (
+                    datatype(?area) = xsd:decimal &&
+                    datatype(?plateThickness) = xsd:decimal &&
+                    datatype(?spacing) = xsd:decimal &&
+                    datatype(?reportedModulus) = xsd:decimal &&
+                    datatype(?omega) = xsd:decimal &&
+                    datatype(?lowerCoordinate) = xsd:decimal &&
+                    datatype(?upperCoordinate) = xsd:decimal &&
+                    datatype(?lowerResult) = xsd:decimal &&
+                    datatype(?upperResult) = xsd:decimal &&
+                    (100 * ?area) > (1000 * ?plateThickness * ?spacing) &&
+                    ?omega > 20 &&
+                    ?omega < 70 &&
+                    ?lowerCoordinate < ?upperCoordinate
+                )
+
+                BIND(
+                    ?lowerResult +
+                    ((?omega - ?lowerCoordinate) *
+                     (?upperResult - ?lowerResult) /
+                     (?upperCoordinate - ?lowerCoordinate))
+                    AS ?expectedModulus
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedModulus) * 0.000001 > 0.000000001,
+                        ABS(?expectedModulus) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?tolerance
+                )
+                FILTER (
+                    ABS(?reportedModulus - ?expectedModulus) > ?tolerance
+                )
+            }
+        """
+    ] .
+<END_SHACL>

@@ -124,6 +124,109 @@ class ShaclStaticValidator:
             )
         return turtle, self.validate_turtle(turtle, context)
 
+    @staticmethod
+    def is_syntax_failure(report: StaticValidationReport) -> bool:
+        """Return true when semantic review must be skipped for syntax repair."""
+        if not report.extraction_valid or not report.turtle_valid:
+            return True
+        markers = (
+            "Embedded SHACL-SPARQL parse error:",
+            "SHACL runtime smoke execution error:",
+            "Meta-SHACL execution error:",
+        )
+        return any(error.startswith(markers) for error in report.errors)
+
+    @staticmethod
+    def syntax_errors(report: StaticValidationReport) -> list[str]:
+        """Return parser/extraction errors only, never semantic lint findings."""
+        if not report.extraction_valid or not report.turtle_valid:
+            prefixes = (
+                "Generator response",
+                "Generated SHACL",
+                "Turtle parse error:",
+            )
+        else:
+            prefixes = (
+                "Embedded SHACL-SPARQL parse error:",
+                "SHACL runtime smoke execution error:",
+                "Meta-SHACL execution error:",
+            )
+        selected = [error for error in report.errors if error.startswith(prefixes)]
+        embedded = [
+            error for error in selected
+            if error.startswith("Embedded SHACL-SPARQL parse error:")
+        ]
+        # The runtime smoke check often repeats the same parser failure with a
+        # different character offset. Prefer the query-specific parser result.
+        return embedded or selected
+
+    def syntax_repair_diagnostics(
+        self,
+        candidate_response: str,
+        candidate_turtle: str,
+        report: StaticValidationReport,
+    ) -> dict[str, Any]:
+        """Build a syntax-only repair payload with exact failing query regions."""
+        diagnostics: dict[str, Any] = {
+            "syntaxErrors": self.syntax_errors(report),
+            "offendingRegions": [],
+        }
+        if not candidate_turtle or not report.turtle_valid:
+            return diagnostics
+
+        graph = Graph()
+        try:
+            graph.parse(data=candidate_turtle, format="turtle")
+        except Exception:
+            return diagnostics
+
+        for query_predicate in (SH.select, SH.ask):
+            for query_node in graph.objects(None, query_predicate):
+                if not isinstance(query_node, Literal):
+                    continue
+                query = str(query_node)
+                try:
+                    parseQuery(query)
+                    continue
+                except Exception as exc:
+                    parser_error = str(exc)
+                match = re.search(r"\(line:\s*(\d+),\s*col:\s*(\d+)\)", parser_error)
+                line_number = int(match.group(1)) if match else None
+                column_number = int(match.group(2)) if match else None
+                lines = query.splitlines()
+                if line_number:
+                    first = max(1, line_number - 3)
+                    last = min(len(lines), line_number + 3)
+                else:
+                    first = 1
+                    last = min(len(lines), 12)
+                numbered_excerpt = "\n".join(
+                    f"{number:04d}: {lines[number - 1]}"
+                    for number in range(first, last + 1)
+                )
+                offending_line = lines[line_number - 1] if line_number and line_number <= len(lines) else ""
+                hints: list[str] = []
+                bare_functions = re.findall(
+                    r"(?<![:A-Za-z0-9_])([A-Z][A-Z0-9_]*)\s*\(", offending_line
+                )
+                for function_name in bare_functions:
+                    if function_name.upper() == "SQRT":
+                        hints.append(
+                            "The failing line uses bare SQRT, which is not a SPARQL 1.1 built-in in "
+                            "the configured parser. Preserve the same mathematical condition using "
+                            "parser-supported algebra; do not invent an extension IRI."
+                        )
+                diagnostics["offendingRegions"].append({
+                    "queryPredicate": "sh:select" if query_predicate == SH.select else "sh:ask",
+                    "parserError": parser_error,
+                    "line": line_number,
+                    "column": column_number,
+                    "offendingLine": offending_line,
+                    "numberedExcerpt": numbered_excerpt,
+                    "repairHints": hints,
+                })
+        return diagnostics
+
     def validate_turtle(self, turtle: str, context: ContextPack) -> StaticValidationReport:
         errors: list[str] = []
         warnings: list[str] = []
@@ -370,6 +473,71 @@ class ShaclStaticValidator:
         if unexpected_units:
             datatype_unit_valid = False
             errors.append("QUDT unit not permitted by the scoped term metadata: " + ", ".join(unexpected_units))
+
+        contract = context.selection.get("dependencyContract", {})
+        if contract.get("status") == "COMPLETE":
+            required_relationships = [str(item) for item in contract.get("relationshipTerms", [])]
+            missing_relationships = [
+                local_name for local_name in required_relationships
+                if NLTL + local_name not in used_nltl
+            ]
+            if missing_relationships:
+                errors.append(
+                    "COMPLETE dependency relationship(s) absent from candidate: "
+                    + ", ".join(sorted(missing_relationships))
+                )
+
+            for policy in contract.get("selectorPolicies", []):
+                selector_terms = [str(item) for item in policy.get("selectorTerms", [])]
+                missing = [item for item in selector_terms if NLTL + item not in used_nltl]
+                if missing:
+                    errors.append(
+                        "Required selector/applicability evidence absent from candidate: "
+                        + ", ".join(sorted(missing))
+                    )
+                if policy.get("absenceMeansFalse") is False:
+                    for query_text in query_texts:
+                        if re.search(r"COALESCE\s*\([^,]+,\s*(false|0)\s*\)", query_text, re.IGNORECASE):
+                            errors.append("Selector absence is treated as explicit false through COALESCE")
+
+            for policy in contract.get("branchEvidencePolicies", []):
+                selector = str(policy.get("selectorTerm") or "")
+                evidence_terms = [str(item) for item in policy.get("evidenceTerms", [])]
+                for evidence_term in evidence_terms:
+                    if NLTL + evidence_term not in used_nltl:
+                        errors.append(f"Branch-specific evidence {evidence_term} is absent for selector {selector}")
+                for query_text in query_texts:
+                    query_iris = self._query_canonical_iris(query_text)
+                    if any(NLTL + term in query_iris for term in evidence_terms) and NLTL + selector not in query_iris:
+                        errors.append(f"Branch-specific evidence is used outside its selector branch: {selector}")
+
+            for policy in contract.get("datatypePolicies", []):
+                local_name = str(policy.get("term") or "")
+                allowed = str(policy.get("allowedDatatype") or "")
+                if not local_name or not allowed:
+                    continue
+                allowed_iri = str(XSD) + allowed.split(":", 1)[1] if allowed.startswith("xsd:") else allowed
+                for property_shape in graph.subjects(SH.path, URIRef(NLTL + local_name)):
+                    for datatype in graph.objects(property_shape, SH.datatype):
+                        if str(datatype) != allowed_iri:
+                            errors.append(
+                                f"Contract datatype policy violation for {local_name}: expected {allowed_iri}, found {datatype}"
+                            )
+
+            for policy in contract.get("cardinalityPolicies", []):
+                local_name = str(policy.get("term") or "")
+                if not local_name:
+                    continue
+                for property_shape in graph.subjects(SH.path, URIRef(NLTL + local_name)):
+                    for predicate, key in ((SH.minCount, "minCount"), (SH.maxCount, "maxCount")):
+                        actual = graph.value(property_shape, predicate)
+                        if actual is None:
+                            continue
+                        permitted = policy.get(key)
+                        if permitted is None or int(actual) != int(permitted):
+                            errors.append(
+                                f"Unsupported sh:{key} for {local_name}: found {actual}; contract permits {permitted}"
+                            )
 
         vocabulary_valid = not unknown and not out_of_scope and not suspicious
         valid = all((

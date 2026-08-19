@@ -34,8 +34,21 @@ class RetrievalTests(unittest.TestCase):
         )
         self.assertTrue({
             "firePump", "emergencyFirePump", "waterMistPump", "waterSprayPump",
-            "compartment", "hasContainingCompartment", "maintainedTemperature",
+            "compartment", "hasComponent", "hasContainingCompartment", "maintainedTemperature",
         } <= set(by_name))
+        self.assertEqual(by_name["hasComponent"]["requiredOwner"], "ship")
+        self.assertEqual(by_name["hasContainingCompartment"]["requiredOwner"], "firePump")
+        self.assertEqual(by_name["maintainedTemperature"]["requiredOwner"], "compartment")
+        self.assertEqual(
+            by_name["maintainedTemperature"]["domains"],
+            ["https://w3id.org/nltl/vocab#compartment"],
+        )
+        contract = context.selection["dependencyContract"]
+        self.assertEqual(contract["schemaVersion"], 2)
+        self.assertEqual(
+            contract["relationshipTerms"],
+            ["hasComponent", "hasContainingCompartment"],
+        )
 
     def test_context_has_indexed_and_target_dependencies(self) -> None:
         context = self.vocabulary.build_context_pack("IMO26-014")

@@ -61,6 +61,8 @@ class PipelineConfig:
         try:
             return str(self.raw["models"][role])
         except KeyError as exc:
+            if role == "syntax_repair" and "generator" in self.raw["models"]:
+                return str(self.raw["models"]["generator"])
             raise ConfigurationError(f"No model configured for role: {role}") from exc
 
     def verify_locked_inputs(self) -> dict[str, Any]:

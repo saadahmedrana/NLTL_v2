@@ -13,9 +13,17 @@ class PromptFactory:
 
     def __init__(self, prompt_directory: Path | None = None) -> None:
         self.directory = prompt_directory or PIPELINE_ROOT / "prompts"
-        self.generator_instructions = (self.directory / "generator.txt").read_text(encoding="utf-8")
-        self.validator_instructions = (self.directory / "validator.txt").read_text(encoding="utf-8")
-        self.matcher_instructions = (self.directory / "vocabulary_matcher.txt").read_text(encoding="utf-8")
+        default_directory = PIPELINE_ROOT / "prompts"
+
+        def read_prompt(name: str) -> str:
+            selected = self.directory / name
+            source = selected if selected.is_file() else default_directory / name
+            return source.read_text(encoding="utf-8")
+
+        self.generator_instructions = read_prompt("generator.txt")
+        self.validator_instructions = read_prompt("validator.txt")
+        self.matcher_instructions = read_prompt("vocabulary_matcher.txt")
+        self.syntax_repair_instructions = read_prompt("syntax_repair.txt")
 
     @staticmethod
     def _json(payload: dict[str, Any]) -> str:
@@ -48,6 +56,7 @@ class PromptFactory:
         report: StaticValidationReport,
         used_canonical_terms: list[dict[str, Any]],
         mismatch_candidates: list[dict[str, Any]],
+        prior_feedback_history: list[str] | None = None,
     ) -> str:
         return self._json({
             "task": "Review one candidate SHACL graph for freezing before later RDF evaluation",
@@ -59,6 +68,7 @@ class PromptFactory:
             "candidateShacl": candidate_shacl,
             "deterministicValidation": report.to_dict(),
             "mismatchCandidates": mismatch_candidates,
+            "priorFeedbackHistory": prior_feedback_history or [],
             "registryBoundary": (
                 "The complete locked registry was checked deterministically but is intentionally not embedded. "
                 "Treat unknown/out-of-scope findings as authoritative. Activate the vocabulary matcher whenever "
@@ -66,6 +76,20 @@ class PromptFactory:
                 "even when no deterministic candidate was supplied yet."
             ),
             "importantBoundary": "No ship graph or expected RDF outcome is part of this review.",
+        })
+
+    def syntax_repair_user(
+        self,
+        candidate_response: str,
+        syntax_diagnostics: dict[str, Any],
+        generated_shape_namespace: str,
+    ) -> str:
+        return self._json({
+            "task": "Repair syntax only; preserve the candidate's semantic constraints",
+            "canonicalVocabularyNamespace": self.CANONICAL_VOCABULARY_NAMESPACE,
+            "generatedShapeNamespace": generated_shape_namespace,
+            "syntaxDiagnostics": syntax_diagnostics,
+            "candidateResponse": candidate_response,
         })
 
     def matcher_user(

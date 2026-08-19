@@ -1,0 +1,195 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_031Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:sparql [
+        sh:message "An applicable structural member must record a midspan plastic collapse load in kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralLocation ?location .
+                FILTER (
+                    ?location = nltl:bottomStructureLocation ||
+                    ?location = nltl:sideStructureLocation
+                )
+                FILTER NOT EXISTS {
+                    ?member nltl:midspanPlasticCollapseLoad ?collapse .
+                    ?collapse qudt:numericValue ?collapseValue ;
+                              qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                    FILTER (datatype(?collapseValue) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "An applicable structural member requires ship plastic strength recorded in kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralLocation ?location .
+                FILTER (
+                    ?location = nltl:bottomStructureLocation ||
+                    ?location = nltl:sideStructureLocation
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:plasticStrength ?strength .
+                    ?strength qudt:numericValue ?strengthValue ;
+                              qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                    FILTER (datatype(?strengthValue) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "For an applicable structural member, plastic strength must equal the magnitude of the midspan plastic collapse load within a relative tolerance of 1e-6 and an absolute fallback of 1e-9 kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                      nltl:plasticStrength ?strength .
+                ?member nltl:structuralLocation ?location ;
+                        nltl:midspanPlasticCollapseLoad ?collapse .
+                FILTER (
+                    ?location = nltl:bottomStructureLocation ||
+                    ?location = nltl:sideStructureLocation
+                )
+                ?strength qudt:numericValue ?strengthValue ;
+                          qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                ?collapse qudt:numericValue ?collapseValue ;
+                          qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                FILTER (
+                    datatype(?strengthValue) = xsd:decimal &&
+                    datatype(?collapseValue) = xsd:decimal
+                )
+                BIND(ABS(?collapseValue) AS ?expectedMagnitude)
+                FILTER (
+                    ABS(?strengthValue - ?expectedMagnitude) >
+                    ((0.000001 * ABS(?expectedMagnitude)) + 0.000000001)
+                )
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "A bottom-structure member requires patch load recorded in kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralLocation nltl:bottomStructureLocation .
+                FILTER NOT EXISTS {
+                    $this nltl:patchLoad ?patchLoad .
+                    ?patchLoad qudt:numericValue ?patchLoadValue ;
+                               qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                    FILTER (datatype(?patchLoadValue) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "Each recorded load case for an applicable structural member must record combined shear and bending demand as a decimal quantity value." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralLocation ?location ;
+                        nltl:hasStructuralMemberLoadCase ?loadCase .
+                FILTER (
+                    ?location = nltl:bottomStructureLocation ||
+                    ?location = nltl:sideStructureLocation
+                )
+                FILTER NOT EXISTS {
+                    ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+                    ?demand qudt:numericValue ?demandValue .
+                    FILTER (datatype(?demandValue) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "Combined shear and bending demand must not exceed plastic strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                      nltl:plasticStrength ?strength .
+                ?member nltl:structuralLocation ?location ;
+                        nltl:hasStructuralMemberLoadCase ?loadCase .
+                FILTER (
+                    ?location = nltl:bottomStructureLocation ||
+                    ?location = nltl:sideStructureLocation
+                )
+                ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+                ?strength qudt:numericValue ?strengthValue ;
+                          qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                ?demand qudt:numericValue ?demandValue .
+                FILTER (
+                    datatype(?strengthValue) = xsd:decimal &&
+                    datatype(?demandValue) = xsd:decimal &&
+                    ?demandValue > ?strengthValue
+                )
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "Each recorded bottom-structure load case must record load-patch orientation with dimension (b) parallel to the frame direction." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralLocation nltl:bottomStructureLocation ;
+                        nltl:hasStructuralMemberLoadCase ?loadCase .
+                FILTER NOT EXISTS {
+                    ?loadCase nltl:loadPatchOrientation
+                        nltl:loadPatchHeightParallelToFrame .
+                }
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "A bottom-structure load case must not record a load-patch orientation other than dimension (b) parallel to the frame direction." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralLocation nltl:bottomStructureLocation ;
+                        nltl:hasStructuralMemberLoadCase ?loadCase .
+                ?loadCase nltl:loadPatchOrientation ?orientation .
+                FILTER (?orientation != nltl:loadPatchHeightParallelToFrame)
+            }
+        """
+    ] .

@@ -14,6 +14,107 @@ from nltl_pipeline.retrieval.context import VocabularyRepository
 
 
 class OfflinePipelineTests(unittest.TestCase):
+    def test_syntax_repair_does_not_consume_semantic_attempt_or_call_validator_early(self) -> None:
+        base = PipelineConfig.load()
+        with tempfile.TemporaryDirectory() as temp_name:
+            raw = copy.deepcopy(base.raw)
+            raw["paths"]["outputs"] = str(Path(temp_name) / "outputs")
+            raw["reporting"]["excel_enabled"] = False
+            raw["generation"]["maximum_semantic_attempts"] = 1
+            raw["generation"]["maximum_syntax_repairs_per_semantic_attempt"] = 1
+            config = PipelineConfig(raw=raw, config_path=base.config_path)
+            vocabulary = VocabularyRepository(config)
+            runner = PipelineRunner(config, vocabulary)
+            correct = offline_smoke_responses("IMO26-014")["generator"][1]
+            invalid = correct.replace("FILTER (?daylight = false)", "BIND( AS ?broken) FILTER (?daylight = false)")
+            client = ScriptedResponsesClient({
+                "generator": [invalid],
+                "syntax_repair": [correct],
+                "validator": ['{"accept":true,"activate_variable_matcher":false,"feedback":"Syntax repaired; semantics preserved."}'],
+            })
+            result = runner.run_requirement("IMO26-014", client)
+            self.assertTrue(result.accepted)
+            self.assertEqual(result.attempts, 1)
+            self.assertEqual(["generator", "syntax_repair", "validator"], [call["role"] for call in client.calls])
+            events = (result.run_directory / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn('"semantic_attempt_consumed":false', events)
+
+    def test_validator_feedback_reversal_requires_explicit_explanation(self) -> None:
+        self.assertTrue(PipelineRunner._feedback_reverses_without_explanation(
+            ["Require hasComponent on every branch."],
+            "Remove hasComponent from every branch.",
+        ))
+        self.assertFalse(PipelineRunner._feedback_reverses_without_explanation(
+            ["Require hasComponent on every branch."],
+            "REVERSAL: Remove hasComponent because the corrected contract makes the property ship-owned.",
+        ))
+
+    def test_history_guard_does_not_confuse_unrelated_or_preserved_directives(self) -> None:
+        self.assertFalse(PipelineRunner._feedback_reverses_without_explanation(
+            ["Remove sh:minCount 1 from nltl:hasMemberSupport."],
+            "Require simpleFrameSupport when no trigger exists; do not add sh:minCount 1 to nltl:hasMemberSupport.",
+        ))
+        self.assertFalse(PipelineRunner._feedback_reverses_without_explanation(
+            ["Retarget validation to the ship; do not use structuralMember as an independent target."],
+            "Add nltl:frameProfileType on the ship; do not relocate it to structuralMember.",
+        ))
+
+    def test_validator_contradiction_is_reconciled_without_new_generator_attempt(self) -> None:
+        base = PipelineConfig.load()
+        with tempfile.TemporaryDirectory() as temp_name:
+            raw = copy.deepcopy(base.raw)
+            raw["paths"]["outputs"] = str(Path(temp_name) / "outputs")
+            raw["reporting"]["excel_enabled"] = False
+            raw["generation"]["maximum_semantic_attempts"] = 2
+            raw["api"]["validator_response_retries"] = 1
+            config = PipelineConfig(raw=raw, config_path=base.config_path)
+            correct = offline_smoke_responses("IMO26-014")["generator"][1]
+            client = ScriptedResponsesClient({
+                "generator": [correct, correct],
+                "validator": [
+                    '{"accept":false,"activate_variable_matcher":false,"feedback":"Require nltl:hasComponent on every branch."}',
+                    '{"accept":true,"activate_variable_matcher":false,"feedback":"Remove nltl:hasComponent from every branch."}',
+                    '{"accept":true,"activate_variable_matcher":false,"feedback":"REVERSAL: Remove nltl:hasComponent because the prior instruction was inconsistent with the locked contract."}',
+                ],
+            })
+            result = PipelineRunner(config).run_requirement("IMO26-014", client)
+            self.assertTrue(result.accepted)
+            self.assertEqual(result.attempts, 2)
+            self.assertEqual(
+                ["generator", "validator", "generator", "validator", "validator"],
+                [call["role"] for call in client.calls],
+            )
+            events = (result.run_directory / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn('"event_type":"validator_reconciliation_required"', events)
+            self.assertIn('"semantic_attempt_consumed":false', events)
+
+    def test_validator_reconciliation_exhaustion_is_controlled_not_exception(self) -> None:
+        base = PipelineConfig.load()
+        with tempfile.TemporaryDirectory() as temp_name:
+            raw = copy.deepcopy(base.raw)
+            raw["paths"]["outputs"] = str(Path(temp_name) / "outputs")
+            raw["reporting"]["excel_enabled"] = False
+            raw["generation"]["maximum_semantic_attempts"] = 2
+            raw["api"]["validator_response_retries"] = 1
+            config = PipelineConfig(raw=raw, config_path=base.config_path)
+            correct = offline_smoke_responses("IMO26-014")["generator"][1]
+            contradiction = (
+                '{"accept":true,"activate_variable_matcher":false,'
+                '"feedback":"Remove nltl:hasComponent from every branch."}'
+            )
+            client = ScriptedResponsesClient({
+                "generator": [correct, correct],
+                "validator": [
+                    '{"accept":false,"activate_variable_matcher":false,"feedback":"Require nltl:hasComponent on every branch."}',
+                    contradiction,
+                    contradiction,
+                ],
+            })
+            result = PipelineRunner(config).run_requirement("IMO26-014", client)
+            self.assertFalse(result.accepted)
+            self.assertEqual(result.status, "VALIDATOR_RESPONSE_RETRY_EXHAUSTED")
+            self.assertEqual(result.attempts, 2)
+
     def test_full_matcher_repair_route_without_api_or_excel(self) -> None:
         base = PipelineConfig.load()
         with tempfile.TemporaryDirectory() as temp_name:

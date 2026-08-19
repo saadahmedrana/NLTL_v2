@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,7 @@ class LLMClient(Protocol):
 
 
 ParsedT = TypeVar("ParsedT")
+ContractCorrectionBuilder = Callable[[ResponseContractError, str, int], str]
 
 
 def identifier(prefix: str) -> str:
@@ -49,7 +51,10 @@ class PipelineRunner:
         self.config = config
         self.vocabulary = vocabulary or VocabularyRepository(config)
         self.few_shots = FewShotSelector(config.path("few_shot_jsonl"))
-        self.prompts = PromptFactory()
+        prompt_directory = None
+        if self.config.raw.get("paths", {}).get("prompt_directory"):
+            prompt_directory = self.config.path("prompt_directory")
+        self.prompts = PromptFactory(prompt_directory)
         self.static_validator = ShaclStaticValidator(self.vocabulary)
         self.searcher = CandidateSearcher(self.vocabulary)
         self.tracker = TrackerExporter(config, self.vocabulary)
@@ -66,8 +71,11 @@ class PipelineRunner:
         parser: Callable[[str], ParsedT],
         artifact_prefix: str,
         iteration: int,
+        maximum_retries: int | None = None,
+        correction_builder: ContractCorrectionBuilder | None = None,
     ) -> tuple[ParsedT, ApiCallResult]:
-        maximum_retries = int(self.config.raw["api"].get("contract_response_retries", 2))
+        if maximum_retries is None:
+            maximum_retries = int(self.config.raw["api"].get("contract_response_retries", 2))
         correction = ""
         last_error: ResponseContractError | None = None
         for contract_attempt in range(1, maximum_retries + 2):
@@ -112,12 +120,16 @@ class PipelineRunner:
                     contract_attempt=contract_attempt,
                     error=str(exc),
                     retrying=contract_attempt <= maximum_retries,
+                    semantic_attempt_consumed=False,
                 )
-                correction = (
-                    "\n\nYour previous response violated the required one-line JSON contract: "
-                    + str(exc)
-                    + " Return the required JSON object only."
-                )
+                if correction_builder:
+                    correction = correction_builder(exc, result.text, contract_attempt)
+                else:
+                    correction = (
+                        "\n\nYour previous response violated the required one-line JSON contract: "
+                        + str(exc)
+                        + " Return the required JSON object only."
+                    )
         raise ResponseContractError(f"{role} response contract failed: {last_error}")
 
     def _log_context(self, logger: EventLogger, context: ContextPack, iteration_added: int) -> None:
@@ -133,6 +145,45 @@ class PipelineRunner:
                 selection_reason=term.get("selectionReason", ""),
                 iteration_added=iteration_added,
             )
+
+    @staticmethod
+    def _feedback_reverses_without_explanation(prior: list[str], current: str) -> bool:
+        if not prior or "REVERSAL:" in current.upper():
+            return False
+
+        def directives(text: str) -> dict[str, set[str]]:
+            result: dict[str, set[str]] = {}
+            for clause in re.split(r"(?<=[.;])\s+|\n+", text):
+                lowered = clause.lower()
+                negative = any(pattern in lowered for pattern in (
+                    "remove ", "omit ", "do not require", "do not add", "must not use",
+                    "must not add", "delete ", "without ", "absence of ", "no unconditional",
+                ))
+                positive = any(pattern in lowered for pattern in (
+                    "add ", "require ", "include ", "must use ", "retain ", "preserve ",
+                ))
+                if not negative and not positive:
+                    continue
+                polarity = "negative" if negative else "positive"
+                names = set(re.findall(r"\bnltl:([A-Za-z_][A-Za-z0-9_]*)\b", clause))
+                names.update(
+                    token for token in re.findall(r"\b[A-Za-z][A-Za-z0-9]*\b", clause)
+                    if any(character.isupper() for character in token)
+                )
+                for name in names:
+                    result.setdefault(name.lower(), set()).add(polarity)
+            return result
+
+        prior_directives = directives("\n".join(prior))
+        current_directives = directives(current)
+        for name in set(prior_directives) & set(current_directives):
+            if any(
+                earlier != later
+                for earlier in prior_directives[name]
+                for later in current_directives[name]
+            ):
+                return True
+        return False
 
     def run_requirement(
         self,
@@ -205,6 +256,9 @@ class PipelineRunner:
             )
 
         maximum_attempts = int(self.config.raw["generation"]["maximum_semantic_attempts"])
+        maximum_syntax_repairs = int(
+            self.config.raw["generation"].get("maximum_syntax_repairs_per_semantic_attempt", 2)
+        )
         generated_namespace = str(self.config.raw["generation"]["generated_shape_namespace"])
         repair_feedback = ""
         repair_feedback_items: list[str] = []
@@ -261,7 +315,76 @@ class PipelineRunner:
                     artifact_type="generator_raw_response",
                     iteration=iteration,
                 )
-                candidate_turtle, validation = self.static_validator.validate_raw(generator_result.text, context)
+                candidate_response = generator_result.text
+                candidate_turtle, validation = self.static_validator.validate_raw(candidate_response, context)
+                syntax_repair_count = 0
+                while (
+                    self.static_validator.is_syntax_failure(validation)
+                    and syntax_repair_count < maximum_syntax_repairs
+                ):
+                    syntax_repair_count += 1
+                    syntax_diagnostics = self.static_validator.syntax_repair_diagnostics(
+                        candidate_response,
+                        candidate_turtle,
+                        validation,
+                    )
+                    logger.emit(
+                        "syntax_repair_started",
+                        iteration=iteration,
+                        syntax_repair_attempt=syntax_repair_count,
+                        errors=syntax_diagnostics["syntaxErrors"],
+                        offending_regions=syntax_diagnostics["offendingRegions"],
+                        semantic_attempt_consumed=False,
+                    )
+                    syntax_user = self.prompts.syntax_repair_user(
+                        candidate_response,
+                        syntax_diagnostics,
+                        generated_namespace,
+                    )
+                    logger.write_artifact(
+                        f"artifacts/attempt_{iteration:02d}/syntax_repair_prompt_{syntax_repair_count:02d}.txt",
+                        self.prompts.syntax_repair_instructions + "\n\n--- USER INPUT ---\n" + syntax_user,
+                        artifact_type="syntax_repair_prompt",
+                        iteration=iteration,
+                    )
+                    syntax_result = client.call(
+                        "syntax_repair",
+                        self.prompts.syntax_repair_instructions,
+                        syntax_user,
+                    )
+                    usage = syntax_result.usage
+                    logger.emit(
+                        "api_call_completed",
+                        role="syntax_repair",
+                        model=syntax_result.model,
+                        response_id=syntax_result.response_id,
+                        transport_attempts=syntax_result.transport_attempts,
+                        elapsed_ms=syntax_result.elapsed_ms,
+                        input_tokens=usage.get("input_tokens", ""),
+                        output_tokens=usage.get("output_tokens", ""),
+                        total_tokens=usage.get("total_tokens", ""),
+                        prompt_sha256=hash_text(self.prompts.syntax_repair_instructions + "\n" + syntax_user),
+                        response_sha256=hash_text(syntax_result.text),
+                        iteration=iteration,
+                        syntax_repair_attempt=syntax_repair_count,
+                    )
+                    logger.write_artifact(
+                        f"artifacts/attempt_{iteration:02d}/syntax_repair_raw_{syntax_repair_count:02d}.txt",
+                        syntax_result.text,
+                        artifact_type="syntax_repair_raw_response",
+                        iteration=iteration,
+                    )
+                    candidate_response = syntax_result.text
+                    candidate_turtle, validation = self.static_validator.validate_raw(
+                        candidate_response, context
+                    )
+                    logger.emit(
+                        "syntax_repair_completed",
+                        iteration=iteration,
+                        syntax_repair_attempt=syntax_repair_count,
+                        syntax_valid=not self.static_validator.is_syntax_failure(validation),
+                        semantic_attempt_consumed=False,
+                    )
                 if candidate_turtle:
                     logger.write_artifact(
                         f"artifacts/attempt_{iteration:02d}/candidate_shape.ttl",
@@ -276,6 +399,23 @@ class PipelineRunner:
                     iteration=iteration,
                 )
                 logger.emit("validation_completed", iteration=iteration, **validation.to_dict())
+
+                if self.static_validator.is_syntax_failure(validation):
+                    final_status = "SYNTAX_REPAIR_EXHAUSTED"
+                    final_feedback = (
+                        "Syntax-only repair budget exhausted before semantic validation: "
+                        + " | ".join(self.static_validator.syntax_errors(validation))
+                    )
+                    logger.emit(
+                        "unresolved_issue",
+                        iteration=iteration,
+                        issue_type=final_status,
+                        detail=final_feedback,
+                        status="OPEN",
+                        semantic_attempt_consumed=False,
+                    )
+                    attempts_used = iteration - 1
+                    break
 
                 suspicious = sorted(set(
                     validation.unknown_canonical_iris + validation.out_of_scope_canonical_iris
@@ -295,17 +435,79 @@ class PipelineRunner:
                     validation,
                     used_canonical_terms,
                     mismatch_candidates,
+                    repair_feedback_items,
                 )
-                validator_decision, validator_result = self._call_and_parse(
-                    client=client,
-                    logger=logger,
-                    role="validator",
-                    developer_prompt=self.prompts.validator_instructions,
-                    user_prompt=validator_user,
-                    parser=parse_validator_decision,
-                    artifact_prefix="validator",
-                    iteration=iteration,
-                )
+
+                def parse_history_consistent_validator(raw: str) -> ValidatorDecision:
+                    decision = parse_validator_decision(raw)
+                    if self._feedback_reverses_without_explanation(
+                        repair_feedback_items, decision.feedback
+                    ):
+                        raise ResponseContractError(
+                            "Validator feedback reverses a prior instruction without an explicit "
+                            "REVERSAL: explanation"
+                        )
+                    return decision
+
+                def validator_reconciliation_correction(
+                    exc: ResponseContractError,
+                    rejected_response: str,
+                    contract_attempt: int,
+                ) -> str:
+                    logger.emit(
+                        "validator_reconciliation_required",
+                        iteration=iteration,
+                        validator_response_attempt=contract_attempt,
+                        reason=str(exc),
+                        prior_feedback_history=repair_feedback_items,
+                        rejected_response_sha256=hash_text(rejected_response),
+                        semantic_attempt_consumed=False,
+                    )
+                    return (
+                        "\n\nVALIDATOR RESPONSE RECONCILIATION REQUIRED. The prior response was rejected: "
+                        + str(exc)
+                        + "\nPrior feedback history remains authoritative: "
+                        + json.dumps(repair_feedback_items, ensure_ascii=True)
+                        + "\nEither (A) preserve every applicable prior instruction and issue compatible "
+                        "feedback, or (B) if source/context evidence truly requires changing one, start the "
+                        "feedback string with 'REVERSAL:' and concisely identify the earlier instruction, the "
+                        "replacement instruction, and why. Do not merely rephrase the rejected response. "
+                        "Return exactly the required one-line JSON object."
+                    )
+
+                try:
+                    validator_decision, validator_result = self._call_and_parse(
+                        client=client,
+                        logger=logger,
+                        role="validator",
+                        developer_prompt=self.prompts.validator_instructions,
+                        user_prompt=validator_user,
+                        parser=parse_history_consistent_validator,
+                        artifact_prefix="validator",
+                        iteration=iteration,
+                        maximum_retries=int(
+                            self.config.raw["api"].get(
+                                "validator_response_retries",
+                                self.config.raw["api"].get("contract_response_retries", 2),
+                            )
+                        ),
+                        correction_builder=validator_reconciliation_correction,
+                    )
+                except ResponseContractError as exc:
+                    final_status = "VALIDATOR_RESPONSE_RETRY_EXHAUSTED"
+                    final_feedback = (
+                        "Validator response reconciliation budget exhausted without a valid, "
+                        f"history-consistent decision: {exc}"
+                    )
+                    logger.emit(
+                        "unresolved_issue",
+                        iteration=iteration,
+                        issue_type=final_status,
+                        detail=final_feedback,
+                        status="OPEN",
+                        semantic_attempt_consumed=False,
+                    )
+                    break
 
                 accepted = validation.valid and validator_decision.accept
                 matcher_activated = False

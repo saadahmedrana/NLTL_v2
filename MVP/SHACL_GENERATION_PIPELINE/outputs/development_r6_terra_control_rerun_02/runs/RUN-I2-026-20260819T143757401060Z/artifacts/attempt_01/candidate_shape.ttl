@@ -1,0 +1,121 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix shape: <urn:nltl:generated-shape:> .
+
+shape:I2_026ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:class nltl:structuralMember ;
+        sh:node shape:I2_026StructuralMemberShape
+    ] .
+
+shape:I2_026StructuralMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:frameSupportCondition ;
+        sh:minCount 1 ;
+        sh:in ( nltl:fixedFrameSupport nltl:simpleFrameSupport ) ;
+        sh:message "A framing member must record its frame support condition."
+    ] ;
+    sh:property [
+        sh:path nltl:continuousThroughSupport ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:terminatesWithinIceStrengthenedArea ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:hasMemberSupport ;
+        sh:class nltl:memberSupport ;
+        sh:node shape:I2_026MemberSupportShape
+    ] ;
+    sh:property [
+        sh:path nltl:significantRotationalRestraintEvidence ;
+        sh:class nltl:evidenceArtifact
+    ] ;
+    sh:sparql [
+        sh:message "Continuous-through-support information is required unless the member is recorded as terminating within an ice-strengthened area." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    $this nltl:terminatesWithinIceStrengthenedArea true .
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:continuousThroughSupport ?continuous .
+                    FILTER(datatype(?continuous) = xsd:boolean)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Each recorded support needs a connection-bracket state when the framing member is not continuous through the support." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:continuousThroughSupport false ;
+                      nltl:hasMemberSupport ?support .
+                FILTER NOT EXISTS {
+                    ?support nltl:connectionBracketPresent ?bracket .
+                    FILTER(datatype(?bracket) = xsd:boolean)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The frame support condition must be fixed where fixity is provided or required; otherwise it must be simple support." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?condition
+            WHERE {
+                $this nltl:frameSupportCondition ?condition .
+                BIND(
+                    IF(
+                        EXISTS {
+                            $this nltl:terminatesWithinIceStrengthenedArea true .
+                        }
+                        ||
+                        EXISTS {
+                            $this nltl:continuousThroughSupport true .
+                        }
+                        ||
+                        EXISTS {
+                            $this nltl:hasMemberSupport ?support .
+                            ?support nltl:connectionBracketPresent true .
+                        }
+                        ||
+                        EXISTS {
+                            $this nltl:significantRotationalRestraintEvidence ?evidence .
+                        },
+                        nltl:fixedFrameSupport,
+                        nltl:simpleFrameSupport
+                    )
+                    AS ?expectedCondition
+                )
+                FILTER(?condition != ?expectedCondition)
+            }
+        """
+    ] .
+
+shape:I2_026MemberSupportShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:connectionBracketPresent ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:demonstratedRotationalRestraint ;
+        sh:datatype xsd:boolean
+    ] .

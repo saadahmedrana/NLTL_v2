@@ -1,0 +1,129 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:IMO057ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasComponent ;
+        sh:node gen:IMO057PumpComponentShape
+    ] .
+
+gen:IMO057PumpComponentShape
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each fire pump must be linked to a containing compartment." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT DISTINCT $this
+WHERE {
+    $this a ?pumpType .
+    FILTER (?pumpType IN (
+        nltl:firePump,
+        nltl:emergencyFirePump,
+        nltl:waterMistPump,
+        nltl:waterSprayPump
+    ))
+    FILTER NOT EXISTS {
+        $this nltl:hasContainingCompartment ?compartment .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each containing-compartment value of a fire pump must identify a compartment." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT DISTINCT $this ?compartment
+WHERE {
+    $this a ?pumpType ;
+        nltl:hasContainingCompartment ?compartment .
+    FILTER (?pumpType IN (
+        nltl:firePump,
+        nltl:emergencyFirePump,
+        nltl:waterMistPump,
+        nltl:waterSprayPump
+    ))
+    FILTER NOT EXISTS {
+        ?compartment a nltl:compartment .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each compartment containing a fire pump must have a maintained temperature." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT DISTINCT $this ?compartment
+WHERE {
+    $this a ?pumpType ;
+        nltl:hasContainingCompartment ?compartment .
+    FILTER (?pumpType IN (
+        nltl:firePump,
+        nltl:emergencyFirePump,
+        nltl:waterMistPump,
+        nltl:waterSprayPump
+    ))
+    ?compartment a nltl:compartment .
+    FILTER NOT EXISTS {
+        ?compartment nltl:maintainedTemperature ?temperature .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each maintained temperature must be a QUDT quantity in degrees Celsius with at least one decimal value, and every value must be greater than 0." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?compartment ?temperature
+WHERE {
+    $this a ?pumpType ;
+        nltl:hasContainingCompartment ?compartment .
+    FILTER (?pumpType IN (
+        nltl:firePump,
+        nltl:emergencyFirePump,
+        nltl:waterMistPump,
+        nltl:waterSprayPump
+    ))
+    ?compartment a nltl:compartment ;
+        nltl:maintainedTemperature ?temperature .
+    FILTER (
+        NOT EXISTS {
+            ?temperature a qudt:QuantityValue .
+        }
+        ||
+        NOT EXISTS {
+            ?temperature qudt:numericValue ?value .
+        }
+        ||
+        EXISTS {
+            ?temperature qudt:numericValue ?value .
+            FILTER (
+                !isLiteral(?value)
+                || datatype(?value) != xsd:decimal
+                || ?value <= "0"^^xsd:decimal
+            )
+        }
+        ||
+        NOT EXISTS {
+            ?temperature qudt:unit unit:DEG_C .
+        }
+        ||
+        EXISTS {
+            ?temperature qudt:unit ?otherUnit .
+            FILTER (?otherUnit != unit:DEG_C)
+        }
+    )
+}
+"""
+    ] .
+<END_SHACL>

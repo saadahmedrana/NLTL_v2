@@ -1,0 +1,145 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-128Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:message "iceClass is required to determine the applicable compressor charging-time limit."
+    ] ;
+
+    sh:property [
+        sh:path nltl:propulsionEngineReversalRequiredForAstern ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "Propulsion engine astern-reversal status is required to determine the applicable compressor charging-time limit."
+    ] ;
+
+    sh:property [
+        sh:path nltl:airReceiverCapacity ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M3> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Air receiver capacity must be represented as a decimal quantity in cubic metres."
+    ] ;
+
+    sh:property [
+        sh:path nltl:compressorChargeTime ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/HR> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Compressor charge time must be represented as a decimal quantity in hours."
+    ] ;
+
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:hasValue nltl:iceClassIaSuper
+            ] ;
+            sh:property [
+                sh:path nltl:propulsionEngineReversalRequiredForAstern ;
+                sh:hasValue true
+            ]
+        ]
+        [
+            sh:or (
+                [
+                    sh:property [
+                        sh:path nltl:iceClass ;
+                        sh:hasValue nltl:iceClassIaSuper
+                    ] ;
+                    sh:property [
+                        sh:path nltl:propulsionEngineReversalRequiredForAstern ;
+                        sh:hasValue false
+                    ]
+                ]
+                [
+                    sh:property [
+                        sh:path nltl:iceClass ;
+                        sh:in (
+                            nltl:iceClassIa
+                            nltl:iceClassIb
+                            nltl:iceClassIc
+                            nltl:iceClassIi
+                            nltl:iceClassIii
+                        )
+                    ]
+                ]
+            )
+        ]
+    ) ;
+
+    sh:sparql [
+        sh:message "Compressor charge time must not exceed 0.5 hours for IA Super ships requiring propulsion-engine reversal for astern, or 1 hour otherwise." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?ice ;
+                      nltl:propulsionEngineReversalRequiredForAstern ?reversal ;
+                      nltl:compressorChargeTime ?chargeTimeValue .
+
+                ?chargeTimeValue qudt:numericValue ?chargeTime .
+
+                FILTER (datatype(?chargeTime) = xsd:decimal)
+
+                FILTER (
+                    (
+                        ?ice = nltl:iceClassIaSuper &&
+                        ?reversal = true &&
+                        ?chargeTime > 0.5
+                    )
+                    ||
+                    (
+                        (
+                            ?ice IN (
+                                nltl:iceClassIa
+                                nltl:iceClassIb
+                                nltl:iceClassIc
+                                nltl:iceClassIi
+                                nltl:iceClassIii
+                            )
+                            ||
+                            (
+                                ?ice = nltl:iceClassIaSuper &&
+                                ?reversal = false
+                            )
+                        )
+                        &&
+                        ?chargeTime > 1.0
+                    )
+                )
+            }
+        """
+    ] .

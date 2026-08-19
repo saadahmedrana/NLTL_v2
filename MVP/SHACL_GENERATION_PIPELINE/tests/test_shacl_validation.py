@@ -77,6 +77,41 @@ class ShaclValidationTests(unittest.TestCase):
         _turtle, report = self.validator.validate_raw(altered, self.context)
         self.assertFalse(report.valid)
         self.assertTrue(any("SHACL-SPARQL parse error" in item for item in report.errors), report.errors)
+        self.assertTrue(self.validator.is_syntax_failure(report))
+
+    def test_syntax_repair_diagnostics_exclude_semantic_lint_and_locate_query(self) -> None:
+        correct = offline_smoke_responses("IMO26-014")["generator"][1]
+        altered = correct.replace(
+            "FILTER (?daylight = false)",
+            "BIND(SQRT(4) AS ?root) FILTER (?daylight = false)",
+        )
+        context = self.vocabulary.build_context_pack("IMO26-014")
+        context.selection["dependencyContract"] = dict(context.selection["dependencyContract"])
+        context.selection["dependencyContract"].update({
+            "status": "COMPLETE",
+            "relationshipTerms": ["hasComponent"],
+        })
+        turtle, report = self.validator.validate_raw(altered, context)
+        self.assertTrue(any("dependency relationship" in item for item in report.errors), report.errors)
+        diagnostics = self.validator.syntax_repair_diagnostics(altered, turtle, report)
+        self.assertFalse(
+            any("dependency relationship" in item for item in diagnostics["syntaxErrors"]),
+            diagnostics,
+        )
+        self.assertTrue(diagnostics["offendingRegions"], diagnostics)
+        self.assertIn("SQRT", diagnostics["offendingRegions"][0]["offendingLine"])
+
+    def test_complete_contract_relationship_is_deterministically_required(self) -> None:
+        correct = offline_smoke_responses("IMO26-014")["generator"][1]
+        context = self.vocabulary.build_context_pack("IMO26-014")
+        context.selection["dependencyContract"] = dict(context.selection["dependencyContract"])
+        context.selection["dependencyContract"].update({
+            "status": "COMPLETE",
+            "relationshipTerms": ["hasComponent"],
+        })
+        _turtle, report = self.validator.validate_raw(correct, context)
+        self.assertFalse(report.valid)
+        self.assertTrue(any("dependency relationship" in item for item in report.errors), report.errors)
 
     def test_shacl_forbidden_values_clause_is_rejected_by_runtime_smoke(self) -> None:
         correct = offline_smoke_responses("IMO26-014")["generator"][1]

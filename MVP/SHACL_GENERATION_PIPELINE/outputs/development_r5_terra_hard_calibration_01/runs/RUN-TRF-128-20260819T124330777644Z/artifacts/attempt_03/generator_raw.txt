@@ -1,0 +1,116 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-128Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:iceClassValue ;
+        sh:message "iceClass is required to determine the applicable compressor charging-time limit."
+    ] ;
+
+    sh:property [
+        sh:path nltl:propulsionEngineReversalRequiredForAstern ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:message "propulsionEngineReversalRequiredForAstern is required to determine the applicable compressor charging-time limit."
+    ] ;
+
+    sh:property [
+        sh:path nltl:airReceiverCapacity ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:M3
+            ]
+        ] ;
+        sh:message "airReceiverCapacity must be recorded as one cubic-metre quantity value."
+    ] ;
+
+    sh:property [
+        sh:path nltl:compressorChargeTime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:HR
+            ]
+        ] ;
+        sh:message "compressorChargeTime must be recorded as one hour quantity value."
+    ] ;
+
+    sh:sparql [
+        sh:message "Air receivers must be chargeable within 0.5 hours for IA Super ships requiring propulsion-engine reversal for astern, and within 1 hour in every other case." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:propulsionEngineReversalRequiredForAstern ?reversal ;
+                      nltl:airReceiverCapacity ?receiver ;
+                      nltl:compressorChargeTime ?chargeTime .
+
+                ?receiver qudt:numericValue ?receiverCapacity ;
+                          qudt:unit unit:M3 .
+
+                ?chargeTime qudt:numericValue ?chargeHours ;
+                            qudt:unit unit:HR .
+
+                BIND(
+                    IF(
+                        ?iceClass = nltl:iceClassIaSuper && ?reversal = true,
+                        "0.5"^^xsd:decimal,
+                        "1.0"^^xsd:decimal
+                    )
+                    AS ?maximumHours
+                )
+
+                BIND((?receiverCapacity / ?chargeHours) AS ?actualChargingRate)
+                BIND((?receiverCapacity / ?maximumHours) AS ?requiredChargingRate)
+                BIND(
+                    ((?requiredChargingRate * "0.000001"^^xsd:decimal)
+                     + "0.000000001"^^xsd:decimal)
+                    AS ?rateTolerance
+                )
+
+                FILTER(
+                    ?chargeHours > ?maximumHours
+                    ||
+                    ?actualChargingRate < (?requiredChargingRate - ?rateTolerance)
+                )
+            }
+        """
+    ] .
+<END_SHACL>
