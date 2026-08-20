@@ -1,0 +1,114 @@
+<BEGIN_SHACL>
+@prefix g: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+g:TRF011WaterlineProfilePointShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:M
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:M
+            ]
+        ]
+    ] .
+
+g:TRF011IceWaterlineShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node g:TRF011WaterlineProfilePointShape
+    ] .
+
+g:TRF011UpperIceWaterlineEnvelopeShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:class nltl:iceWaterline ;
+        sh:node g:TRF011IceWaterlineShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:node g:TRF011IceWaterlineShape
+    ] ;
+    sh:sparql [
+        sh:message "At each longitudinal position, upper ice waterline coordinates must equal the maximum intended ice-operating waterline coordinate within relative tolerance 1e-6 and absolute tolerance 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?x
+                   (MAX(?intendedY) AS ?expectedY)
+                   (MIN(?upperY) AS ?minimumUpperY)
+                   (MAX(?upperY) AS ?maximumUpperY)
+                   (COUNT(?intendedY) AS ?intendedCount)
+                   (COUNT(?upperY) AS ?upperCount)
+            WHERE {
+                {
+                    $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+                    ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+                    ?intendedPoint nltl:longitudinalPosition ?intendedXQuantity ;
+                                   nltl:verticalCoordinate ?intendedYQuantity .
+                    ?intendedXQuantity qudt:numericValue ?intendedXValue .
+                    ?intendedYQuantity qudt:numericValue ?intendedYValue .
+                    BIND(xsd:decimal(?intendedXValue) AS ?x)
+                    BIND(xsd:decimal(?intendedYValue) AS ?intendedY)
+                }
+                UNION
+                {
+                    $this nltl:hasUpperIceWaterline ?upperWaterline .
+                    ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+                    ?upperPoint nltl:longitudinalPosition ?upperXQuantity ;
+                                nltl:verticalCoordinate ?upperYQuantity .
+                    ?upperXQuantity qudt:numericValue ?upperXValue .
+                    ?upperYQuantity qudt:numericValue ?upperYValue .
+                    BIND(xsd:decimal(?upperXValue) AS ?x)
+                    BIND(xsd:decimal(?upperYValue) AS ?upperY)
+                }
+            }
+            GROUP BY $this ?x
+            HAVING (
+                COUNT(?intendedY) = 0 ||
+                COUNT(?upperY) = 0 ||
+                ABS(MIN(?upperY) - MAX(?intendedY)) >
+                    (0.000001 * ABS(MAX(?intendedY)) + 0.000000001) ||
+                ABS(MAX(?upperY) - MAX(?intendedY)) >
+                    (0.000001 * ABS(MAX(?intendedY)) + 0.000000001)
+            )
+        """
+    ] .
+<END_SHACL>

@@ -174,10 +174,41 @@ class VocabularyRepository:
             raise ConfigurationError(f"Unknown requirement ID: {requirement_id}") from exc
 
     def is_generation_eligible(self, requirement: dict[str, Any]) -> bool:
-        return (
-            requirement.get("activeStatus") == "Stage 2 candidate - direct/deterministic"
-            and str(requirement.get("figureDependent", "No")).lower() != "yes"
-        )
+        if str(requirement.get("figureDependent", "No")).lower() == "yes":
+            return False
+        requirement_id = str(requirement.get("id", ""))
+        contract = self.dependency_contracts.get(requirement_id, {})
+        category = requirement.get("category")
+        mode = contract.get("verificationMode")
+        if contract.get("status") == "COMPLETE":
+            if category == "Static" and mode == "DIRECT_STATIC":
+                return True
+            if category == "Static Calculation" and mode == "DIRECT_CALCULATION":
+                return True
+            if category == "Complex" and mode == "COMPLEX_READINESS":
+                return True
+        # Compatibility for immutable pre-R9 locks whose direct requirements
+        # predate explicit verification-mode routing.
+        if requirement.get("activeStatus") == "Stage 2 candidate - direct/deterministic":
+            return True
+        return False
+
+    @staticmethod
+    def retrieval_tags(requirement: dict[str, Any], contract: dict[str, Any]) -> list[str]:
+        if contract.get("verificationMode") == "COMPLEX_READINESS" or requirement.get("category") == "Complex":
+            return [
+                "complex", "readiness", "external-calculation", "calculation-inputs",
+                "calculation-results", "engineering-evidence",
+            ]
+        if requirement.get("category") == "Static Calculation":
+            return ["static-calculation", "direct-calculation", "basic-arithmetic"]
+        if requirement.get("category") == "Static":
+            return ["static", "direct-static"]
+        if requirement.get("category") == "Dynamic":
+            return ["dynamic", "runtime", "history"]
+        if requirement.get("category") == "Physical Test":
+            return ["physical-test", "test-evidence"]
+        return []
 
     def build_context_pack(
         self,
@@ -306,6 +337,9 @@ class VocabularyRepository:
                 "semanticObligations": list(self.semantic_obligations.get(requirement_id, [])),
                 "exclusivePropertyGroups": list(self.exclusive_property_groups.get(requirement_id, [])),
                 "dependencyContract": dict(self.dependency_contracts.get(requirement_id, {})),
+                "retrievalTags": self.retrieval_tags(
+                    requirement, self.dependency_contracts.get(requirement_id, {})
+                ),
             },
             usage_policy={
                 "useOnlyAllowedCanonicalTerms": True,
@@ -328,8 +362,11 @@ class VocabularyRepository:
         for key in (
             "applicabilityTerms", "operandTerms", "resultTerms", "comparisonTerms",
             "relationshipTerms", "evidenceTerms", "controlledValueTerms", "timeTerms",
+            "directConstraintTerms",
         ):
             declared.update(str(item) for item in contract.get(key, []))
+        for direct_check in contract.get("directCheckSubconstraints", []):
+            declared.update(str(item) for item in direct_check.get("requiredTerms", []))
         declared.update(str(item) for item in contract.get("ownerClasses", []))
         missing = sorted(declared - set(self.all_terms))
         if missing:
@@ -353,6 +390,41 @@ class VocabularyRepository:
             raise ConfigurationError(
                 f"Complete dependency contract lacks required model fields for {requirement_id}: {missing_fields}"
             )
+        if contract.get("verificationMode") == "COMPLEX_READINESS":
+            requirement = self.requirement(requirement_id)
+            if requirement.get("category") != "Complex":
+                raise ConfigurationError(
+                    f"COMPLEX_READINESS contract is not classified Complex: {requirement_id}"
+                )
+            if not contract.get("operandTerms") and not contract.get("inputsSatisfiedByEvidenceOnly"):
+                raise ConfigurationError(
+                    f"COMPLEX_READINESS contract lacks required inputs: {requirement_id}"
+                )
+            if not contract.get("resultTerms"):
+                raise ConfigurationError(
+                    f"COMPLEX_READINESS contract lacks required outputs: {requirement_id}"
+                )
+            for direct_check in contract.get("directCheckSubconstraints", []):
+                if not direct_check.get("id") or not direct_check.get("requiredTerms"):
+                    raise ConfigurationError(
+                        f"COMPLEX_READINESS DIRECT_CHECK is incomplete for {requirement_id}"
+                    )
+        if contract.get("verificationMode") in {"DIRECT_STATIC", "DIRECT_CALCULATION"}:
+            requirement = self.requirement(requirement_id)
+            expected_category = (
+                "Static" if contract.get("verificationMode") == "DIRECT_STATIC"
+                else "Static Calculation"
+            )
+            if requirement.get("category") != expected_category:
+                raise ConfigurationError(
+                    f"{contract.get('verificationMode')} contract has category mismatch: {requirement_id}"
+                )
+            direct_terms = set(str(item) for item in contract.get("directConstraintTerms", []))
+            missing_direct = sorted(direct_terms - set(self.all_terms))
+            if missing_direct:
+                raise ConfigurationError(
+                    f"Direct contract contains absent canonical terms for {requirement_id}: {missing_direct}"
+                )
         if int(contract.get("schemaVersion", 1)) >= 2:
             def class_is_compatible(actual_iri: str, expected_iri: str) -> bool:
                 """Return true when actual is expected or one of its subclasses."""

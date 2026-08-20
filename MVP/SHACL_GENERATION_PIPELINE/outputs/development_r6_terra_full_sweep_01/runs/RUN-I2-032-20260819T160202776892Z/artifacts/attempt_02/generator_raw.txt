@@ -1,0 +1,190 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gs: <urn:nltl:generated-shape:> .
+
+gs:LengthQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:StressQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:AreaSquareMetreQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:AreaSquareCentimetreQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:CentiM2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:DimensionlessQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:ShipI2032InputsShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:minCount 1 ;
+        sh:node gs:StressQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:minCount 1 ;
+        sh:node gs:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:peakPressureFactor ;
+        sh:minCount 1 ;
+        sh:node gs:DimensionlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shearArea ;
+        sh:minCount 1 ;
+        sh:node gs:AreaSquareMetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:span ;
+        sh:minCount 1 ;
+        sh:node gs:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node gs:StressQuantityShape
+    ] .
+
+gs:StructuralMemberI2032Shape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:node gs:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:minCount 1 ;
+        sh:node gs:DimensionlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:requiredTransverseFrameShearArea ;
+        sh:minCount 1 ;
+        sh:node gs:AreaSquareCentimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path [
+            sh:inversePath nltl:hasStructuralMember
+        ] ;
+        sh:node gs:ShipI2032InputsShape
+    ] .
+
+gs:I2_032_ShearAreaShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gs:StructuralMemberI2032Shape
+    ] ;
+    sh:sparql [
+        sh:message "requiredTransverseFrameShearArea must equal the I2.6.2 formula result within relative tolerance 1e-6 and absolute tolerance 1e-6 cm2." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                      nltl:averageIcePressure ?pAvgQ ;
+                      nltl:loadPatchHeight ?loadHeightQ ;
+                      nltl:peakPressureFactor ?ppfQ ;
+                      nltl:span ?spanQ ;
+                      nltl:yieldStrength ?yieldQ .
+                ?member nltl:frameSpacing ?spacingQ ;
+                        nltl:selectedHullAreaFactor ?afQ ;
+                        nltl:requiredTransverseFrameShearArea ?atQ .
+                ?pAvgQ qudt:numericValue ?pAvg .
+                ?loadHeightQ qudt:numericValue ?loadHeight .
+                ?ppfQ qudt:numericValue ?ppf .
+                ?spanQ qudt:numericValue ?span .
+                ?yieldQ qudt:numericValue ?yield .
+                ?spacingQ qudt:numericValue ?spacing .
+                ?afQ qudt:numericValue ?af .
+                ?atQ qudt:numericValue ?at .
+                BIND(
+                    5000 * IF(?span < ?loadHeight, ?span, ?loadHeight) *
+                    ?spacing * (?af * ?ppf * ?pAvg) / (0.577 * ?yield)
+                    AS ?expectedAt
+                )
+                FILTER(ABS(?at - ?expectedAt) >
+                    (ABS(?expectedAt) * 0.000001 + 0.000001))
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Actual shearArea, converted from m2 to cm2, must be at least requiredTransverseFrameShearArea." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                      nltl:shearArea ?awQ .
+                ?member nltl:requiredTransverseFrameShearArea ?atQ .
+                ?awQ qudt:numericValue ?aw .
+                ?atQ qudt:numericValue ?at .
+                FILTER((?aw * 10000) < ?at)
+            }
+        """
+    ] .
+<END_SHACL>

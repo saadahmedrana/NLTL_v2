@@ -487,6 +487,35 @@ class ShaclStaticValidator:
                     + ", ".join(sorted(missing_relationships))
                 )
 
+            if contract.get("verificationMode") == "COMPLEX_READINESS":
+                readiness_categories = (
+                    ("required input", "operandTerms"),
+                    ("required result/output", "resultTerms"),
+                    ("applicability evidence", "applicabilityTerms"),
+                    ("required evidence/method reference", "evidenceTerms"),
+                    ("required controlled value", "controlledValueTerms"),
+                )
+                for label, key in readiness_categories:
+                    missing = [
+                        str(local_name) for local_name in contract.get(key, [])
+                        if NLTL + str(local_name) not in used_nltl
+                    ]
+                    if missing:
+                        errors.append(
+                            f"COMPLEX_READINESS {label}(s) absent from candidate: "
+                            + ", ".join(sorted(missing))
+                        )
+                for direct_check in contract.get("directCheckSubconstraints", []):
+                    missing = [
+                        str(local_name) for local_name in direct_check.get("requiredTerms", [])
+                        if NLTL + str(local_name) not in used_nltl
+                    ]
+                    if missing:
+                        errors.append(
+                            f"DIRECT_CHECK {direct_check.get('id', 'unnamed')} required term(s) absent: "
+                            + ", ".join(sorted(missing))
+                        )
+
             for policy in contract.get("selectorPolicies", []):
                 selector_terms = [str(item) for item in policy.get("selectorTerms", [])]
                 missing = [item for item in selector_terms if NLTL + item not in used_nltl]

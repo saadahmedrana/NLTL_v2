@@ -1,0 +1,457 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:I2-030Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:class nltl:calculationCase ;
+        sh:node <urn:nltl:generated-shape:I2-030CalculationCaseShape>
+    ] .
+
+<urn:nltl:generated-shape:I2-030CalculationCaseShape>
+    a sh:NodeShape ;
+    sh:class nltl:localFrameSectionCalculationCase ;
+    sh:property [
+        sh:path nltl:sectionCalculationCaseStructuralMember ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:structuralMember ;
+        sh:node <urn:nltl:generated-shape:I2-030StructuralMemberShape>
+    ] ;
+    sh:property [
+        sh:path nltl:sectionCalculationCasePlating ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:plating ;
+        sh:node <urn:nltl:generated-shape:I2-030PlatingShape>
+    ] ;
+    sh:property [
+        sh:path nltl:plasticNeutralAxisHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:MilliM
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationLowerEndpoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:interpolationPoint ;
+        sh:node <urn:nltl:generated-shape:I2-030InterpolationPointShape>
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationUpperEndpoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:interpolationPoint ;
+        sh:node <urn:nltl:generated-shape:I2-030InterpolationPointShape>
+    ] ;
+    sh:sparql [
+        sh:message "The local-frame calculation case must be linked from its structural member by hasLocalFrameSectionCalculationCase." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member .
+                FILTER NOT EXISTS {
+                    ?member nltl:hasLocalFrameSectionCalculationCase $this .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "plasticNeutralAxisHeight must equal the required z_na formula when the local-frame area exceeds the attached-plate-flange area." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:plasticNeutralAxisHeight ?zq .
+                ?member nltl:netLocalFrameFlangeArea ?afq ;
+                        nltl:webHeight ?hwq ;
+                        nltl:netWebThickness ?twq ;
+                        nltl:netAttachedShellPlateThickness ?tpq ;
+                        nltl:frameSpacing ?sq .
+                ?afq qudt:numericValue ?af .
+                ?hwq qudt:numericValue ?hw .
+                ?twq qudt:numericValue ?tw .
+                ?tpq qudt:numericValue ?tp .
+                ?sq qudt:numericValue ?s .
+                ?zq qudt:numericValue ?z .
+                FILTER (100 * ?af > 1000 * ?tp * ?s)
+                BIND ((100 * ?af + ?hw * ?tw - 1000 * ?tp * ?s) / (2 * ?tw) AS ?expected)
+                BIND ((ABS(?expected) * 0.000001) + 0.000000001 AS ?tolerance)
+                FILTER (ABS(?z - ?expected) > ?tolerance)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "netEffectivePlasticSectionModulus must equal the specified Z_p formula outside the oblique-framing interpolation range." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:sectionCalculationCasePlating ?plating .
+                ?member nltl:netLocalFrameFlangeArea ?afq ;
+                        nltl:webHeight ?hwq ;
+                        nltl:netWebThickness ?twq ;
+                        nltl:netAttachedShellPlateThickness ?tpq ;
+                        nltl:frameSpacing ?sq ;
+                        nltl:localFrameFlangeCentreHeight ?hfcq ;
+                        nltl:webAngleToShellPlate ?phiq ;
+                        nltl:webToFlangeCentreDistance ?bwq ;
+                        nltl:netEffectivePlasticSectionModulus ?zpq .
+                ?plating nltl:framingAngleOmega ?omegaq .
+                ?afq qudt:numericValue ?af .
+                ?hwq qudt:numericValue ?hw .
+                ?twq qudt:numericValue ?tw .
+                ?tpq qudt:numericValue ?tp .
+                ?sq qudt:numericValue ?s .
+                ?hfcq qudt:numericValue ?hfc .
+                ?phiq qudt:numericValue ?phi .
+                ?bwq qudt:numericValue ?bw .
+                ?omegaq qudt:numericValue ?omega .
+                ?zpq qudt:numericValue ?zp .
+                FILTER (100 * ?af > 1000 * ?tp * ?s)
+                FILTER (?omega <= 20 || ?omega >= 70)
+                BIND ((100 * ?af + ?hw * ?tw - 1000 * ?tp * ?s) / (2 * ?tw) AS ?zna)
+                BIND (?phi * 3.14159265358979323846 / 180 AS ?phiRadians)
+                BIND (
+                    ?tp * ?s * (?zna + ?tp / 2) * math:sin(?phiRadians) +
+                    (((?hw - ?zna) * (?hw - ?zna) + ?zna * ?zna) * ?tw * math:sin(?phiRadians)) / 2000 +
+                    ?af * ((?hfc - ?zna) * math:sin(?phiRadians) - ?bw * math:cos(?phiRadians)) / 10
+                    AS ?expected
+                )
+                BIND ((ABS(?expected) * 0.000001) + 0.000000001 AS ?tolerance)
+                FILTER (ABS(?zp - ?expected) > ?tolerance)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For oblique framing, interpolation endpoints must have strictly increasing coordinates that bracket framingAngleOmega." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCasePlating ?plating ;
+                      nltl:interpolationLowerEndpoint ?lower ;
+                      nltl:interpolationUpperEndpoint ?upper .
+                ?plating nltl:framingAngleOmega ?omegaq .
+                ?omegaq qudt:numericValue ?omega .
+                ?lower nltl:interpolationPointCoordinate ?lowerCoordinateQ .
+                ?upper nltl:interpolationPointCoordinate ?upperCoordinateQ .
+                ?lowerCoordinateQ qudt:numericValue ?lowerCoordinate .
+                ?upperCoordinateQ qudt:numericValue ?upperCoordinate .
+                FILTER (?omega > 20 && ?omega < 70)
+                FILTER (
+                    ?lowerCoordinate >= ?upperCoordinate ||
+                    ?lowerCoordinate > ?omega ||
+                    ?upperCoordinate < ?omega
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For oblique framing, netEffectivePlasticSectionModulus must equal the linearly interpolated endpoint result." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:sectionCalculationCaseStructuralMember ?member ;
+                      nltl:sectionCalculationCasePlating ?plating ;
+                      nltl:interpolationLowerEndpoint ?lower ;
+                      nltl:interpolationUpperEndpoint ?upper .
+                ?member nltl:netLocalFrameFlangeArea ?afq ;
+                        nltl:netAttachedShellPlateThickness ?tpq ;
+                        nltl:frameSpacing ?sq ;
+                        nltl:netEffectivePlasticSectionModulus ?zpq .
+                ?plating nltl:framingAngleOmega ?omegaq .
+                ?lower nltl:interpolationPointCoordinate ?lowerCoordinateQ ;
+                       nltl:interpolationPointResult ?lowerResultQ .
+                ?upper nltl:interpolationPointCoordinate ?upperCoordinateQ ;
+                       nltl:interpolationPointResult ?upperResultQ .
+                ?afq qudt:numericValue ?af .
+                ?tpq qudt:numericValue ?tp .
+                ?sq qudt:numericValue ?s .
+                ?omegaq qudt:numericValue ?omega .
+                ?zpq qudt:numericValue ?zp .
+                ?lowerCoordinateQ qudt:numericValue ?lowerCoordinate .
+                ?upperCoordinateQ qudt:numericValue ?upperCoordinate .
+                ?lowerResultQ qudt:numericValue ?lowerResult .
+                ?upperResultQ qudt:numericValue ?upperResult .
+                FILTER (100 * ?af > 1000 * ?tp * ?s)
+                FILTER (?omega > 20 && ?omega < 70)
+                FILTER (?lowerCoordinate < ?upperCoordinate)
+                FILTER (?lowerCoordinate <= ?omega && ?omega <= ?upperCoordinate)
+                BIND (
+                    ?lowerResult +
+                    ((?omega - ?lowerCoordinate) * (?upperResult - ?lowerResult) /
+                    (?upperCoordinate - ?lowerCoordinate))
+                    AS ?expected
+                )
+                BIND ((ABS(?expected) * 0.000001) + 0.000000001 AS ?tolerance)
+                FILTER (ABS(?zp - ?expected) > ?tolerance)
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:I2-030StructuralMemberShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasLocalFrameSectionCalculationCase ;
+        sh:minCount 1 ;
+        sh:class nltl:localFrameSectionCalculationCase
+    ] ;
+    sh:property [
+        sh:path nltl:netLocalFrameFlangeArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:CentiM2
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:webHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:MilliM
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:netWebThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:MilliM
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:netAttachedShellPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:MilliM
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:M
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:localFrameFlangeCentreHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:MilliM
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:webAngleToShellPlate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:DEG
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:webToFlangeCentreDistance ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:MilliM
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:netEffectivePlasticSectionModulus ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:CentiM3
+            ]
+        ]
+    ] .
+
+<urn:nltl:generated-shape:I2-030PlatingShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:DEG
+            ]
+        ]
+    ] .
+
+<urn:nltl:generated-shape:I2-030InterpolationPointShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:UNITLESS
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ]
+        ]
+    ] .
+<END_SHACL>

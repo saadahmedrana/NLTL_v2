@@ -1,0 +1,299 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2_054ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasHullGirderBendingMomentCalculationCase ;
+        sh:node gs:I2_054HullGirderCaseShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:node gs:I2_054CalculationCaseShape
+    ] .
+
+gs:I2_054HullGirderCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:hullGirderBendingMomentCalculationCase ;
+    sh:property [
+        sh:path nltl:caseHullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:minInclusive "0"^^xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:caseBendingMomentDistributionFactor ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:caseDesignVerticalIceBendingMoment ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaN-M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path [
+            sh:inversePath nltl:hasHullGirderBendingMomentCalculationCase
+        ] ;
+        sh:node gs:I2_054HullGirderCaseShipInputsShape
+    ] ;
+    sh:sparql [
+        sh:message "Hull-girder longitudinal position must not exceed L_UI from aft." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:caseHullGirderLongitudinalPositionFromAft ?positionQuantity .
+                ?positionQuantity qudt:numericValue ?position .
+                ?ship nltl:hasHullGirderBendingMomentCalculationCase $this ;
+                      nltl:upperIceWaterlineLengthLUI ?lengthQuantity .
+                ?lengthQuantity qudt:numericValue ?length .
+                FILTER (?position > ?length)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Case bendingMomentDistributionFactor must follow the specified C_m distribution within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:caseHullGirderLongitudinalPositionFromAft ?positionQuantity ;
+                      nltl:caseBendingMomentDistributionFactor ?factorQuantity .
+                ?positionQuantity qudt:numericValue ?position .
+                ?factorQuantity qudt:numericValue ?factor .
+                ?ship nltl:hasHullGirderBendingMomentCalculationCase $this ;
+                      nltl:upperIceWaterlineLengthLUI ?lengthQuantity .
+                ?lengthQuantity qudt:numericValue ?length .
+                FILTER (?length > 0)
+                BIND(xsd:decimal(?position) / xsd:decimal(?length) AS ?coordinate)
+                FILTER (?coordinate >= 0 && ?coordinate <= 1)
+                BIND(
+                    IF(
+                        ?coordinate <= 0.5,
+                        2 * ?coordinate,
+                        IF(
+                            ?coordinate <= 0.7,
+                            1,
+                            IF(
+                                ?coordinate <= 0.95,
+                                1 - 2.8 * (?coordinate - 0.7),
+                                6 * (1 - ?coordinate)
+                            )
+                        )
+                    )
+                    AS ?expectedFactor
+                )
+                FILTER (
+                    ABS(xsd:decimal(?factor) - ?expectedFactor) >
+                    (0.000000001 + 0.000001 * ABS(?expectedFactor))
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Stem angle must provide a positive sine for the bending-moment calculation." ;
+        sh:select """
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasHullGirderBendingMomentCalculationCase $this ;
+                      nltl:stemAngle ?angleQuantity .
+                ?angleQuantity qudt:numericValue ?angle .
+                BIND(
+                    math:sin(xsd:decimal(?angle) * 3.141592653589793 / 180)
+                    AS ?sine
+                )
+                FILTER (?sine <= 0)
+            }
+        """
+    ] .
+
+gs:I2_054HullGirderCaseShipInputsShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:minExclusive "0"^^xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:stemAngle ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] .
+
+gs:I2_054CalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:node gs:I2_054InterpolationPointShape
+    ] .
+
+gs:I2_054InterpolationPointShape
+    a sh:NodeShape ;
+    sh:class nltl:interpolationPoint ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:minInclusive "0"^^xsd:decimal ;
+                sh:maxInclusive "1"^^xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "Interpolation-point result must follow the specified C_m distribution within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:interpolationPointCoordinate ?coordinateQuantity ;
+                      nltl:interpolationPointResult ?resultQuantity .
+                ?coordinateQuantity qudt:numericValue ?coordinate .
+                ?resultQuantity qudt:numericValue ?result .
+                BIND(xsd:decimal(?coordinate) AS ?position)
+                BIND(
+                    IF(
+                        ?position <= 0.5,
+                        2 * ?position,
+                        IF(
+                            ?position <= 0.7,
+                            1,
+                            IF(
+                                ?position <= 0.95,
+                                1 - 2.8 * (?position - 0.7),
+                                6 * (1 - ?position)
+                            )
+                        )
+                    )
+                    AS ?expectedResult
+                )
+                FILTER (
+                    ABS(xsd:decimal(?result) - ?expectedResult) >
+                    (0.000000001 + 0.000001 * ABS(?expectedResult))
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,175 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:PositiveMetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minExclusive 0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TwoMillimetreCorrosionAdditionShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 2 ;
+        sh:maxInclusive 2
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:LowerApprovedCorrosionAdditionShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:maxExclusive 2
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TRF042PlatingShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:PositiveMetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:PositiveMetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:UnitlessQuantityShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gs:TwoMillimetreCorrosionAdditionShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gs:LowerApprovedCorrosionAdditionShape
+            ] ;
+            sh:property [
+                sh:path nltl:specialSurfaceCoatingMaintained ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:materialApprovalStatus ;
+                sh:class nltl:evidenceState ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue nltl:evidenceStateApproved
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "longitudinalPlatingFactorF2 must match the applicable f2 formula within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?heightQuantity ;
+                      nltl:spacing ?spacingQuantity ;
+                      nltl:longitudinalPlatingFactorF2 ?factorQuantity .
+                ?heightQuantity qudt:numericValue ?h .
+                ?spacingQuantity qudt:numericValue ?s .
+                ?factorQuantity qudt:numericValue ?f2 .
+                BIND(?h / ?s AS ?ratio)
+                FILTER(?ratio <= 1.8)
+                BIND(
+                    IF(
+                        ?ratio <= 1,
+                        (0.4 / ?ratio) + 0.6,
+                        1.4 - (0.4 * ?ratio)
+                    ) AS ?expected
+                )
+                BIND(
+                    IF(
+                        (0.000001 * ABS(?expected)) > 0.000000000001,
+                        0.000001 * ABS(?expected),
+                        0.000000000001
+                    ) AS ?tolerance
+                )
+                FILTER(ABS(?f2 - ?expected) > ?tolerance)
+            }
+        """
+    ] .
+<END_SHACL>

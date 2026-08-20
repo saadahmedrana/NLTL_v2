@@ -1,0 +1,218 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:MetreQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:MetricTonneQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/TON_Metric> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:UpperIceWaterlineShape a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:waterlineDisplacement ;
+        sh:minCount 1 ;
+        sh:node gs:MetricTonneQuantityShape
+    ] .
+
+gs:BallastTankConditionShape a sh:NodeShape ;
+    sh:class nltl:ballastTank ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:situatedAboveLowerIceWaterline ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:usedToReachLowerIceWaterline ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:situatedAboveLowerIceWaterline ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:usedToReachLowerIceWaterline ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:freezingPreventionPresent ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:hasValue true ;
+                sh:message "A ballast tank above the LIWL and used to reach it must have freezing prevention."
+            ]
+        ]
+    ) .
+
+gs:NavigatingInIceShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:navigatingInIce ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:draughtAmidships ;
+        sh:minCount 1 ;
+        sh:node gs:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:liwlDraughtAmidships ;
+        sh:minCount 1 ;
+        sh:node gs:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:forwardDraught ;
+        sh:minCount 1 ;
+        sh:node gs:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:levelIceThickness ;
+        sh:minCount 1 ;
+        sh:node gs:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:displacementAtUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:node gs:MetricTonneQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:node gs:UpperIceWaterlineShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasBallastTank ;
+        sh:node gs:BallastTankConditionShape
+    ] ;
+    sh:property [
+        sh:path nltl:propellerHighestPointSubmerged ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue true ;
+        sh:message "The highest point of the propeller must be submerged when navigating in ice."
+    ] ;
+    sh:sparql [
+        sh:message "Draught amidships must be at least the LIWL draught amidships when navigating in ice." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:draughtAmidships ?draughtQuantity ;
+                      nltl:liwlDraughtAmidships ?liwlQuantity .
+                ?draughtQuantity qudt:numericValue ?draught .
+                ?liwlQuantity qudt:numericValue ?liwlDraught .
+                FILTER (?draught < ?liwlDraught)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The recorded UIWL displacement must match the greatest displacement among the linked UIWL waterlines within a relative tolerance of 1e-6 (absolute fallback 1e-9)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:displacementAtUpperIceWaterline ?claimedQuantity ;
+                      nltl:hasUpperIceWaterline ?waterline .
+                ?claimedQuantity qudt:numericValue ?claimed .
+                ?waterline nltl:waterlineDisplacement ?displacementQuantity .
+                ?displacementQuantity qudt:numericValue ?greatest .
+                FILTER NOT EXISTS {
+                    $this nltl:hasUpperIceWaterline ?otherWaterline .
+                    ?otherWaterline nltl:waterlineDisplacement ?otherQuantity .
+                    ?otherQuantity qudt:numericValue ?otherDisplacement .
+                    FILTER (?otherDisplacement > ?greatest)
+                }
+                FILTER (
+                    ABS(?claimed - ?greatest) >
+                    IF(
+                        ABS(?greatest) > 0.001,
+                        0.000001 * ABS(?greatest),
+                        0.000000001
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Forward draught must be at least min((2 + 0.00025 times greatest UIWL displacement) times level ice thickness, 4 times level ice thickness)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:forwardDraught ?forwardQuantity ;
+                      nltl:levelIceThickness ?iceQuantity ;
+                      nltl:hasUpperIceWaterline ?waterline .
+                ?forwardQuantity qudt:numericValue ?forwardDraught .
+                ?iceQuantity qudt:numericValue ?iceThickness .
+                ?waterline nltl:waterlineDisplacement ?displacementQuantity .
+                ?displacementQuantity qudt:numericValue ?displacement .
+                FILTER NOT EXISTS {
+                    $this nltl:hasUpperIceWaterline ?otherWaterline .
+                    ?otherWaterline nltl:waterlineDisplacement ?otherQuantity .
+                    ?otherQuantity qudt:numericValue ?otherDisplacement .
+                    FILTER (?otherDisplacement > ?displacement)
+                }
+                FILTER (
+                    ?forwardDraught < ((2.0 + (0.00025 * ?displacement)) * ?iceThickness) &&
+                    ?forwardDraught < (4.0 * ?iceThickness)
+                )
+            }
+        """
+    ] .
+
+gs:TRF016Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:navigatingInIce ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        gs:NavigatingInIceShape
+    ) .

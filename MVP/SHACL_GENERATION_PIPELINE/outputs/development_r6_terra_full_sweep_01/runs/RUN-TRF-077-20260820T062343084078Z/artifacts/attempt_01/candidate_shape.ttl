@@ -1,0 +1,169 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-077Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "propellerType is required to determine the applicable ice-force spectrum shape parameter."
+    ] ;
+
+    sh:property [
+        sh:path nltl:loadSpectrumShapeParameter ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    sh:property [
+        sh:path nltl:maximumBladeIceLoad ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:minInclusive "0"^^xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    sh:property [
+        sh:path nltl:bladeIceLoad ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:minInclusive "0"^^xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    sh:sparql [
+        sh:message "The applicable loadSpectrumShapeParameter is missing for the propeller type." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType .
+                FILTER (
+                    ?propellerType IN (
+                        "open propeller"^^xsd:string,
+                        "ducted propeller blade"^^xsd:string
+                    )
+                )
+                BIND(
+                    IF(
+                        ?propellerType = "open propeller"^^xsd:string,
+                        "0.75"^^xsd:decimal,
+                        "1.0"^^xsd:decimal
+                    )
+                    AS ?expected
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:loadSpectrumShapeParameter ?shapeParameter .
+                    ?shapeParameter qudt:numericValue ?value ;
+                                    qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                    FILTER(
+                        datatype(?value) = xsd:decimal &&
+                        ?value = ?expected
+                    )
+                }
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "loadSpectrumShapeParameter does not match the propeller-type-specific required value." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType ;
+                      nltl:loadSpectrumShapeParameter ?shapeParameter .
+                ?shapeParameter qudt:numericValue ?value .
+                FILTER (
+                    ?propellerType IN (
+                        "open propeller"^^xsd:string,
+                        "ducted propeller blade"^^xsd:string
+                    )
+                )
+                BIND(
+                    IF(
+                        ?propellerType = "open propeller"^^xsd:string,
+                        "0.75"^^xsd:decimal,
+                        "1.0"^^xsd:decimal
+                    )
+                    AS ?expected
+                )
+                FILTER(
+                    datatype(?value) = xsd:decimal &&
+                    ?value != ?expected
+                )
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "bladeIceLoad must not exceed maximumBladeIceLoad." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:bladeIceLoad ?iceLoad ;
+                      nltl:maximumBladeIceLoad ?maximumLoad .
+                ?iceLoad qudt:numericValue ?iceValue .
+                ?maximumLoad qudt:numericValue ?maximumValue .
+                FILTER(
+                    datatype(?iceValue) = xsd:decimal &&
+                    datatype(?maximumValue) = xsd:decimal &&
+                    ?iceValue > ?maximumValue
+                )
+            }
+        """
+    ] .

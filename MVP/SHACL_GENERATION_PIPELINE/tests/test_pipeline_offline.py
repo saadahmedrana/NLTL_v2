@@ -39,7 +39,7 @@ class OfflinePipelineTests(unittest.TestCase):
             events = (result.run_directory / "events.jsonl").read_text(encoding="utf-8")
             self.assertIn('"semantic_attempt_consumed":false', events)
 
-    def test_validator_feedback_reversal_requires_explicit_explanation(self) -> None:
+    def test_validator_feedback_reversal_heuristic_keeps_explicit_explanation_support(self) -> None:
         self.assertTrue(PipelineRunner._feedback_reverses_without_explanation(
             ["Require hasComponent on every branch."],
             "Remove hasComponent from every branch.",
@@ -59,7 +59,7 @@ class OfflinePipelineTests(unittest.TestCase):
             "Add nltl:frameProfileType on the ship; do not relocate it to structuralMember.",
         ))
 
-    def test_validator_contradiction_is_reconciled_without_new_generator_attempt(self) -> None:
+    def test_i2_030_style_refinement_is_non_blocking_and_uses_no_response_retry(self) -> None:
         base = PipelineConfig.load()
         with tempfile.TemporaryDirectory() as temp_name:
             raw = copy.deepcopy(base.raw)
@@ -72,23 +72,21 @@ class OfflinePipelineTests(unittest.TestCase):
             client = ScriptedResponsesClient({
                 "generator": [correct, correct],
                 "validator": [
-                    '{"accept":false,"activate_variable_matcher":false,"feedback":"Require nltl:hasComponent on every branch."}',
-                    '{"accept":true,"activate_variable_matcher":false,"feedback":"Remove nltl:hasComponent from every branch."}',
-                    '{"accept":true,"activate_variable_matcher":false,"feedback":"REVERSAL: Remove nltl:hasComponent because the prior instruction was inconsistent with the locked contract."}',
+                    '{"accept":false,"activate_variable_matcher":false,"feedback":"validate the member inputs"}',
+                    '{"accept":true,"activate_variable_matcher":false,"feedback":"do not validate all ship members; validate the case-linked member"}',
                 ],
             })
             result = PipelineRunner(config).run_requirement("IMO26-014", client)
             self.assertTrue(result.accepted)
             self.assertEqual(result.attempts, 2)
             self.assertEqual(
-                ["generator", "validator", "generator", "validator", "validator"],
+                ["generator", "validator", "generator", "validator"],
                 [call["role"] for call in client.calls],
             )
             events = (result.run_directory / "events.jsonl").read_text(encoding="utf-8")
-            self.assertIn('"event_type":"validator_reconciliation_required"', events)
-            self.assertIn('"semantic_attempt_consumed":false', events)
+            self.assertNotIn('"event_type":"validator_reconciliation_required"', events)
 
-    def test_validator_reconciliation_exhaustion_is_controlled_not_exception(self) -> None:
+    def test_imo_057_style_true_oscillation_is_diagnostic_not_blocking(self) -> None:
         base = PipelineConfig.load()
         with tempfile.TemporaryDirectory() as temp_name:
             raw = copy.deepcopy(base.raw)
@@ -98,22 +96,25 @@ class OfflinePipelineTests(unittest.TestCase):
             raw["api"]["validator_response_retries"] = 1
             config = PipelineConfig(raw=raw, config_path=base.config_path)
             correct = offline_smoke_responses("IMO26-014")["generator"][1]
-            contradiction = (
-                '{"accept":true,"activate_variable_matcher":false,'
-                '"feedback":"Remove nltl:hasComponent from every branch."}'
-            )
             client = ScriptedResponsesClient({
                 "generator": [correct, correct],
                 "validator": [
-                    '{"accept":false,"activate_variable_matcher":false,"feedback":"Require nltl:hasComponent on every branch."}',
-                    contradiction,
-                    contradiction,
+                    '{"accept":false,"activate_variable_matcher":false,"feedback":"remove the xsd:decimal-only constraint"}',
+                    '{"accept":true,"activate_variable_matcher":false,"feedback":"require xsd:decimal"}',
                 ],
             })
             result = PipelineRunner(config).run_requirement("IMO26-014", client)
-            self.assertFalse(result.accepted)
-            self.assertEqual(result.status, "VALIDATOR_RESPONSE_RETRY_EXHAUSTED")
+            self.assertTrue(result.accepted)
             self.assertEqual(result.attempts, 2)
+            self.assertEqual(
+                ["generator", "validator", "generator", "validator"],
+                [call["role"] for call in client.calls],
+            )
+            events = (result.run_directory / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn('"event_type":"validator_feedback_possible_reversal"', events)
+            self.assertIn('"blocking":false', events)
+            self.assertIn('"semantic_attempt_consumed":false', events)
+            self.assertNotIn('"event_type":"validator_reconciliation_required"', events)
 
     def test_full_matcher_repair_route_without_api_or_excel(self) -> None:
         base = PipelineConfig.load()

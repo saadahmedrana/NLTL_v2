@@ -1,0 +1,126 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gs: <urn:nltl:generated-shape:> .
+
+gs:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TRF058WebFrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:property [
+        sh:path nltl:supportedStringerOutsideIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:iceLoadForce ;
+                sh:minCount 1 ;
+                sh:node gs:ForceQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:adjustedIceLoadForce ;
+                sh:minCount 1 ;
+                sh:node gs:ForceQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:stringerOutsideIceBeltHeight ;
+                sh:minCount 1 ;
+                sh:node gs:LengthQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:stringerSpan ;
+                sh:minCount 1 ;
+                sh:node gs:LengthQuantityShape
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "For a supported stringer outside the ice belt, stringerSpan must be non-zero and adjustedIceLoadForce must equal iceLoadForce multiplied by (1 - stringerOutsideIceBeltHeight/stringerSpan), within max(relative 1e-6, absolute 1e-9)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:supportedStringerOutsideIceBelt true ;
+                      nltl:iceLoadForce ?forceQuantity ;
+                      nltl:adjustedIceLoadForce ?adjustedQuantity ;
+                      nltl:stringerOutsideIceBeltHeight ?heightQuantity ;
+                      nltl:stringerSpan ?spanQuantity .
+
+                ?forceQuantity qudt:numericValue ?force .
+                ?adjustedQuantity qudt:numericValue ?adjusted .
+                ?heightQuantity qudt:numericValue ?height .
+                ?spanQuantity qudt:numericValue ?span .
+
+                FILTER (
+                    DATATYPE(?force) = xsd:decimal &&
+                    DATATYPE(?adjusted) = xsd:decimal &&
+                    DATATYPE(?height) = xsd:decimal &&
+                    DATATYPE(?span) = xsd:decimal
+                )
+
+                BIND(
+                    IF(
+                        ?span = 0,
+                        0.0,
+                        (?force * (1.0 - (?height / ?span)))
+                    )
+                    AS ?expected
+                )
+
+                FILTER (
+                    ?span = 0 ||
+                    ABS(?adjusted - ?expected) >
+                    IF(
+                        ABS(?expected) * 0.000001 > 0.000000001,
+                        ABS(?expected) * 0.000001,
+                        0.000000001
+                    )
+                )
+            }
+        """
+    ] .

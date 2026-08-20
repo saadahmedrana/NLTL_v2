@@ -43,7 +43,17 @@ class FewShotSelector:
         if "ObjectProperty" in kinds:
             tags.update({"entity", "relation"})
         category = str(requirement.get("category", "")).lower()
-        if "calculation" in category:
+        verification_mode = str(
+            context.selection.get("dependencyContract", {}).get("verificationMode", "")
+        )
+        for value in context.selection.get("retrievalTags", []):
+            tags.update(tokens(str(value)))
+        if verification_mode == "COMPLEX_READINESS" or category == "complex":
+            tags.update({
+                "complex", "readiness", "external", "calculation", "inputs",
+                "results", "engineering", "evidence",
+            })
+        elif "calculation" in category:
             tags.update({"comparison", "calculation", "sparql"})
         if "physical" in category:
             tags.update({"physical", "test", "evidence"})
@@ -62,6 +72,12 @@ class FewShotSelector:
             overlap = sorted(query & example_tags)
             union = query | example_tags
             score = len(overlap) / len(union) if union else 0.0
+            # Category routing is deliberately stronger than lexical overlap:
+            # an equation in a Complex source must not select a formula/SPARQL
+            # teaching example instead of the readiness boundary.
+            mode = str(context.selection.get("dependencyContract", {}).get("verificationMode", ""))
+            if mode == "COMPLEX_READINESS" and {"complex", "readiness"}.issubset(example_tags):
+                score += 2.0
             scored.append((score, str(example.get("exampleId", "")), example, overlap))
         scored.sort(key=lambda item: (-item[0], item[1]))
         selected: list[dict[str, Any]] = []
@@ -78,4 +94,3 @@ class FewShotSelector:
                 "expectedShapeTurtle": example.get("expectedShapeTurtle"),
             })
         return selected
-

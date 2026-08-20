@@ -1,0 +1,124 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2_040_WebBucklingShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "Applicable structural members require positive decimal web height and net web thickness in mm, and the ship requires positive decimal yield strength in MPa." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?member
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralSectionType ?section .
+                FILTER (?section IN (
+                    nltl:flatBarStructuralSection,
+                    nltl:bulbSection,
+                    nltl:teeSection,
+                    nltl:angleSection
+                ))
+                FILTER (
+                    NOT EXISTS {
+                        ?member nltl:webHeight ?webHeightQuantity .
+                        ?webHeightQuantity a qudt:QuantityValue ;
+                            qudt:numericValue ?webHeightValue ;
+                            qudt:unit unit:MilliM .
+                        FILTER (
+                            DATATYPE(?webHeightValue) = xsd:decimal &&
+                            ?webHeightValue > 0
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?member nltl:netWebThickness ?webThicknessQuantity .
+                        ?webThicknessQuantity a qudt:QuantityValue ;
+                            qudt:numericValue ?webThicknessValue ;
+                            qudt:unit unit:MilliM .
+                        FILTER (
+                            DATATYPE(?webThicknessValue) = xsd:decimal &&
+                            ?webThicknessValue > 0
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:yieldStrength ?yieldStrengthQuantity .
+                        ?yieldStrengthQuantity a qudt:QuantityValue ;
+                            qudt:numericValue ?yieldStrengthValue ;
+                            qudt:unit unit:MegaPA .
+                        FILTER (
+                            DATATYPE(?yieldStrengthValue) = xsd:decimal &&
+                            ?yieldStrengthValue > 0
+                        )
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The web height to net web thickness ratio exceeds the permitted buckling limit for the structural section type and yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?member
+            WHERE {
+                $this nltl:hasStructuralMember ?member ;
+                    nltl:yieldStrength ?yieldStrengthQuantity .
+
+                ?member nltl:structuralSectionType ?section ;
+                    nltl:webHeight ?webHeightQuantity ;
+                    nltl:netWebThickness ?webThicknessQuantity .
+
+                FILTER (?section IN (
+                    nltl:flatBarStructuralSection,
+                    nltl:bulbSection,
+                    nltl:teeSection,
+                    nltl:angleSection
+                ))
+
+                ?webHeightQuantity a qudt:QuantityValue ;
+                    qudt:numericValue ?webHeightValue ;
+                    qudt:unit unit:MilliM .
+                ?webThicknessQuantity a qudt:QuantityValue ;
+                    qudt:numericValue ?webThicknessValue ;
+                    qudt:unit unit:MilliM .
+                ?yieldStrengthQuantity a qudt:QuantityValue ;
+                    qudt:numericValue ?yieldStrengthValue ;
+                    qudt:unit unit:MegaPA .
+
+                FILTER (
+                    DATATYPE(?webHeightValue) = xsd:decimal &&
+                    DATATYPE(?webThicknessValue) = xsd:decimal &&
+                    DATATYPE(?yieldStrengthValue) = xsd:decimal &&
+                    ?webHeightValue > 0 &&
+                    ?webThicknessValue > 0 &&
+                    ?yieldStrengthValue > 0
+                )
+
+                BIND(
+                    IF(
+                        ?section = nltl:flatBarStructuralSection,
+                        282,
+                        805
+                    ) AS ?limit
+                )
+
+                FILTER (
+                    ((?webHeightValue / ?webThicknessValue) *
+                     (?webHeightValue / ?webThicknessValue) *
+                     ?yieldStrengthValue) > (?limit * ?limit)
+                )
+            }
+        """
+    ] .

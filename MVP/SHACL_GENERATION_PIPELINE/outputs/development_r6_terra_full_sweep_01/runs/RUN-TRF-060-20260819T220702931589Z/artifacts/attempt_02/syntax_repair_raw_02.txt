@@ -1,0 +1,299 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF060ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasTableLookupCase ;
+        sh:minCount 1 ;
+        sh:class nltl:tableLookupCase
+    ] ;
+    sh:property [
+        sh:path nltl:actualWebFrameCrossSectionalArea ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:CentiM2QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:CentiM2QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:CentiM3QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shearArea ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:M2QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameFreeFlangeArea ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:CentiM2QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameIceLoad ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:KiloNQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameMaximumIceLoadBendingMoment ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:MegaNMQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameSpan ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:MQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameWebArea ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:CentiM2QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:MegaPAQuantityShape
+    ] ;
+    sh:sparql [
+        sh:message "The section-modulus formula has an undefined domain: actual area and yield strength must be non-zero, and the square-root denominator must be positive." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:webFrameFreeFlangeArea/qudt:numericValue ?af ;
+                      nltl:webFrameWebArea/qudt:numericValue ?aw ;
+                      nltl:yieldStrength/qudt:numericValue ?yield ;
+                      nltl:hasTableLookupCase/nltl:webFrameTable4Dash8GammaFactor/qudt:numericValue ?gamma ;
+                      nltl:requiredShearArea/qudt:numericValue ?requiredArea .
+
+                BIND((?af + ?aw) AS ?expectedActualArea)
+                BIND(
+                    IF(
+                        ?expectedActualArea = 0,
+                        -1,
+                        1 - ((?gamma * ?requiredArea / ?expectedActualArea) *
+                             (?gamma * ?requiredArea / ?expectedActualArea))
+                    )
+                    AS ?denominator
+                )
+                FILTER(?expectedActualArea = 0 || ?yield = 0 || ?denominator <= 0)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Web-frame bending moment, actual area, and section modulus must match the prescribed calculation within a relative tolerance of 1e-6 plus an absolute fallback of 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:webFrameIceLoad/qudt:numericValue ?force ;
+                      nltl:webFrameSpan/qudt:numericValue ?span ;
+                      nltl:webFrameMaximumIceLoadBendingMoment/qudt:numericValue ?reportedMoment ;
+                      nltl:webFrameFreeFlangeArea/qudt:numericValue ?freeFlangeArea ;
+                      nltl:webFrameWebArea/qudt:numericValue ?webArea ;
+                      nltl:actualWebFrameCrossSectionalArea/qudt:numericValue ?reportedActualArea ;
+                      nltl:requiredShearArea/qudt:numericValue ?requiredArea ;
+                      nltl:yieldStrength/qudt:numericValue ?yield ;
+                      nltl:sectionModulus/qudt:numericValue ?reportedSectionModulus ;
+                      nltl:hasTableLookupCase/nltl:webFrameTable4Dash8GammaFactor/qudt:numericValue ?gamma .
+
+                BIND((0.000193 * ?force * ?span) AS ?expectedMoment)
+                BIND((?freeFlangeArea + ?webArea) AS ?expectedActualArea)
+                FILTER(?expectedActualArea != 0 && ?yield != 0)
+
+                BIND(
+                    (1 - ((?gamma * ?requiredArea / ?expectedActualArea) *
+                         (?gamma * ?requiredArea / ?expectedActualArea)))
+                    AS ?denominator
+                )
+                BIND(
+                    ((?expectedMoment / ?yield) * SQRT(1 / ?denominator) * 1000000)
+                    AS ?expectedSectionModulus
+                )
+                FILTER(?denominator > 0)
+
+                BIND(
+                    (0.000001 * IF(?expectedMoment < 0, -?expectedMoment, ?expectedMoment) + 0.000000001)
+                    AS ?momentTolerance
+                )
+                BIND(
+                    (0.000001 * IF(?expectedActualArea < 0, -?expectedActualArea, ?expectedActualArea) + 0.000000001)
+                    AS ?areaTolerance
+                )
+                BIND(
+                    (0.000001 * IF(?expectedSectionModulus < 0, -?expectedSectionModulus, ?expectedSectionModulus) + 0.000000001)
+                    AS ?sectionModulusTolerance
+                )
+
+                FILTER(
+                    ?reportedMoment < (?expectedMoment - ?momentTolerance) ||
+                    ?reportedMoment > (?expectedMoment + ?momentTolerance) ||
+                    ?reportedActualArea < (?expectedActualArea - ?areaTolerance) ||
+                    ?reportedActualArea > (?expectedActualArea + ?areaTolerance) ||
+                    ?reportedSectionModulus < (?expectedSectionModulus - ?sectionModulusTolerance) ||
+                    ?reportedSectionModulus > (?expectedSectionModulus + ?sectionModulusTolerance)
+                )
+            }
+        """
+    ] .
+
+gs:TRF060TableLookupCaseShape
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasTableLookupCase ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue nltl:traficomTable4Dash8
+    ] ;
+    sh:property [
+        sh:path nltl:lookupSelectionEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "Table 4-8 gamma selection requires lookup selection evidence."
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameTable4Dash8GammaFactor ;
+        sh:minCount 1 ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:UnitlessQuantityShape
+    ] .
+
+gs:CentiM2QuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:CentiM2
+    ] .
+
+gs:CentiM3QuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:CentiM3
+    ] .
+
+gs:M2QuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M2
+    ] .
+
+gs:KiloNQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:KiloN
+    ] .
+
+gs:MegaNMQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaN-M
+    ] .
+
+gs:MQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gs:MegaPAQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gs:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+<END_SHACL>

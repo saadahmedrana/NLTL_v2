@@ -1,0 +1,114 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF116AreaQuantityShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:TRF116LengthQuantityShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:TRF116Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:nonHemisphericalImpactArea ;
+                sh:maxCount 0
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:nonHemisphericalImpactArea ;
+                sh:datatype xsd:string ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:nonHemisphericalImpactContactArea ;
+                sh:minCount 1 ;
+                sh:node <urn:nltl:generated-shape:TRF116AreaQuantityShape>
+            ] ;
+            sh:property [
+                sh:path nltl:designIceThickness ;
+                sh:minCount 1 ;
+                sh:node <urn:nltl:generated-shape:TRF116LengthQuantityShape>
+            ] ;
+            sh:property [
+                sh:path nltl:equivalentImpactSphereRadius ;
+                sh:minCount 1 ;
+                sh:node <urn:nltl:generated-shape:TRF116LengthQuantityShape>
+            ] ;
+            sh:property [
+                sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Equivalent impact sphere radius must equal sqrt(contact area/pi), capped at half the design ice thickness unless the impact is on a propeller hub or thruster end cap." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:nonHemisphericalImpactArea ?impactArea ;
+                      nltl:nonHemisphericalImpactContactArea ?areaQuantity ;
+                      nltl:designIceThickness ?iceQuantity ;
+                      nltl:equivalentImpactSphereRadius ?radiusQuantity ;
+                      nltl:propellerHubOrThrusterEndCapImpact ?exception .
+
+                ?areaQuantity qudt:numericValue ?area .
+                ?iceQuantity qudt:numericValue ?iceThickness .
+                ?radiusQuantity qudt:numericValue ?reportedRadius .
+
+                BIND(SQRT(xsd:decimal(?area) / 3.14159265358979323846) AS ?uncappedRadius)
+                BIND(
+                    IF(
+                        ?exception = true,
+                        ?uncappedRadius,
+                        IF(
+                            (2 * ?uncappedRadius) > xsd:decimal(?iceThickness),
+                            xsd:decimal(?iceThickness) / 2,
+                            ?uncappedRadius
+                        )
+                    )
+                    AS ?expectedRadius
+                )
+                BIND(
+                    0.000000001 + (0.000001 * ABS(?expectedRadius))
+                    AS ?tolerance
+                )
+                FILTER(ABS(xsd:decimal(?reportedRadius) - ?expectedRadius) > ?tolerance)
+            }
+        """
+    ] .
+<END_SHACL>

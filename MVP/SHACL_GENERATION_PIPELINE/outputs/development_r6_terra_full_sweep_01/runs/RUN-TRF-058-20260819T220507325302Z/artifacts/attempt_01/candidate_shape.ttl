@@ -1,0 +1,115 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-058ForceQuantityShape>
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:TRF-058LengthQuantityShape>
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:TRF-058WebFrameShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:property [
+        sh:path nltl:supportedStringerOutsideIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:iceLoadForce ;
+                sh:minCount 1 ;
+                sh:node <urn:nltl:generated-shape:TRF-058ForceQuantityShape>
+            ] ;
+            sh:property [
+                sh:path nltl:adjustedIceLoadForce ;
+                sh:minCount 1 ;
+                sh:node <urn:nltl:generated-shape:TRF-058ForceQuantityShape>
+            ] ;
+            sh:property [
+                sh:path nltl:stringerOutsideIceBeltHeight ;
+                sh:minCount 1 ;
+                sh:node <urn:nltl:generated-shape:TRF-058LengthQuantityShape>
+            ] ;
+            sh:property [
+                sh:path nltl:stringerSpan ;
+                sh:minCount 1 ;
+                sh:node <urn:nltl:generated-shape:TRF-058LengthQuantityShape>
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:hasValue false
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "stringerSpan must be non-zero when the supported stringer is outside the ice belt." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:supportedStringerOutsideIceBelt true ;
+                      nltl:stringerSpan ?span .
+                ?span qudt:numericValue ?ls .
+                FILTER (?ls = 0)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "adjustedIceLoadForce must equal iceLoadForce multiplied by (1 - stringerOutsideIceBeltHeight/stringerSpan), within relative tolerance 1e-6 and absolute fallback 1e-9 kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:supportedStringerOutsideIceBelt true ;
+                      nltl:iceLoadForce ?force ;
+                      nltl:adjustedIceLoadForce ?adjusted ;
+                      nltl:stringerOutsideIceBeltHeight ?height ;
+                      nltl:stringerSpan ?span .
+                ?force qudt:numericValue ?f .
+                ?adjusted qudt:numericValue ?actual .
+                ?height qudt:numericValue ?hs .
+                ?span qudt:numericValue ?ls .
+                FILTER (?ls != 0)
+                BIND((?f * (1 - (?hs / ?ls))) AS ?expected)
+                FILTER (ABS(?actual - ?expected) > (0.000000001 + (0.000001 * ABS(?expected))))
+            }
+        """
+    ] .

@@ -1,0 +1,136 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:UnitlessQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:PressureQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:DirectAnalysisCaseShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceLoadAreaFactorCa ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "Each direct analysis case must provide iceLoadAreaFactorCa."
+    ] .
+
+gen:TRF037IcePressureShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasDirectAnalysisCase ;
+        sh:minCount 1 ;
+        sh:node gen:DirectAnalysisCaseShape ;
+        sh:message "A direct analysis case with iceLoadAreaFactorCa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientA ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "shipSizeEngineOutputCoefficientA is required to determine shipSizeEngineOutputFactorCd."
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientB ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "shipSizeEngineOutputCoefficientB is required to determine shipSizeEngineOutputFactorCd."
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientK ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "shipSizeEngineOutputCoefficientK is required to determine shipSizeEngineOutputFactorCd."
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputFactorCd ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "shipSizeEngineOutputFactorCd is required."
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassFactorCp ;
+        sh:minCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "iceClassFactorCp is required to determine icePressure."
+    ] ;
+    sh:property [
+        sh:path nltl:nominalIcePressureP0 ;
+        sh:minCount 1 ;
+        sh:node gen:PressureQuantityShape ;
+        sh:message "nominalIcePressureP0 is required to determine icePressure."
+    ] ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:minCount 1 ;
+        sh:node gen:PressureQuantityShape ;
+        sh:message "icePressure is required."
+    ] ;
+    sh:sparql [
+        sh:message "shipSizeEngineOutputFactorCd must equal min(1, (a*k+b)/1000) within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:shipSizeEngineOutputCoefficientA/qudt:numericValue ?a ;
+                      nltl:shipSizeEngineOutputCoefficientB/qudt:numericValue ?b ;
+                      nltl:shipSizeEngineOutputCoefficientK/qudt:numericValue ?k ;
+                      nltl:shipSizeEngineOutputFactorCd/qudt:numericValue ?reportedCd .
+                BIND((?a * ?k + ?b) / 1000 AS ?rawCd)
+                BIND(IF(?rawCd > 1, 1, ?rawCd) AS ?expectedCd)
+                FILTER (
+                    ABS(?reportedCd - ?expectedCd) >
+                    ((0.000001 * ABS(?expectedCd)) + 0.000000001)
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "icePressure must equal shipSizeEngineOutputFactorCd multiplied by iceClassFactorCp, iceLoadAreaFactorCa, and nominalIcePressureP0 within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:shipSizeEngineOutputFactorCd/qudt:numericValue ?cd ;
+                      nltl:iceClassFactorCp/qudt:numericValue ?cp ;
+                      nltl:nominalIcePressureP0/qudt:numericValue ?p0 ;
+                      nltl:icePressure/qudt:numericValue ?reportedPressure ;
+                      nltl:hasDirectAnalysisCase ?case .
+                ?case nltl:iceLoadAreaFactorCa/qudt:numericValue ?ca .
+                BIND((?cd * ?cp * ?ca * ?p0) AS ?expectedPressure)
+                FILTER (
+                    ABS(?reportedPressure - ?expectedPressure) >
+                    ((0.000001 * ABS(?expectedPressure)) + 0.000000001)
+                )
+            }
+        """
+    ] .
+<END_SHACL>

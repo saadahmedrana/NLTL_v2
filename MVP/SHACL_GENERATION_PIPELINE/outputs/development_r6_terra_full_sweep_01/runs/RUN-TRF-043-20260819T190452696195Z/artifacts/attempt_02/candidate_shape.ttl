@@ -1,0 +1,174 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:MeterQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gs:MillimetreQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MilliM
+    ] .
+
+gs:FrameIceStrengtheningShape a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:property [
+        sh:path nltl:framingIceStrengtheningAboveUpperIceWaterline ;
+        sh:node gs:MeterQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:framingIceStrengtheningBelowLowerIceWaterline ;
+        sh:node gs:MeterQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:extensionBeyondAdjacentDeckOrTankBoundary ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:upperBowIceBeltRequired ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:reachesUpperBowIceBeltTop ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:reachesTankTopOrBelowFloorTop ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        sh:message "The applicable Table 4-6 row requires sufficient framing ice strengthening above the upper ice waterline." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:hullRegion ?region .
+                FILTER(?region IN (nltl:bowRegion, nltl:midbodyRegion, nltl:sternRegion))
+                FILTER(?iceClass IN (nltl:iceClassIaSuper, nltl:iceClassIa, nltl:iceClassIb, nltl:iceClassIc))
+                BIND(
+                    IF(?iceClass = nltl:iceClassIaSuper, 1.2, 1.0)
+                    AS ?minimum
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:framingIceStrengtheningAboveUpperIceWaterline ?quantity .
+                    ?quantity qudt:unit unit:M ;
+                              qudt:numericValue ?value .
+                    FILTER(?value >= ?minimum)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The applicable Table 4-6 row requires sufficient framing ice strengthening below the lower ice waterline." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:hullRegion ?region .
+                FILTER(?iceClass IN (nltl:iceClassIa, nltl:iceClassIb, nltl:iceClassIc))
+                FILTER(?region IN (nltl:bowRegion, nltl:midbodyRegion, nltl:sternRegion))
+                BIND(
+                    IF(
+                        ?region = nltl:bowRegion,
+                        1.6,
+                        IF(?region = nltl:midbodyRegion, 1.3, 1.0)
+                    )
+                    AS ?minimum
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:framingIceStrengtheningBelowLowerIceWaterline ?quantity .
+                    ?quantity qudt:unit unit:M ;
+                              qudt:numericValue ?value .
+                    FILTER(?value >= ?minimum)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For ice class IA Super in the bow region, framing ice strengthening below the lower ice waterline must reach the tank top or below the top of floors." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass nltl:iceClassIaSuper ;
+                      nltl:hullRegion nltl:bowRegion .
+                FILTER NOT EXISTS {
+                    $this nltl:reachesTankTopOrBelowFloorTop true .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Where an upper bow ice belt is required, framing ice strengthening must reach its top." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:upperBowIceBeltRequired true .
+                FILTER NOT EXISTS {
+                    $this nltl:reachesUpperBowIceBeltTop true .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Termination at the adjacent boundary must be permitted where the extension is no more than 250 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:extensionBeyondAdjacentDeckOrTankBoundary ?quantity .
+                ?quantity qudt:unit unit:MilliM ;
+                          qudt:numericValue ?extension .
+                FILTER(?extension <= 250)
+                FILTER NOT EXISTS {
+                    $this nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted true .
+                }
+            }
+        """
+    ] .

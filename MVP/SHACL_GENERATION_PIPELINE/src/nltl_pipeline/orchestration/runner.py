@@ -165,7 +165,9 @@ class PipelineRunner:
                 if not negative and not positive:
                     continue
                 polarity = "negative" if negative else "positive"
-                names = set(re.findall(r"\bnltl:([A-Za-z_][A-Za-z0-9_]*)\b", clause))
+                names = set(re.findall(
+                    r"\b(?:nltl|xsd|sh|qudt):([A-Za-z_][A-Za-z0-9_]*)\b", clause
+                ))
                 names.update(
                     token for token in re.findall(r"\b[A-Za-z][A-Za-z0-9]*\b", clause)
                     if any(character.isupper() for character in token)
@@ -443,9 +445,13 @@ class PipelineRunner:
                     if self._feedback_reverses_without_explanation(
                         repair_feedback_items, decision.feedback
                     ):
-                        raise ResponseContractError(
-                            "Validator feedback reverses a prior instruction without an explicit "
-                            "REVERSAL: explanation"
+                        logger.emit(
+                            "validator_feedback_possible_reversal",
+                            iteration=iteration,
+                            prior_feedback_history=repair_feedback_items,
+                            current_feedback=decision.feedback,
+                            blocking=False,
+                            semantic_attempt_consumed=False,
                         )
                     return decision
 

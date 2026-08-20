@@ -1,0 +1,326 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF020ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "constructionStageDate is required to determine whether this engine-output requirement applies."
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:minCount 1 ;
+        sh:message "iceClass is required to determine whether this engine-output requirement applies."
+    ] .
+
+gs:TRF020ApplicableShipShape
+    a sh:NodeShape ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT ?this
+            WHERE {
+                ?this a nltl:ship ;
+                    nltl:constructionStageDate ?date ;
+                    nltl:iceClass ?iceClass .
+                FILTER (
+                    ?date >= "2003-09-01"^^xsd:date &&
+                    ?iceClass IN (
+                        nltl:iceClassIaSuper,
+                        nltl:iceClassIa,
+                        nltl:iceClassIb,
+                        nltl:iceClassIc
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:message "An upper ice waterline is required for the UIWL calculation."
+    ] ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:message "A lower ice waterline is required for the LIWL calculation."
+    ] ;
+    sh:property [
+        sh:path ( nltl:hasUpperIceWaterline nltl:upperIceWaterlineLength ) ;
+        sh:node gs:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Upper-ice-waterline length is required as the shared UIWL L input for both calculations."
+    ] ;
+    sh:property [
+        sh:path ( nltl:hasUpperIceWaterline nltl:upperIceWaterlineBreadth ) ;
+        sh:node gs:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Upper-ice-waterline breadth is required as the shared UIWL B input for both calculations."
+    ] ;
+    sh:property [
+        sh:path nltl:brashIceChannelResistanceAtUpperIceWaterline ;
+        sh:node gs:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Brash-ice channel resistance at UIWL is required."
+    ] ;
+    sh:property [
+        sh:path nltl:brashIceChannelResistanceAtLowerIceWaterline ;
+        sh:node gs:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Brash-ice channel resistance at LIWL is required."
+    ] ;
+    sh:property [
+        sh:path nltl:engineOutputCoefficientKe ;
+        sh:node gs:DimensionlessQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Engine-output coefficient Ke is required."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:node gs:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Propeller diameter is required."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerCount ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:message "Propeller count is required to select Ke."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchControlType ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "Propeller pitch-control type is required to select Ke."
+    ] ;
+    sh:property [
+        sh:path nltl:propulsionSystemType ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "Propulsion-system type is required to select Ke."
+    ] ;
+    sh:property [
+        sh:path nltl:minimumRequiredPowerAtUpperIceWaterline ;
+        sh:node gs:PowerQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Minimum required power at UIWL is required."
+    ] ;
+    sh:property [
+        sh:path nltl:minimumRequiredPowerAtLowerIceWaterline ;
+        sh:node gs:PowerQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Minimum required power at LIWL is required."
+    ] ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:node gs:PowerQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Maximum continuous rating power is required."
+    ] ;
+    sh:sparql [
+        sh:message "Ke must match Table 3-1 for the propeller count and propulsion or pitch-control selection." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:propellerCount ?count ;
+                      nltl:propellerPitchControlType ?pitch ;
+                      nltl:propulsionSystemType ?propulsion ;
+                      nltl:engineOutputCoefficientKe ?keNode .
+                ?keNode qudt:numericValue ?ke .
+                FILTER (
+                    !(
+                        (
+                            ?count = 1 &&
+                            ?ke = 2.03 &&
+                            (
+                                (?pitch = nltl:controllablePitch && ?propulsion = nltl:conventionalPropulsionSystem) ||
+                                ?propulsion IN (
+                                    nltl:electricPropulsionMachinery,
+                                    nltl:hydraulicPropulsionMachinery
+                                )
+                            )
+                        ) ||
+                        (
+                            ?count = 1 &&
+                            ?ke = 2.26 &&
+                            ?pitch = nltl:fixedPitch &&
+                            ?propulsion = nltl:conventionalPropulsionSystem
+                        ) ||
+                        (
+                            ?count = 2 &&
+                            ?ke = 1.44 &&
+                            (
+                                (?pitch = nltl:controllablePitch && ?propulsion = nltl:conventionalPropulsionSystem) ||
+                                ?propulsion IN (
+                                    nltl:electricPropulsionMachinery,
+                                    nltl:hydraulicPropulsionMachinery
+                                )
+                            )
+                        ) ||
+                        (
+                            ?count = 2 &&
+                            ?ke = 1.60 &&
+                            ?pitch = nltl:fixedPitch &&
+                            ?propulsion = nltl:conventionalPropulsionSystem
+                        ) ||
+                        (
+                            ?count = 3 &&
+                            ?ke = 1.18 &&
+                            (
+                                (?pitch = nltl:controllablePitch && ?propulsion = nltl:conventionalPropulsionSystem) ||
+                                ?propulsion IN (
+                                    nltl:electricPropulsionMachinery,
+                                    nltl:hydraulicPropulsionMachinery
+                                )
+                            )
+                        ) ||
+                        (
+                            ?count = 3 &&
+                            ?ke = 1.31 &&
+                            ?pitch = nltl:fixedPitch &&
+                            ?propulsion = nltl:conventionalPropulsionSystem
+                        )
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "UIWL and LIWL minimum powers must use their corresponding resistance inputs, the shared UIWL length and breadth inputs, and formula 3.1; MCR must be at least the greater calculated minimum power. Formula-result tolerance is 1e-6 relative with a 1e-9 kW absolute fallback, expressed in squared-power form." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasUpperIceWaterline ?uiwl ;
+                      nltl:brashIceChannelResistanceAtUpperIceWaterline ?upperResistanceNode ;
+                      nltl:brashIceChannelResistanceAtLowerIceWaterline ?lowerResistanceNode ;
+                      nltl:engineOutputCoefficientKe ?keNode ;
+                      nltl:propellerDiameter ?diameterNode ;
+                      nltl:minimumRequiredPowerAtUpperIceWaterline ?upperPowerNode ;
+                      nltl:minimumRequiredPowerAtLowerIceWaterline ?lowerPowerNode ;
+                      nltl:maximumContinuousRatingPower ?mcrNode .
+
+                ?uiwl nltl:upperIceWaterlineLength ?uiwlLengthNode ;
+                      nltl:upperIceWaterlineBreadth ?uiwlBreadthNode .
+
+                ?uiwlLengthNode qudt:numericValue ?uiwlLength .
+                ?uiwlBreadthNode qudt:numericValue ?uiwlBreadth .
+                ?upperResistanceNode qudt:numericValue ?upperResistance .
+                ?lowerResistanceNode qudt:numericValue ?lowerResistance .
+                ?keNode qudt:numericValue ?ke .
+                ?diameterNode qudt:numericValue ?diameter .
+                ?upperPowerNode qudt:numericValue ?upperPower .
+                ?lowerPowerNode qudt:numericValue ?lowerPower .
+                ?mcrNode qudt:numericValue ?mcr .
+
+                BIND(
+                    (?ke * ?ke) *
+                    (?upperResistance / 1000.0) *
+                    (?upperResistance / 1000.0) *
+                    (?upperResistance / 1000.0) /
+                    (?diameter * ?diameter)
+                    AS ?expectedUpperSquared
+                )
+                BIND(
+                    (?ke * ?ke) *
+                    (?lowerResistance / 1000.0) *
+                    (?lowerResistance / 1000.0) *
+                    (?lowerResistance / 1000.0) /
+                    (?diameter * ?diameter)
+                    AS ?expectedLowerSquared
+                )
+
+                FILTER (
+                    ?diameter <= 0 ||
+                    ABS((?upperPower * ?upperPower) - ?expectedUpperSquared) >
+                        ((0.000002000001 * ?expectedUpperSquared) + 0.000000000000000001) ||
+                    ABS((?lowerPower * ?lowerPower) - ?expectedLowerSquared) >
+                        ((0.000002000001 * ?expectedLowerSquared) + 0.000000000000000001) ||
+                    ?mcr < ?upperPower ||
+                    ?mcr < ?lowerPower
+                )
+            }
+        """
+    ] .
+
+gs:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/N> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:PowerQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloW> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

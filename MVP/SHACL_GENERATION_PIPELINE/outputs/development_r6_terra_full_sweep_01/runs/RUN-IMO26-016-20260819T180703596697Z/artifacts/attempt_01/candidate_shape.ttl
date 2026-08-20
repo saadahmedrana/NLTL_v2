@@ -1,0 +1,114 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO26_016Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipOperatesInPolarWaters ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:engagedInTrade ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeChapter11Dash1Applicable ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:lengthOverall ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:M
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:UNITLESS
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "A ship operating in polar waters and within a Chapter 11-1 applicability category must record polarCodeChapter11Dash1Applicable as true." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipOperatesInPolarWaters true ;
+                      nltl:shipType ?shipType .
+
+                FILTER (
+                    (
+                        ?shipType = "fishing_vessel"^^xsd:string &&
+                        EXISTS {
+                            $this nltl:lengthOverall ?length .
+                            ?length qudt:numericValue ?lengthValue ;
+                                    qudt:unit unit:M .
+                            FILTER (?lengthValue >= 24.0)
+                        }
+                    )
+                    ||
+                    (
+                        ?shipType = "pleasure_yacht"^^xsd:string &&
+                        EXISTS {
+                            $this nltl:grossTonnage ?grossTonnage ;
+                                  nltl:engagedInTrade false .
+                            ?grossTonnage qudt:numericValue ?grossTonnageValue ;
+                                          qudt:unit unit:UNITLESS .
+                            FILTER (?grossTonnageValue >= 300.0)
+                        }
+                    )
+                    ||
+                    (
+                        ?shipType = "cargo_ship"^^xsd:string &&
+                        EXISTS {
+                            $this nltl:grossTonnage ?grossTonnage .
+                            ?grossTonnage qudt:numericValue ?grossTonnageValue ;
+                                          qudt:unit unit:UNITLESS .
+                            FILTER (
+                                ?grossTonnageValue >= 300.0 &&
+                                ?grossTonnageValue < 500.0
+                            )
+                        }
+                    )
+                )
+
+                FILTER NOT EXISTS {
+                    $this nltl:polarCodeChapter11Dash1Applicable true .
+                }
+            }
+        """
+    ] .

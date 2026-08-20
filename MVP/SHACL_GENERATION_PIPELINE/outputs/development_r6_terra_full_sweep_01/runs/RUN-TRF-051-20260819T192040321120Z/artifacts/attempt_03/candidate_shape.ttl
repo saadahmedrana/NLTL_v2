@@ -1,0 +1,146 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:MillimetreQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM>
+    ] .
+
+gs:MegaPascalQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA>
+    ] .
+
+gs:TRF051HullStructureShape a sh:NodeShape ;
+    sh:targetClass nltl:hullStructure ;
+    sh:property [
+        sh:path nltl:inLieuOfFrame ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:frameWebThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:adjacentFrameHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:netShellPlatingThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MegaPascalQuantityShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:inLieuOfFrame ;
+                sh:hasValue true
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:inLieuOfFrame ;
+                sh:hasValue false
+            ] ;
+            sh:property [
+                sh:path nltl:frameProfileType ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:in (
+                    nltl:profileSection
+                    nltl:flatBarSection
+                )
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Frame web or substitute plate thickness is below a required minimum." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameWebThickness ?webQuantity ;
+                      nltl:adjacentFrameHeight ?heightQuantity ;
+                      nltl:netShellPlatingThickness ?shellQuantity ;
+                      nltl:corrosionAbrasionAddition ?additionQuantity ;
+                      nltl:yieldStrength ?yieldQuantity ;
+                      nltl:inLieuOfFrame ?inLieu .
+
+                ?webQuantity qudt:numericValue ?web .
+                ?heightQuantity qudt:numericValue ?height .
+                ?shellQuantity qudt:numericValue ?shell .
+                ?additionQuantity qudt:numericValue ?addition .
+                ?yieldQuantity qudt:numericValue ?yield .
+
+                OPTIONAL {
+                    $this nltl:frameProfileType ?profile .
+                }
+
+                FILTER (
+                    ?web < 9 ||
+                    ?web < ((?shell - ?addition) / 2) ||
+                    (
+                        ?inLieu = true &&
+                        ?web < ((?height * math:sqrt(?yield)) / 805)
+                    ) ||
+                    (
+                        ?inLieu = false &&
+                        ?profile = nltl:profileSection &&
+                        ?web < ((?height * math:sqrt(?yield)) / 805)
+                    ) ||
+                    (
+                        ?inLieu = false &&
+                        ?profile = nltl:flatBarSection &&
+                        ?web < ((?height * math:sqrt(?yield)) / 282)
+                    )
+                )
+            }
+        """
+    ] .

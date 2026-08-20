@@ -1,0 +1,115 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF086CpPropellerPitchShape
+    a sh:NodeShape ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT ?this
+            WHERE {
+                ?this nltl:propellerType "CP"^^xsd:string .
+            }
+        """
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A CP propeller must state whether the pitch value is known."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrBollard ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "A CP propeller must provide its pitch at MCR in bollard condition in metres."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:hasValue true
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:hasValue false
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "When the pitch value is not known, the MCR free-running pitch must be provided in metres."
+            ] ;
+            sh:sparql [
+                sh:message "When the pitch value is not known, the MCR bollard pitch must equal 0.7 times the MCR free-running pitch within a relative tolerance of 1e-6 and an absolute tolerance of 1e-9 metres." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX unit: <http://qudt.org/vocab/unit/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:pitchValueKnown false ;
+                              nltl:propellerPitchAtMcrBollard ?bollardPitch ;
+                              nltl:propellerPitchAtMcrFreeRunning ?freeRunningPitch .
+                        ?bollardPitch qudt:numericValue ?bollardValue ;
+                                      qudt:unit unit:M .
+                        ?freeRunningPitch qudt:numericValue ?freeRunningValue ;
+                                          qudt:unit unit:M .
+                        BIND(0.7 * ?freeRunningValue AS ?expectedValue)
+                        BIND(ABS(?bollardValue - ?expectedValue) AS ?difference)
+                        BIND(
+                            IF(
+                                ABS(?expectedValue) * 0.000001 > "0.000000001"^^xsd:decimal,
+                                ABS(?expectedValue) * 0.000001,
+                                "0.000000001"^^xsd:decimal
+                            )
+                            AS ?tolerance
+                        )
+                        FILTER(?difference > ?tolerance)
+                    }
+                """
+            ]
+        ]
+    ) .
+<END_SHACL>

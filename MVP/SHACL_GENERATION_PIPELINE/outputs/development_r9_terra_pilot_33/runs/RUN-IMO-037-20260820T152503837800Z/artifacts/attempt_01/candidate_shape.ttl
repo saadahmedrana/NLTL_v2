@@ -1,0 +1,123 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-037ShipReadinessShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:minCount 1 ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        )
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:hasLoadingConditionCase ;
+        sh:node [
+            sh:class nltl:loadingConditionCase ;
+            sh:property [
+                sh:path nltl:loadingConditionIdentifier ;
+                sh:datatype xsd:string
+            ] ;
+            sh:property [
+                sh:path nltl:alternativeInstrumentApplicable ;
+                sh:datatype xsd:boolean
+            ] ;
+            sh:property [
+                sh:path nltl:alternativeInstrumentResidualStabilityStatus ;
+                sh:datatype xsd:boolean
+            ] ;
+            sh:property [
+                sh:path nltl:hasLoadingConditionResultEvidence ;
+                sh:class nltl:evidenceArtifact
+            ] ;
+            sh:property [
+                sh:path nltl:residualStabilityFactorSI ;
+                sh:class qudt:QuantityValue ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:minCount 1 ;
+                        sh:datatype xsd:decimal
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:hasValue unit:UNITLESS
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "Construction date is required for a Category A or Category B ship." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category .
+                FILTER(?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+                FILTER NOT EXISTS {
+                    $this nltl:constructionDate ?date .
+                    FILTER(datatype(?date) = xsd:date)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Each applicable loading-condition case requires result evidence and either s_i = 1 or an applicable compliant alternative-instrument outcome." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:hasLoadingConditionCase ?case .
+                FILTER(?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+                FILTER(datatype(?date) = xsd:date)
+                FILTER(?date >= "2017-01-01"^^xsd:date)
+
+                FILTER NOT EXISTS {
+                    ?case nltl:loadingConditionIdentifier ?identifier ;
+                          nltl:alternativeInstrumentApplicable ?applicable ;
+                          nltl:hasLoadingConditionResultEvidence ?evidence .
+                    ?evidence a nltl:evidenceArtifact .
+                    FILTER(datatype(?identifier) = xsd:string)
+                    FILTER(datatype(?applicable) = xsd:boolean)
+
+                    {
+                        FILTER(?applicable = false)
+                        ?case nltl:residualStabilityFactorSI ?factor .
+                        ?factor a qudt:QuantityValue ;
+                                qudt:numericValue ?value ;
+                                qudt:unit unit:UNITLESS .
+                        FILTER(datatype(?value) = xsd:decimal)
+                        FILTER(?value >= 1 && ?value <= 1)
+                    }
+                    UNION
+                    {
+                        FILTER(?applicable = true)
+                        ?case nltl:alternativeInstrumentResidualStabilityStatus ?status .
+                        FILTER(datatype(?status) = xsd:boolean)
+                        FILTER(?status = true)
+                    }
+                }
+            }
+        """
+    ] .

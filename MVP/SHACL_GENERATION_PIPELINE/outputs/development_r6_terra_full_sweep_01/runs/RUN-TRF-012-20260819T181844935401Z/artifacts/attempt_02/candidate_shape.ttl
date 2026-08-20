@@ -1,0 +1,121 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix shape: <urn:nltl:generated-shape:> .
+
+shape:TRF012MetreDecimalQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+shape:TRF012WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:node shape:TRF012MetreDecimalQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:node shape:TRF012MetreDecimalQuantityShape
+    ] .
+
+shape:TRF012IceWaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node shape:TRF012WaterlineProfilePointShape
+    ] .
+
+shape:TRF012LIWLEnvelopeShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node shape:TRF012IceWaterlineShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node shape:TRF012IceWaterlineShape
+    ] ;
+    sh:sparql [
+        sh:message "LIWL must equal the minimum intended-waterline vertical coordinate at each represented longitudinal position." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                {
+                    SELECT $this ?x (MIN(xsd:decimal(?iv)) AS ?expected)
+                    WHERE {
+                        $this nltl:hasIntendedIceOperatingWaterline ?iw .
+                        ?iw nltl:hasWaterlineProfilePoint ?ip .
+                        ?ip nltl:longitudinalPosition ?ixq ;
+                            nltl:verticalCoordinate ?ivq .
+                        ?ixq qudt:numericValue ?x .
+                        ?ivq qudt:numericValue ?iv .
+                    }
+                    GROUP BY $this ?x
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:hasLowerIceWaterline ?liwl .
+                    ?liwl nltl:hasWaterlineProfilePoint ?lp .
+                    ?lp nltl:longitudinalPosition ?lxq ;
+                        nltl:verticalCoordinate ?lvq .
+                    ?lxq qudt:numericValue ?x .
+                    ?lvq qudt:numericValue ?lv .
+                    FILTER (
+                        ABS(xsd:decimal(?lv) - xsd:decimal(?expected))
+                        <= (0.000001 * ABS(xsd:decimal(?expected)) + 0.000000001)
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Each represented LIWL profile point must correspond to an intended ice-operating waterline profile point at the same longitudinal position." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this ?lp
+            WHERE {
+                $this nltl:hasIntendedIceOperatingWaterline ?iw .
+                ?iw nltl:hasWaterlineProfilePoint ?ip .
+                ?ip nltl:longitudinalPosition ?ixq .
+                ?ixq qudt:numericValue ?ix .
+
+                $this nltl:hasLowerIceWaterline ?liwl .
+                ?liwl nltl:hasWaterlineProfilePoint ?lp .
+                ?lp nltl:longitudinalPosition ?lxq .
+                ?lxq qudt:numericValue ?lx .
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasIntendedIceOperatingWaterline ?iw2 .
+                    ?iw2 nltl:hasWaterlineProfilePoint ?ip2 .
+                    ?ip2 nltl:longitudinalPosition ?ixq2 .
+                    ?ixq2 qudt:numericValue ?lx .
+                }
+            }
+        """
+    ] .

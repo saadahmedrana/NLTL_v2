@@ -1,0 +1,122 @@
+<BEGIN_SHACL>
+@prefix g: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+g:I2_034_ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:minCount 1 ;
+        sh:class nltl:frameProfileTypeValue ;
+        sh:message "A frame profile type must be represented on the ship."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:class nltl:structuralMember ;
+        sh:node g:I2_034_StructuralMemberShape
+    ] .
+
+g:I2_034_StructuralMemberShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalFrameOrientation ;
+        sh:minCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:message "Structural-member longitudinal frame orientation is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:minCount 1 ;
+        sh:class nltl:structuralLocationValue ;
+        sh:message "Structural-member location is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:plasticStrength ;
+        sh:class qudt:QuantityValue ;
+        sh:node g:I2_034_ForceQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:midspanPlasticCollapseLoad ;
+        sh:class qudt:QuantityValue ;
+        sh:node g:I2_034_ForceQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberLoadCase ;
+        sh:class nltl:loadCase ;
+        sh:node g:I2_034_LoadCaseShape
+    ] ;
+    sh:sparql [
+        sh:message "An applicable longitudinal side-structure frame requires plastic strength, midspan plastic-collapse load, and demand for every represented load case." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:longitudinalFrameOrientation true ;
+                      nltl:structuralLocation nltl:sideStructureLocation .
+                FILTER (
+                    !EXISTS { $this nltl:plasticStrength ?strength . } ||
+                    !EXISTS { $this nltl:midspanPlasticCollapseLoad ?collapseLoad . } ||
+                    EXISTS {
+                        $this nltl:hasStructuralMemberLoadCase ?loadCase .
+                        FILTER NOT EXISTS {
+                            ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+                        }
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Combined shear-and-bending demand must not exceed either represented plastic strength or midspan plastic-collapse load for an applicable longitudinal side-structure frame." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:longitudinalFrameOrientation true ;
+                      nltl:structuralLocation nltl:sideStructureLocation ;
+                      nltl:plasticStrength ?strength ;
+                      nltl:midspanPlasticCollapseLoad ?collapseLoad ;
+                      nltl:hasStructuralMemberLoadCase ?loadCase .
+                ?strength qudt:numericValue ?strengthValue .
+                ?collapseLoad qudt:numericValue ?collapseValue .
+                ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+                ?demand qudt:numericValue ?demandValue .
+                FILTER (
+                    ?demandValue > ?strengthValue ||
+                    ?demandValue > ?collapseValue
+                )
+            }
+        """
+    ] .
+
+g:I2_034_LoadCaseShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:class qudt:QuantityValue ;
+        sh:node g:I2_034_DemandQuantityShape
+    ] .
+
+g:I2_034_ForceQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:KiloN
+    ] .
+
+g:I2_034_DemandQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] .
+<END_SHACL>

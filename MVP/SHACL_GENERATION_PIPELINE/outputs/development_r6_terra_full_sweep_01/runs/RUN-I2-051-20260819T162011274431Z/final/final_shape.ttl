@@ -1,0 +1,150 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:MegaNQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:KiloNQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:MetreQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:UnitlessQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:ShearForceDirectionValueShape a sh:NodeShape ;
+    sh:class nltl:shearForceDirectionValue .
+
+gs:CalculationCaseShape a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:node gs:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shearForceDirection ;
+        sh:minCount 1 ;
+        sh:node gs:ShearForceDirectionValueShape
+    ] .
+
+gs:I2_051_DesignVerticalIceShearForceShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:node gs:MegaNQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceShearForce ;
+        sh:minCount 1 ;
+        sh:node gs:KiloNQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDistributionFactor ;
+        sh:minCount 1 ;
+        sh:node gs:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:node gs:MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:node gs:CalculationCaseShape
+    ] ;
+    sh:sparql [
+        sh:message "For each positive-shear calculation case, FI shall equal Cf multiplied by FIB within 1e-6 relative tolerance with a 1e-6 kN absolute fallback; Cf shall be 0.0 through 0.6 LUI and 1.0 from 0.9 LUI through LUI." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:designVerticalIceForceAtBow ?fibQuantity ;
+                      nltl:designVerticalIceShearForce ?fiQuantity ;
+                      nltl:longitudinalDistributionFactor ?cfQuantity ;
+                      nltl:upperIceWaterlineLengthLUI ?luiQuantity ;
+                      nltl:hasCalculationCase ?case .
+
+                ?fibQuantity qudt:numericValue ?fib .
+                ?fiQuantity qudt:numericValue ?fi .
+                ?cfQuantity qudt:numericValue ?cf .
+                ?luiQuantity qudt:numericValue ?lui .
+
+                ?case nltl:shearForceDirection nltl:positiveShearForce ;
+                      nltl:hullGirderLongitudinalPositionFromAft ?positionQuantity .
+
+                ?positionQuantity qudt:numericValue ?position .
+
+                BIND((?cf * ?fib * 1000.0) AS ?expectedFI)
+
+                FILTER (
+                    ABS(?fi - ?expectedFI) >
+                    ((ABS(?expectedFI) * 0.000001) + 0.000001)
+                    ||
+                    (
+                        ?position >= 0.0 &&
+                        ?position <= (0.6 * ?lui) &&
+                        !(?cf >= 0.0 && ?cf <= 0.0)
+                    )
+                    ||
+                    (
+                        ?position >= (0.9 * ?lui) &&
+                        ?position <= ?lui &&
+                        !(?cf >= 1.0 && ?cf <= 1.0)
+                    )
+                )
+            }
+        """
+    ] .

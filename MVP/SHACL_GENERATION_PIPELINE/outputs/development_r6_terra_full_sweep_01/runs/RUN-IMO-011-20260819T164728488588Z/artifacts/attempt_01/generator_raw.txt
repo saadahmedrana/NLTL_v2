@@ -1,0 +1,126 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO011Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:property [
+        sh:path nltl:dataPeriod ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:YR ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    sh:property [
+        sh:path nltl:dailyLowTemperature ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG_C ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    sh:property [
+        sh:path nltl:meanDailyLowTemperature ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG_C ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    sh:sparql [
+        sh:message "For a data period below 10 years, the administration dataset approval status must be Approved." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:dataPeriod ?period .
+                ?period qudt:numericValue ?years ;
+                        qudt:unit <http://qudt.org/vocab/unit/YR> .
+                FILTER (?years < 10)
+                FILTER NOT EXISTS {
+                    $this nltl:administrationDatasetApprovalStatus
+                        nltl:evidenceStateApproved .
+                }
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "meanDailyLowTemperature must equal the mean of dailyLowTemperature values within a relative tolerance of 1e-6 and an absolute fallback of 0.000001 degrees Celsius." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:meanDailyLowTemperature ?meanValue .
+                ?meanValue qudt:numericValue ?reported ;
+                           qudt:unit <http://qudt.org/vocab/unit/DEG_C> .
+
+                {
+                    SELECT ?ship (AVG(xsd:decimal(?low)) AS ?expected)
+                    WHERE {
+                        ?ship nltl:dailyLowTemperature ?dailyValue .
+                        ?dailyValue qudt:numericValue ?low ;
+                                    qudt:unit <http://qudt.org/vocab/unit/DEG_C> .
+                    }
+                    GROUP BY ?ship
+                }
+
+                FILTER (?ship = $this)
+                BIND(ABS(?reported - ?expected) AS ?difference)
+                BIND((ABS(?expected) * 0.000001) + 0.000001 AS ?tolerance)
+                FILTER (?difference > ?tolerance)
+            }
+        """
+    ] .
+<END_SHACL>
