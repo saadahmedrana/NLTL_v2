@@ -1,0 +1,148 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF012Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:node gs:WaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "At least one intended ice-operating waterline with profile data is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:node gs:WaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "A lower ice waterline with profile data is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "At every represented intended-waterline longitudinal position, the LIWL vertical coordinate must equal the lowest intended-waterline coordinate within relative tolerance 1e-6 or absolute tolerance 1e-9 near zero." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?x ?expectedY
+WHERE {
+    {
+        SELECT $this ?x (MIN(?intendedY) AS ?expectedY)
+        WHERE {
+            $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+            ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+            ?intendedPoint nltl:longitudinalPosition ?intendedXQuantity ;
+                           nltl:verticalCoordinate ?intendedYQuantity .
+            ?intendedXQuantity qudt:numericValue ?x .
+            ?intendedYQuantity qudt:numericValue ?intendedY .
+        }
+        GROUP BY $this ?x
+    }
+    FILTER NOT EXISTS {
+        $this nltl:hasLowerIceWaterline ?lowerWaterline .
+        ?lowerWaterline nltl:hasWaterlineProfilePoint ?lowerPoint .
+        ?lowerPoint nltl:longitudinalPosition ?lowerXQuantity ;
+                    nltl:verticalCoordinate ?lowerYQuantity .
+        ?lowerXQuantity qudt:numericValue ?lowerX .
+        ?lowerYQuantity qudt:numericValue ?lowerY .
+        FILTER(
+            ?lowerX = ?x &&
+            ABS(?lowerY - ?expectedY) <=
+                IF(
+                    ABS(?expectedY) * 0.000001 > 0.000000001,
+                    ABS(?expectedY) * 0.000001,
+                    0.000000001
+                )
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A represented LIWL point must not lie above or below the lowest intended-waterline point at the same longitudinal position beyond relative tolerance 1e-6 or absolute tolerance 1e-9 near zero." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?x ?lowerY ?expectedY
+WHERE {
+    $this nltl:hasLowerIceWaterline ?lowerWaterline .
+    ?lowerWaterline nltl:hasWaterlineProfilePoint ?lowerPoint .
+    ?lowerPoint nltl:longitudinalPosition ?lowerXQuantity ;
+                nltl:verticalCoordinate ?lowerYQuantity .
+    ?lowerXQuantity qudt:numericValue ?x .
+    ?lowerYQuantity qudt:numericValue ?lowerY .
+    {
+        SELECT $this ?x (MIN(?intendedY) AS ?expectedY)
+        WHERE {
+            $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+            ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+            ?intendedPoint nltl:longitudinalPosition ?intendedXQuantity ;
+                           nltl:verticalCoordinate ?intendedYQuantity .
+            ?intendedXQuantity qudt:numericValue ?x .
+            ?intendedYQuantity qudt:numericValue ?intendedY .
+        }
+        GROUP BY $this ?x
+    }
+    FILTER(
+        ABS(?lowerY - ?expectedY) >
+            IF(
+                ABS(?expectedY) * 0.000001 > 0.000000001,
+                ABS(?expectedY) * 0.000001,
+                0.000000001
+            )
+    )
+}
+"""
+    ] .
+
+gs:WaterlineShape
+    a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gs:WaterlineProfilePointShape ;
+        sh:minCount 1 ;
+        sh:message "Each represented waterline must contain at least one profile point."
+    ] .
+
+gs:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:MetreDecimalQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Each waterline profile point requires a decimal longitudinal position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:class qudt:QuantityValue ;
+        sh:node gs:MetreDecimalQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Each waterline profile point requires a decimal vertical coordinate in metres."
+    ] .
+
+gs:MetreDecimalQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

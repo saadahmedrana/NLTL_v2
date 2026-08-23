@@ -1,0 +1,143 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:KiloNewtonQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:MegaPascalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:DesignConditionReadinessShape
+    a sh:NodeShape ;
+    sh:class nltl:designCondition ;
+    sh:property [
+        sh:path nltl:designConditionLocalStrengthCapacity ;
+        sh:minCount 1 ;
+        sh:node gs:KiloNewtonQuantityShape ;
+        sh:message "Each applicable design condition must provide the externally assessed local-strength capacity in kN."
+    ] .
+
+gs:ThrusterRequirementShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:mainPropulsionThruster ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The main-propulsion-thruster selector must be present and single-valued."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The thruster type must be present and single-valued."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:mainPropulsionThruster ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:sparql [
+                sh:message "This non-applicable branch requires a thruster type other than azimuthing or fixed." ;
+                sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this
+WHERE {
+    $this nltl:thrusterType ?thrusterType .
+    FILTER (?thrusterType IN ("azimuthing", "fixed"))
+}
+"""
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:mainPropulsionThruster ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:thrusterType ;
+                sh:in ("azimuthing" "fixed")
+            ] ;
+            sh:property [
+                sh:path nltl:propellerIceInteractionLoad ;
+                sh:minCount 1 ;
+                sh:node gs:KiloNewtonQuantityShape ;
+                sh:message "An applicable main-propulsion thruster must provide its propeller/ice interaction load in kN."
+            ] ;
+            sh:property [
+                sh:path nltl:thrusterBodyIceInteractionLoad ;
+                sh:minCount 1 ;
+                sh:node gs:KiloNewtonQuantityShape ;
+                sh:message "An applicable main-propulsion thruster must provide its thruster-body/ice interaction load in kN."
+            ] ;
+            sh:property [
+                sh:path nltl:localIcePressure ;
+                sh:minCount 1 ;
+                sh:node gs:MegaPascalQuantityShape ;
+                sh:message "An applicable main-propulsion thruster must provide the local ice pressure in MPa."
+            ] ;
+            sh:property [
+                sh:path nltl:hasDesignCondition ;
+                sh:minCount 1 ;
+                sh:class nltl:designCondition ;
+                sh:node gs:DesignConditionReadinessShape ;
+                sh:message "An applicable main-propulsion thruster must have a design condition with an externally assessed local-strength capacity."
+            ] ;
+            sh:sparql [
+                sh:message "The design-condition local-strength capacity must be at least the local ice pressure value." ;
+                sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?designCondition ?capacityValue ?pressureValue
+WHERE {
+    $this nltl:mainPropulsionThruster true ;
+          nltl:thrusterType ?thrusterType ;
+          nltl:localIcePressure ?pressure ;
+          nltl:hasDesignCondition ?designCondition .
+    FILTER (?thrusterType IN ("azimuthing", "fixed"))
+    ?pressure qudt:numericValue ?pressureValue .
+    ?designCondition nltl:designConditionLocalStrengthCapacity ?capacity .
+    ?capacity qudt:numericValue ?capacityValue .
+    FILTER (xsd:decimal(?capacityValue) < xsd:decimal(?pressureValue))
+}
+"""
+            ]
+        ]
+    ) .
+
+<END_SHACL>

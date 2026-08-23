@@ -1,0 +1,314 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF130ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PowerQuantityShape ;
+        sh:message "Maximum continuous rating power is required."
+    ] ;
+    sh:property [
+        sh:path nltl:totalRelevantEnginePower ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PowerQuantityShape ;
+        sh:message "Total relevant engine power is required."
+    ] ;
+    sh:property [
+        sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The volume and height applicability selector is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasComponent ;
+        sh:qualifiedValueShape [
+            sh:class nltl:inletChest
+        ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "At least one inlet chest is required."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+                sh:hasValue false
+            ] ;
+            sh:property [
+                sh:path nltl:hasComponent ;
+                sh:qualifiedValueShape gen:TRF130StandardInletChestShape ;
+                sh:qualifiedMinCount 1 ;
+                sh:message "At least one standard inlet chest shall satisfy the required arrangement."
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:coolingWaterChestAlternativeArrangementUsed ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "The alternative cooling-water chest arrangement shall be recorded as used."
+            ] ;
+            sh:property [
+                sh:path nltl:hasComponent ;
+                sh:qualifiedValueShape gen:TRF130AlternativeInletChestShape ;
+                sh:qualifiedMinCount 2 ;
+                sh:message "At least two smaller alternating inlet chests are required."
+            ]
+        ]
+    ) .
+
+gen:TRF130CalculationInletChestShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:inletChest ;
+    sh:property [
+        sh:path nltl:recommendedChestVolume ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:VolumeQuantityShape ;
+        sh:message "A calculated recommended chest volume is required."
+    ] ;
+    sh:property [
+        sh:path nltl:seaChestVolume ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:VolumeQuantityShape ;
+        sh:message "Sea chest volume is required."
+    ] ;
+    sh:property [
+        sh:path nltl:strainerOpenArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:AreaQuantityShape ;
+        sh:message "Strainer open area is required."
+    ] ;
+    sh:property [
+        sh:path nltl:inletPipeArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:AreaQuantityShape ;
+        sh:message "Inlet pipe area is required."
+    ] ;
+    sh:property [
+        sh:path nltl:strainerOpenAreaRatio ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:RatioQuantityShape ;
+        sh:message "Strainer open-area ratio is required."
+    ] ;
+    sh:sparql [
+        sh:message "Recommended chest volume shall equal total relevant engine power divided by 750 within a relative tolerance of 1e-6 and an absolute fallback of 1e-9." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    ?ship nltl:hasComponent $this ;
+          nltl:totalRelevantEnginePower ?powerQuantity .
+    ?powerQuantity qudt:numericValue ?power .
+    $this nltl:recommendedChestVolume ?recommendedQuantity .
+    ?recommendedQuantity qudt:numericValue ?recommended .
+    BIND((xsd:decimal(?power) / 750.0) AS ?expected)
+    BIND(IF((ABS(?expected) * 0.000001) > 0.000000001,
+            (ABS(?expected) * 0.000001),
+            0.000000001) AS ?tolerance)
+    FILTER(ABS(xsd:decimal(?recommended) - ?expected) > ?tolerance)
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "Strainer open area shall be at least four times the inlet pipe area." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:strainerOpenArea ?strainerQuantity ;
+          nltl:inletPipeArea ?inletQuantity .
+    ?strainerQuantity qudt:numericValue ?strainerArea .
+    ?inletQuantity qudt:numericValue ?inletArea .
+    FILTER(xsd:decimal(?strainerArea) < (4.0 * xsd:decimal(?inletArea)))
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "Strainer open-area ratio shall equal strainer open area divided by inlet pipe area within a relative tolerance of 1e-6 and an absolute fallback of 1e-9, and shall be at least four." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:strainerOpenArea ?strainerQuantity ;
+          nltl:inletPipeArea ?inletQuantity ;
+          nltl:strainerOpenAreaRatio ?ratioQuantity .
+    ?strainerQuantity qudt:numericValue ?strainerArea .
+    ?inletQuantity qudt:numericValue ?inletArea .
+    ?ratioQuantity qudt:numericValue ?ratio .
+    BIND(xsd:decimal(?inletArea) AS ?inletDecimal)
+    BIND(xsd:decimal(?ratio) AS ?reportedRatio)
+    BIND(IF(?inletDecimal = 0.0, 0.0,
+            xsd:decimal(?strainerArea) / ?inletDecimal) AS ?expectedRatio)
+    BIND(IF((ABS(?expectedRatio) * 0.000001) > 0.000000001,
+            (ABS(?expectedRatio) * 0.000001),
+            0.000000001) AS ?tolerance)
+    FILTER(
+        ?inletDecimal = 0.0 ||
+        ?reportedRatio < 4.0 ||
+        ABS(?reportedRatio - ?expectedRatio) > ?tolerance
+    )
+}
+"""
+    ] .
+
+gen:TRF130CommonInletChestShape
+    a sh:NodeShape ;
+    sh:class nltl:inletChest ;
+    sh:node gen:TRF130CalculationInletChestShape ;
+    sh:property [
+        sh:path nltl:seaInletLocation ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Sea inlet location is required."
+    ] ;
+    sh:property [
+        sh:path nltl:nearCentrelineAndWellAftIfPossible ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The sea inlet shall be near the centreline and well aft if possible."
+    ] ;
+    sh:property [
+        sh:path nltl:fullCapacityDischargePipeConnected ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A full-capacity cooling-water discharge pipe shall be connected."
+    ] .
+
+gen:TRF130StandardInletChestShape
+    a sh:NodeShape ;
+    sh:class nltl:inletChest ;
+    sh:node gen:TRF130CommonInletChestShape ;
+    sh:property [
+        sh:path nltl:iceAccumulationSpaceAboveInlet ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The inlet chest shall provide ice-accumulation space above the inlet pipe."
+    ] .
+
+gen:TRF130AlternativeInletChestShape
+    a sh:NodeShape ;
+    sh:class nltl:inletChest ;
+    sh:node gen:TRF130CommonInletChestShape ;
+    sh:property [
+        sh:path nltl:alternatingCoolingWaterIntakeAndDischarge ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The alternative inlet chest shall support alternating intake and discharge."
+    ] ;
+    sh:sparql [
+        sh:message "Each alternative inlet chest shall have a sea chest volume smaller than its recommended chest volume." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:seaChestVolume ?actualQuantity ;
+          nltl:recommendedChestVolume ?recommendedQuantity .
+    ?actualQuantity qudt:numericValue ?actual .
+    ?recommendedQuantity qudt:numericValue ?recommended .
+    FILTER(xsd:decimal(?actual) >= xsd:decimal(?recommended))
+}
+"""
+    ] .
+
+gen:PowerQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloW ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:VolumeQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:AreaQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:RatioQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

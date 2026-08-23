@@ -1,0 +1,379 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_048_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasSteelGradeRequirementCase ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeRequirementCase ;
+        sh:node gen:I2_048_SteelGradeRequirementCaseShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hasSteelGradeRequirementCase ;
+                sh:maxCount 0
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:polarClass ;
+                sh:nodeKind sh:IRI ;
+                sh:class nltl:polarClassValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:in (
+                    nltl:polarClassPc1
+                    nltl:polarClassPc2
+                    nltl:polarClassPc3
+                    nltl:polarClassPc4
+                    nltl:polarClassPc5
+                    nltl:polarClassPc6
+                    nltl:polarClassPc7
+                ) ;
+                sh:message "A ship with a represented steel-grade requirement case must identify exactly one Polar Class."
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "The Table 8 required grade is missing or incorrect, the thickness is outside the represented Table 8 bands, or the actual grade is below the required grade within its steel-strength category." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this ?value
+WHERE {
+    $this nltl:hasSteelGradeRequirementCase ?case ;
+          nltl:polarClass ?polarClass .
+
+    ?case nltl:asBuiltPlateThickness ?thickness ;
+          nltl:steelMaterialClass ?materialClass ;
+          nltl:steelStrengthCategory ?strengthCategory ;
+          nltl:actualHullStructuralSteelGrade ?actualGrade .
+
+    ?thickness qudt:numericValue ?t .
+
+    OPTIONAL {
+        ?case nltl:requiredHullStructuralSteelGrade ?requiredGrade .
+    }
+
+    BIND(
+        IF(
+            ?polarClass IN (
+                nltl:polarClassPc1,
+                nltl:polarClassPc2,
+                nltl:polarClassPc3
+            ),
+            1,
+            IF(
+                ?polarClass IN (
+                    nltl:polarClassPc4,
+                    nltl:polarClassPc5
+                ),
+                2,
+                3
+            )
+        )
+        AS ?polarGroup
+    )
+
+    BIND(
+        IF(
+            ?t <= 10,
+            IF(
+                ?materialClass IN (
+                    nltl:steelMaterialClassOne,
+                    nltl:steelMaterialClassTwo
+                ),
+                1,
+                IF(?polarGroup = 3, 1, 3)
+            ),
+            IF(
+                ?t <= 15,
+                IF(
+                    ?materialClass = nltl:steelMaterialClassOne,
+                    1,
+                    IF(
+                        ?materialClass = nltl:steelMaterialClassTwo,
+                        IF(?polarGroup = 3, 1, 2),
+                        IF(?polarGroup = 3, 2, 3)
+                    )
+                ),
+                IF(
+                    ?t <= 25,
+                    IF(
+                        ?materialClass IN (
+                            nltl:steelMaterialClassOne,
+                            nltl:steelMaterialClassTwo
+                        ),
+                        IF(?polarGroup = 3, 1, 2),
+                        IF(?polarGroup = 3, 2, 3)
+                    ),
+                    IF(
+                        ?t <= 35,
+                        IF(
+                            ?materialClass = nltl:steelMaterialClassOne,
+                            IF(?polarGroup = 3, 1, 2),
+                            IF(
+                                ?materialClass = nltl:steelMaterialClassTwo,
+                                IF(?polarGroup = 3, 2, 3),
+                                3
+                            )
+                        ),
+                        IF(
+                            ?t <= 40,
+                            IF(
+                                ?materialClass = nltl:steelMaterialClassOne,
+                                2,
+                                IF(
+                                    ?materialClass = nltl:steelMaterialClassTwo,
+                                    IF(?polarGroup = 3, 2, 3),
+                                    IF(
+                                        ?polarGroup = 1,
+                                        IF(
+                                            ?strengthCategory = nltl:highTensileSteelCategory,
+                                            4,
+                                            0
+                                        ),
+                                        3
+                                    )
+                                )
+                            ),
+                            IF(
+                                ?t <= 45,
+                                IF(
+                                    ?materialClass IN (
+                                        nltl:steelMaterialClassOne,
+                                        nltl:steelMaterialClassTwo
+                                    ),
+                                    IF(?polarGroup = 3, 2, 3),
+                                    IF(
+                                        ?polarGroup = 1,
+                                        IF(
+                                            ?strengthCategory = nltl:highTensileSteelCategory,
+                                            4,
+                                            0
+                                        ),
+                                        3
+                                    )
+                                ),
+                                IF(
+                                    ?t <= 50,
+                                    IF(
+                                        ?materialClass IN (
+                                            nltl:steelMaterialClassOne,
+                                            nltl:steelMaterialClassTwo
+                                        ),
+                                        IF(?polarGroup = 3, 2, 3),
+                                        IF(
+                                            ?polarGroup IN (1, 2),
+                                            IF(
+                                                ?strengthCategory = nltl:highTensileSteelCategory,
+                                                4,
+                                                0
+                                            ),
+                                            3
+                                        )
+                                    ),
+                                    -1
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        AS ?requiredRank
+    )
+
+    BIND(
+        IF(
+            ?strengthCategory = nltl:normalStrengthSteelCategory,
+            IF(
+                ?requiredRank = 1,
+                nltl:steelGradeB,
+                IF(
+                    ?requiredRank = 2,
+                    nltl:steelGradeD,
+                    nltl:steelGradeE
+                )
+            ),
+            IF(
+                ?requiredRank = 1,
+                nltl:steelGradeAh,
+                IF(
+                    ?requiredRank = 2,
+                    nltl:steelGradeDh,
+                    IF(
+                        ?requiredRank = 3,
+                        nltl:steelGradeEh,
+                        nltl:steelGradeFh
+                    )
+                )
+            )
+        )
+        AS ?expectedGrade
+    )
+
+    BIND(
+        IF(
+            ?strengthCategory = nltl:normalStrengthSteelCategory,
+            IF(
+                ?actualGrade = nltl:steelGradeB,
+                1,
+                IF(
+                    ?actualGrade = nltl:steelGradeD,
+                    2,
+                    IF(
+                        ?actualGrade = nltl:steelGradeE,
+                        3,
+                        -1
+                    )
+                )
+            ),
+            IF(
+                ?actualGrade = nltl:steelGradeAh,
+                1,
+                IF(
+                    ?actualGrade = nltl:steelGradeDh,
+                    2,
+                    IF(
+                        ?actualGrade = nltl:steelGradeEh,
+                        3,
+                        IF(
+                            ?actualGrade = nltl:steelGradeFh,
+                            4,
+                            -1
+                        )
+                    )
+                )
+            )
+        )
+        AS ?actualRank
+    )
+
+    FILTER(
+        ?requiredRank < 0 ||
+        (
+            ?requiredRank > 0 &&
+            (
+                !BOUND(?requiredGrade) ||
+                ?requiredGrade != ?expectedGrade ||
+                ?actualRank < ?requiredRank
+            )
+        )
+    )
+
+    BIND(?case AS ?value)
+}
+"""
+    ] .
+
+gen:I2_048_SteelGradeRequirementCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:steelGradeRequirementCasePlating ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:plating ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each represented steel-grade requirement case must identify exactly one assessed plating."
+    ] ;
+    sh:property [
+        sh:path nltl:asBuiltPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_048_ThicknessShape ;
+        sh:message "Each represented steel-grade requirement case must provide exactly one as-built plate thickness in millimetres."
+    ] ;
+    sh:property [
+        sh:path nltl:steelMaterialClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelMaterialClassValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:steelMaterialClassOne
+            nltl:steelMaterialClassTwo
+            nltl:steelMaterialClassThree
+        ) ;
+        sh:message "Each represented steel-grade requirement case must identify exactly one permitted steel material class."
+    ] ;
+    sh:property [
+        sh:path nltl:steelStrengthCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelStrengthCategoryValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:normalStrengthSteelCategory
+            nltl:highTensileSteelCategory
+        ) ;
+        sh:message "Each represented steel-grade requirement case must identify exactly one permitted steel-strength category."
+    ] ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:tableReferenceValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue nltl:iacsUrI2Table8 ;
+        sh:message "Each represented steel-grade requirement case must reference IACS UR I2 Table 8."
+    ] ;
+    sh:property [
+        sh:path nltl:actualHullStructuralSteelGrade ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:steelGradeAh
+            nltl:steelGradeB
+            nltl:steelGradeD
+            nltl:steelGradeDh
+            nltl:steelGradeE
+            nltl:steelGradeEh
+            nltl:steelGradeFh
+        ) ;
+        sh:message "Each represented steel-grade requirement case must identify exactly one permitted actual hull structural steel grade."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredHullStructuralSteelGrade ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeValue ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:steelGradeAh
+            nltl:steelGradeB
+            nltl:steelGradeD
+            nltl:steelGradeDh
+            nltl:steelGradeE
+            nltl:steelGradeEh
+            nltl:steelGradeFh
+        )
+    ] .
+
+gen:I2_048_ThicknessShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MilliM
+    ] .
+<END_SHACL>

@@ -1,0 +1,219 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:IMO049Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Ship category is required to determine applicability."
+    ] ;
+    sh:sparql [
+        sh:message "Category C ships require a boolean ice-strengthened selector." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:shipCategory nltl:polarShipCategoryC .
+                FILTER NOT EXISTS {
+                    $this nltl:shipIceStrengthened ?strengthened .
+                    FILTER(
+                        isLiteral(?strengthened) &&
+                        datatype(?strengthened) = xsd:boolean
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The Category C ice-strengthened selector must have datatype xsd:boolean." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:shipCategory nltl:polarShipCategoryC ;
+                      nltl:shipIceStrengthened ?strengthened .
+                FILTER(
+                    !isLiteral(?strengthened) ||
+                    datatype(?strengthened) != xsd:boolean
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "An applicable ship requires machinery component type information with datatype xsd:string." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:shipCategory ?category .
+                FILTER(
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    ) ||
+                    (
+                        ?category = nltl:polarShipCategoryC &&
+                        EXISTS {
+                            $this nltl:shipIceStrengthened ?strengthened .
+                            FILTER(
+                                isLiteral(?strengthened) &&
+                                datatype(?strengthened) = xsd:boolean &&
+                                ?strengthened = true
+                            )
+                        }
+                    )
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:machineryComponentType ?componentType .
+                    FILTER(
+                        isLiteral(?componentType) &&
+                        datatype(?componentType) = xsd:string
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Machinery component type values on an applicable ship must have datatype xsd:string." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:machineryComponentType ?componentType .
+                FILTER(
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    ) ||
+                    (
+                        ?category = nltl:polarShipCategoryC &&
+                        EXISTS {
+                            $this nltl:shipIceStrengthened ?strengthened .
+                            FILTER(
+                                isLiteral(?strengthened) &&
+                                datatype(?strengthened) = xsd:boolean &&
+                                ?strengthened = true
+                            )
+                        }
+                    )
+                )
+                FILTER(
+                    !isLiteral(?componentType) ||
+                    datatype(?componentType) != xsd:string
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Each machinery component of an applicable ship requires a conforming approved scantling record; Category C records must also include operating ice type and concentration." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            SELECT DISTINCT $this ?component
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:hasComponent ?component .
+                ?component a nltl:machineryComponent .
+
+                FILTER(
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    ) ||
+                    (
+                        ?category = nltl:polarShipCategoryC &&
+                        EXISTS {
+                            $this nltl:shipIceStrengthened ?strengthened .
+                            FILTER(
+                                isLiteral(?strengthened) &&
+                                datatype(?strengthened) = xsd:boolean &&
+                                ?strengthened = true
+                            )
+                        }
+                    )
+                )
+
+                FILTER NOT EXISTS {
+                    ?component nltl:hasApprovalRecord ?record .
+                    ?record a nltl:approvalRecord ;
+                            nltl:scantlingApprovalStatus nltl:evidenceStateApproved ;
+                            nltl:approvingAuthority ?authority ;
+                            nltl:approvalStandard ?standard .
+
+                    FILTER(
+                        isLiteral(?authority) &&
+                        datatype(?authority) = xsd:string &&
+                        isLiteral(?standard) &&
+                        datatype(?standard) = xsd:string
+                    )
+
+                    FILTER NOT EXISTS {
+                        ?record nltl:approvingAuthority ?badAuthority .
+                        FILTER(
+                            !isLiteral(?badAuthority) ||
+                            datatype(?badAuthority) != xsd:string
+                        )
+                    }
+
+                    FILTER NOT EXISTS {
+                        ?record nltl:approvalStandard ?badStandard .
+                        FILTER(
+                            !isLiteral(?badStandard) ||
+                            datatype(?badStandard) != xsd:string
+                        )
+                    }
+
+                    FILTER(
+                        ?category != nltl:polarShipCategoryC ||
+                        EXISTS {
+                            ?record nltl:operatingIceType ?iceType ;
+                                    nltl:operatingIceConcentration ?concentration .
+                            ?concentration qudt:numericValue ?numericValue ;
+                                           qudt:unit unit:UNITLESS .
+
+                            FILTER(
+                                isLiteral(?iceType) &&
+                                datatype(?iceType) = xsd:string &&
+                                isLiteral(?numericValue) &&
+                                datatype(?numericValue) = xsd:decimal
+                            )
+
+                            FILTER NOT EXISTS {
+                                ?record nltl:operatingIceType ?badIceType .
+                                FILTER(
+                                    !isLiteral(?badIceType) ||
+                                    datatype(?badIceType) != xsd:string
+                                )
+                            }
+
+                            FILTER NOT EXISTS {
+                                ?concentration qudt:numericValue ?badNumericValue .
+                                FILTER(
+                                    !isLiteral(?badNumericValue) ||
+                                    datatype(?badNumericValue) != xsd:decimal
+                                )
+                            }
+
+                            FILTER NOT EXISTS {
+                                ?concentration qudt:unit ?otherUnit .
+                                FILTER(?otherUnit != unit:UNITLESS)
+                            }
+                        }
+                    )
+                }
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,279 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:FrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:property [
+        sh:path nltl:withinIceStrengthenedArea ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:hasFrameAttachment ;
+                sh:node gs:FrameAttachmentShape
+            ] ;
+            sh:or (
+                [
+                    sh:property [
+                        sh:path nltl:passesThroughSupportingStructure ;
+                        sh:datatype xsd:boolean ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:hasValue false
+                    ]
+                ]
+                [
+                    sh:property [
+                        sh:path nltl:passesThroughSupportingStructure ;
+                        sh:datatype xsd:boolean ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:hasValue true
+                    ] ;
+                    sh:property [
+                        sh:path nltl:webPlateConnectionSideCount ;
+                        sh:datatype xsd:integer ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:minInclusive 2
+                    ]
+                ]
+            )
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Each linked supporting web frame or bulkhead must share an effectively confirmed attachment with the frame." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:withinIceStrengthenedArea ?within ;
+          (nltl:hasSupportingWebFrame|nltl:hasSupportingBulkhead) ?support .
+    FILTER(datatype(?within) = xsd:boolean && ?within = true)
+    FILTER NOT EXISTS {
+        $this nltl:hasFrameAttachment ?attachment .
+        ?support nltl:hasSupportingStructureAttachment ?attachment .
+        ?attachment nltl:effectiveAttachmentConfirmed ?confirmed .
+        FILTER(datatype(?confirmed) = xsd:boolean && ?confirmed = true)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "A longitudinal frame must be connected by a bracket to each linked supporting web frame and bulkhead." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this a nltl:longitudinalFrame ;
+          nltl:withinIceStrengthenedArea ?within ;
+          (nltl:hasSupportingWebFrame|nltl:hasSupportingBulkhead) ?support .
+    FILTER(datatype(?within) = xsd:boolean && ?within = true)
+    FILTER NOT EXISTS {
+        $this nltl:hasFrameAttachment ?attachment .
+        ?support nltl:hasSupportingStructureAttachment ?attachment .
+        ?attachment nltl:hasConnectionBracket ?bracket .
+        ?bracket a nltl:connectionBracket .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "Every installed bracket must be at least as thick as the frame web, using decimal millimetre values." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:withinIceStrengthenedArea ?within ;
+          nltl:hasFrameAttachment ?attachment .
+    ?attachment nltl:hasConnectionBracket ?bracket .
+    FILTER(datatype(?within) = xsd:boolean && ?within = true)
+
+    OPTIONAL {
+        $this nltl:frameWebThickness ?frameThickness .
+        OPTIONAL {
+            ?frameThickness qudt:numericValue ?frameValue .
+        }
+        OPTIONAL {
+            ?frameThickness qudt:unit ?frameUnit .
+        }
+    }
+    OPTIONAL {
+        ?bracket nltl:bracketThickness ?bracketThickness .
+        OPTIONAL {
+            ?bracketThickness qudt:numericValue ?bracketValue .
+        }
+        OPTIONAL {
+            ?bracketThickness qudt:unit ?bracketUnit .
+        }
+    }
+
+    FILTER(
+        !BOUND(?frameThickness) ||
+        !BOUND(?frameValue) ||
+        !BOUND(?frameUnit) ||
+        !BOUND(?bracketThickness) ||
+        !BOUND(?bracketValue) ||
+        !BOUND(?bracketUnit) ||
+        (BOUND(?frameValue) && datatype(?frameValue) != xsd:decimal) ||
+        (BOUND(?bracketValue) && datatype(?bracketValue) != xsd:decimal) ||
+        (BOUND(?frameUnit) && ?frameUnit != unit:MilliM) ||
+        (BOUND(?bracketUnit) && ?bracketUnit != unit:MilliM) ||
+        (
+            BOUND(?frameValue) &&
+            BOUND(?bracketValue) &&
+            datatype(?frameValue) = xsd:decimal &&
+            datatype(?bracketValue) = xsd:decimal &&
+            xsd:decimal(?bracketValue) < xsd:decimal(?frameValue)
+        )
+    )
+}
+"""
+    ] .
+
+gs:FrameAttachmentShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasConnectionBracket ;
+        sh:class nltl:connectionBracket ;
+        sh:node gs:ConnectionBracketShape
+    ] .
+
+gs:ConnectionBracketShape
+    a sh:NodeShape ;
+    sh:class nltl:connectionBracket ;
+    sh:property [
+        sh:path nltl:bracketThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gs:MillimetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:bracketEdgeStiffened ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:bucklingStiffening ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] .
+
+gs:MillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MilliM
+    ] .
+
+gs:TransverseFrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:transverseFrame ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:terminatesAtDeckOrIceStringer ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:terminatesAtDeckOrIceStringer ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:hasFrameAttachment ;
+                sh:qualifiedMinCount 1 ;
+                sh:qualifiedValueShape [
+                    sh:or (
+                        [
+                            sh:property [
+                                sh:path nltl:hasConnectionBracket ;
+                                sh:class nltl:connectionBracket ;
+                                sh:minCount 1
+                            ]
+                        ]
+                        [
+                            sh:property [
+                                sh:path nltl:similarAttachmentConstructionPresent ;
+                                sh:datatype xsd:boolean ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1 ;
+                                sh:hasValue true
+                            ]
+                        ]
+                    )
+                ]
+            ]
+        ]
+    ) .

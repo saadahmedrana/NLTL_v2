@@ -1,0 +1,124 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:TRF047FrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:targetClass nltl:mainFrame ;
+    sh:targetClass nltl:intermediateIceFrame ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A main frame or intermediate ice frame must identify its strengthened part." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this a ?frameType .
+    FILTER (?frameType IN (nltl:mainFrame, nltl:intermediateIceFrame))
+    FILTER NOT EXISTS {
+        $this nltl:hasStrengthenedPart ?part .
+        ?part a nltl:frameStrengthenedPart .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A main frame or intermediate ice frame must identify its lower end." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this a ?frameType .
+    FILTER (?frameType IN (nltl:mainFrame, nltl:intermediateIceFrame))
+    FILTER NOT EXISTS {
+        $this nltl:hasLowerEnd ?end .
+        ?end a nltl:frameEnd .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each lower end must be attached to an allowed supporting structure, or an intermediate ice frame must satisfy the permitted horizontal-connection alternative." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?end
+WHERE {
+    $this a ?frameType ;
+          nltl:hasLowerEnd ?end .
+    FILTER (?frameType IN (nltl:mainFrame, nltl:intermediateIceFrame))
+    FILTER NOT EXISTS {
+        ?end a nltl:frameEnd ;
+             nltl:hasAttachedSupportingStructure ?attachedStructure .
+        ?attachedStructure a ?attachedType .
+        FILTER (?attachedType IN (
+            nltl:deckStructure,
+            nltl:tankBoundaryPlating,
+            nltl:tankTop,
+            nltl:iceStringer
+        ))
+    }
+    FILTER (
+        ?frameType = nltl:mainFrame ||
+        NOT EXISTS {
+            ?end a nltl:frameEnd ;
+                 nltl:hasTerminationBelowSupportingStructure ?supportingStructure ;
+                 nltl:hasHorizontalConnectionMember ?horizontalMember .
+            ?supportingStructure a ?supportingType .
+            FILTER (?supportingType IN (
+                nltl:deckStructure,
+                nltl:tankBoundaryPlating,
+                nltl:tankTop,
+                nltl:iceStringer
+            ))
+            ?horizontalMember a nltl:horizontalConnectionMember ;
+                              nltl:connectsToAdjacentMainFrame ?adjacentMainFrame1 ;
+                              nltl:connectsToAdjacentMainFrame ?adjacentMainFrame2 .
+            FILTER (?adjacentMainFrame1 != ?adjacentMainFrame2)
+            ?adjacentMainFrame1 a nltl:mainFrame ;
+                                nltl:mainFrameBelowIceBeltStrengthened ?adjacentStrengthened1 .
+            ?adjacentMainFrame2 a nltl:mainFrame ;
+                                nltl:mainFrameBelowIceBeltStrengthened ?adjacentStrengthened2 .
+            $this nltl:supportingStructureAtOrBelowIceBeltLowerLimit ?atOrBelow ;
+                  nltl:sameScantlingsAsMainFrame ?sameScantlings .
+            FILTER (
+                datatype(?atOrBelow) = xsd:boolean &&
+                ?atOrBelow = true &&
+                datatype(?sameScantlings) = xsd:boolean &&
+                ?sameScantlings = true &&
+                datatype(?adjacentStrengthened1) = xsd:boolean &&
+                ?adjacentStrengthened1 = true &&
+                datatype(?adjacentStrengthened2) = xsd:boolean &&
+                ?adjacentStrengthened2 = true
+            )
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A main frame below the lower edge of the ice belt must be recorded as ice strengthened." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this a nltl:mainFrame .
+    FILTER NOT EXISTS {
+        $this nltl:mainFrameBelowIceBeltStrengthened ?strengthened .
+        FILTER (
+            datatype(?strengthened) = xsd:boolean &&
+            ?strengthened = true
+        )
+    }
+}
+"""
+    ] .
+<END_SHACL>

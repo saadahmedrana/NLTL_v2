@@ -1,0 +1,245 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2-018ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIceLoadPatch ;
+        sh:minCount 1 ;
+        sh:class nltl:iceLoadPatch ;
+        sh:message "A design ice load patch is required."
+    ] ;
+    sh:property [
+        sh:path nltl:iceForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:IceForceQuantityShape ;
+        sh:message "Ice force must be provided in kilonewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape ;
+        sh:message "Load patch height must be provided in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchLength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape ;
+        sh:message "Load patch length must be provided in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PressureQuantityShape ;
+        sh:message "Average ice pressure must be provided in megapascals."
+    ] ;
+    sh:property [
+        sh:path nltl:peakPressureFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:message "The applicable peak pressure factor is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasPeakPressureFactorLookupCase ;
+        sh:minCount 1 ;
+        sh:node gen:PeakPressureFactorLookupCaseShape ;
+        sh:message "A peak-pressure-factor lookup case is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasTableLookupCase ;
+        sh:minCount 1 ;
+        sh:node gen:TableLookupCaseShape ;
+        sh:message "A Table 3 lookup case is required."
+    ] ;
+    sh:sparql [
+        sh:message "Average ice pressure must equal ice force divided by load patch height and length, with conversion from kN/m2 to MPa." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceForce/qudt:numericValue ?force ;
+                      nltl:loadPatchHeight/qudt:numericValue ?height ;
+                      nltl:loadPatchLength/qudt:numericValue ?length ;
+                      nltl:averageIcePressure/qudt:numericValue ?reported .
+                BIND(?height * ?length AS ?denominator)
+                BIND(
+                    IF(
+                        ?denominator != "0"^^xsd:decimal,
+                        ?force / (?denominator * "1000"^^xsd:decimal),
+                        "0"^^xsd:decimal
+                    )
+                    AS ?expected
+                )
+                BIND(
+                    IF(
+                        ABS(?expected) * "0.000001"^^xsd:decimal > "0.000000001"^^xsd:decimal,
+                        ABS(?expected) * "0.000001"^^xsd:decimal,
+                        "0.000000001"^^xsd:decimal
+                    )
+                    AS ?tolerance
+                )
+                FILTER(
+                    ?denominator = "0"^^xsd:decimal ||
+                    ABS(?reported - ?expected) > ?tolerance
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Every peak-pressure-factor lookup case must also be the ship's represented table lookup case." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasPeakPressureFactorLookupCase ?case .
+                FILTER NOT EXISTS {
+                    $this nltl:hasTableLookupCase ?case .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The ship's peak pressure factor must match the factor selected for each lookup case." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:peakPressureFactor/qudt:numericValue ?reported ;
+                      nltl:hasPeakPressureFactorLookupCase ?case .
+                ?case nltl:selectedPeakPressureFactor/qudt:numericValue ?selected .
+                BIND(
+                    IF(
+                        ABS(?selected) * "0.000001"^^xsd:decimal > "0.000000001"^^xsd:decimal,
+                        ABS(?selected) * "0.000001"^^xsd:decimal,
+                        "0.000000001"^^xsd:decimal
+                    )
+                    AS ?tolerance
+                )
+                FILTER(ABS(?reported - ?selected) > ?tolerance)
+            }
+        """
+    ] .
+
+gen:PeakPressureFactorLookupCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:peakPressureFactorLookupCase ;
+    sh:node gen:TableLookupCaseShape ;
+    sh:property [
+        sh:path nltl:localizedStructuralMemberCategory ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:bottomStructureFrameCategory
+            nltl:longitudinallyFramedPlatingCategory
+            nltl:stringerSideLongitudinalOrWebFrameCategory
+            nltl:transverseFrameWithLoadDistributingStringersCategory
+            nltl:transverseFrameWithoutLoadDistributingStringersCategory
+            nltl:transverselyFramedPlatingCategory
+        ) ;
+        sh:message "The lookup case must identify one permitted localized structural-member category."
+    ] ;
+    sh:property [
+        sh:path nltl:selectedPeakPressureFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:message "The Table 3 peak pressure factor selected for the member category is required."
+    ] .
+
+gen:TableLookupCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:tableLookupCase ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue nltl:iacsUrI2Table3 ;
+        sh:message "The lookup case must reference IACS UR I2 Table 3."
+    ] ;
+    sh:property [
+        sh:path nltl:lookupSelectionEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "Evidence supporting the Table 3 lookup selection is required."
+    ] .
+
+gen:IceForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:KiloN
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+<END_SHACL>

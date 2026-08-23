@@ -1,0 +1,247 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The coordinate quantity shall have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The coordinate quantity shall have exactly one metre unit."
+    ] .
+
+gen:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each waterline profile point shall have exactly one longitudinal position."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each waterline profile point shall have exactly one vertical coordinate."
+    ] .
+
+gen:IceWaterlineShape
+    a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:WaterlineProfilePointShape ;
+        sh:minCount 2 ;
+        sh:message "Each ice waterline shall have at least two profile points defining its line segments."
+    ] .
+
+gen:LowerIceWaterlineEnvelopeShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "At least one intended ice-operating waterline is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one lower ice waterline is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The lower ice waterline shall be defined over all relevant stations and equal the pointwise minimum of all intended ice-operating waterlines." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT DISTINCT $this
+WHERE {
+    {
+        SELECT $this ?x
+               (COUNT(DISTINCT ?iw) AS ?expectedIntendedCount)
+               (COUNT(DISTINCT ?iwDefined) AS ?definedIntendedCount)
+               (MIN(?iy) AS ?expectedMinimum)
+               (MIN(?ly) AS ?lowerValue)
+               (COUNT(?ly) AS ?lowerValueCount)
+        WHERE {
+            {
+                SELECT DISTINCT $this ?x
+                WHERE {
+                    $this nltl:hasIntendedIceOperatingWaterline ?requiredIntended ;
+                          nltl:hasLowerIceWaterline ?requiredLower .
+
+                    {
+                        $this ?waterlineProperty ?vertexLine .
+                        FILTER (
+                            ?waterlineProperty IN (
+                                nltl:hasIntendedIceOperatingWaterline,
+                                nltl:hasLowerIceWaterline
+                            )
+                        )
+                        ?vertexLine nltl:hasWaterlineProfilePoint ?vertexPoint .
+                        ?vertexPoint nltl:longitudinalPosition ?vertexXQuantity .
+                        ?vertexXQuantity qudt:numericValue ?vertexX .
+                        BIND(xsd:decimal(?vertexX) AS ?x)
+                    }
+                    UNION
+                    {
+                        $this nltl:hasIntendedIceOperatingWaterline ?wa, ?wb .
+                        FILTER(?wa != ?wb)
+
+                        ?wa nltl:hasWaterlineProfilePoint ?a1, ?a2 .
+                        FILTER(?a1 != ?a2)
+                        ?a1 nltl:longitudinalPosition ?axq1 ;
+                            nltl:verticalCoordinate ?ayq1 .
+                        ?a2 nltl:longitudinalPosition ?axq2 ;
+                            nltl:verticalCoordinate ?ayq2 .
+                        ?axq1 qudt:numericValue ?ax1 .
+                        ?axq2 qudt:numericValue ?ax2 .
+                        ?ayq1 qudt:numericValue ?ay1 .
+                        ?ayq2 qudt:numericValue ?ay2 .
+                        FILTER(?ax1 < ?ax2)
+                        FILTER NOT EXISTS {
+                            ?wa nltl:hasWaterlineProfilePoint ?am .
+                            ?am nltl:longitudinalPosition ?amxq .
+                            ?amxq qudt:numericValue ?amx .
+                            FILTER(?amx > ?ax1 && ?amx < ?ax2)
+                        }
+
+                        ?wb nltl:hasWaterlineProfilePoint ?b1, ?b2 .
+                        FILTER(?b1 != ?b2)
+                        ?b1 nltl:longitudinalPosition ?bxq1 ;
+                            nltl:verticalCoordinate ?byq1 .
+                        ?b2 nltl:longitudinalPosition ?bxq2 ;
+                            nltl:verticalCoordinate ?byq2 .
+                        ?bxq1 qudt:numericValue ?bx1 .
+                        ?bxq2 qudt:numericValue ?bx2 .
+                        ?byq1 qudt:numericValue ?by1 .
+                        ?byq2 qudt:numericValue ?by2 .
+                        FILTER(?bx1 < ?bx2)
+                        FILTER NOT EXISTS {
+                            ?wb nltl:hasWaterlineProfilePoint ?bm .
+                            ?bm nltl:longitudinalPosition ?bmxq .
+                            ?bmxq qudt:numericValue ?bmx .
+                            FILTER(?bmx > ?bx1 && ?bmx < ?bx2)
+                        }
+
+                        BIND((?ay2 - ?ay1) / (?ax2 - ?ax1) AS ?slopeA)
+                        BIND((?by2 - ?by1) / (?bx2 - ?bx1) AS ?slopeB)
+                        FILTER(?slopeA != ?slopeB)
+                        BIND(
+                            xsd:decimal(
+                                (?by1 - ?ay1 + ?slopeA * ?ax1 - ?slopeB * ?bx1)
+                                / (?slopeA - ?slopeB)
+                            ) AS ?x
+                        )
+                        FILTER(
+                            ?x >= ?ax1 && ?x <= ?ax2 &&
+                            ?x >= ?bx1 && ?x <= ?bx2
+                        )
+                    }
+                }
+            }
+
+            $this nltl:hasIntendedIceOperatingWaterline ?iw ;
+                  nltl:hasLowerIceWaterline ?lw .
+
+            OPTIONAL {
+                ?iw nltl:hasWaterlineProfilePoint ?ip1, ?ip2 .
+                FILTER(?ip1 != ?ip2)
+                ?ip1 nltl:longitudinalPosition ?ixq1 ;
+                     nltl:verticalCoordinate ?iyq1 .
+                ?ip2 nltl:longitudinalPosition ?ixq2 ;
+                     nltl:verticalCoordinate ?iyq2 .
+                ?ixq1 qudt:numericValue ?ix1 .
+                ?ixq2 qudt:numericValue ?ix2 .
+                ?iyq1 qudt:numericValue ?iy1 .
+                ?iyq2 qudt:numericValue ?iy2 .
+                FILTER(?ix1 < ?ix2)
+                FILTER(?x >= ?ix1 && ?x <= ?ix2)
+                FILTER NOT EXISTS {
+                    ?iw nltl:hasWaterlineProfilePoint ?ipm .
+                    ?ipm nltl:longitudinalPosition ?imxq .
+                    ?imxq qudt:numericValue ?imx .
+                    FILTER(?imx > ?ix1 && ?imx < ?ix2)
+                }
+                BIND(
+                    xsd:decimal(
+                        ?iy1 + ((?x - ?ix1) * (?iy2 - ?iy1) / (?ix2 - ?ix1))
+                    ) AS ?iy
+                )
+                BIND(?iw AS ?iwDefined)
+            }
+
+            OPTIONAL {
+                ?lw nltl:hasWaterlineProfilePoint ?lp1, ?lp2 .
+                FILTER(?lp1 != ?lp2)
+                ?lp1 nltl:longitudinalPosition ?lxq1 ;
+                     nltl:verticalCoordinate ?lyq1 .
+                ?lp2 nltl:longitudinalPosition ?lxq2 ;
+                     nltl:verticalCoordinate ?lyq2 .
+                ?lxq1 qudt:numericValue ?lx1 .
+                ?lxq2 qudt:numericValue ?lx2 .
+                ?lyq1 qudt:numericValue ?ly1 .
+                ?lyq2 qudt:numericValue ?ly2 .
+                FILTER(?lx1 < ?lx2)
+                FILTER(?x >= ?lx1 && ?x <= ?lx2)
+                FILTER NOT EXISTS {
+                    ?lw nltl:hasWaterlineProfilePoint ?lpm .
+                    ?lpm nltl:longitudinalPosition ?lmxq .
+                    ?lmxq qudt:numericValue ?lmx .
+                    FILTER(?lmx > ?lx1 && ?lmx < ?lx2)
+                }
+                BIND(
+                    xsd:decimal(
+                        ?ly1 + ((?x - ?lx1) * (?ly2 - ?ly1) / (?lx2 - ?lx1))
+                    ) AS ?ly
+                )
+            }
+        }
+        GROUP BY $this ?x
+    }
+
+    BIND(
+        IF(
+            ABS(?expectedMinimum) * 0.000001 > 0.000000001,
+            ABS(?expectedMinimum) * 0.000001,
+            0.000000001
+        ) AS ?tolerance
+    )
+
+    FILTER(
+        ?definedIntendedCount != ?expectedIntendedCount ||
+        ?lowerValueCount = 0 ||
+        ABS(?lowerValue - ?expectedMinimum) > ?tolerance
+    )
+}
+"""
+    ] .
+<END_SHACL>

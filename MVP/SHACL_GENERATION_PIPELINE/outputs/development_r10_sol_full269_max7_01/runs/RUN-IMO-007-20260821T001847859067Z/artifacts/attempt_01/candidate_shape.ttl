@@ -1,0 +1,81 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:OpenWaterIceConditionShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "The ship must have an ice-condition classification."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For open water, every sea-ice concentration must be a decimal value below 1 with unit UNITLESS, and land-origin ice must be recorded as false." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:iceConditionClassification
+                    nltl:openWaterIceCondition .
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:seaIceConcentration ?quantity .
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:seaIceConcentration ?quantity .
+                        FILTER NOT EXISTS {
+                            ?quantity qudt:numericValue ?value .
+                            FILTER (datatype(?value) = xsd:decimal)
+                        }
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:seaIceConcentration ?quantity .
+                        ?quantity qudt:numericValue ?value .
+                        FILTER (
+                            datatype(?value) != xsd:decimal ||
+                            ?value >= "1"^^xsd:decimal
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:seaIceConcentration ?quantity .
+                        FILTER NOT EXISTS {
+                            ?quantity qudt:unit
+                                <http://qudt.org/vocab/unit/UNITLESS> .
+                        }
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:seaIceConcentration ?quantity .
+                        ?quantity qudt:unit ?unit .
+                        FILTER (
+                            ?unit != <http://qudt.org/vocab/unit/UNITLESS>
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:iceOfLandOriginPresent ?landIce .
+                        FILTER (
+                            datatype(?landIce) = xsd:boolean &&
+                            ?landIce = false
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:iceOfLandOriginPresent ?landIce .
+                        FILTER (
+                            datatype(?landIce) != xsd:boolean ||
+                            ?landIce != false
+                        )
+                    }
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,120 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO049Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:minCount 1 ;
+                sh:nodeKind sh:IRI ;
+                sh:in (
+                    nltl:polarShipCategoryA
+                    nltl:polarShipCategoryB
+                )
+            ] ;
+            sh:property [
+                sh:path nltl:machineryComponentType ;
+                sh:minCount 1 ;
+                sh:datatype xsd:string
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:hasValue nltl:polarShipCategoryC
+            ] ;
+            sh:property [
+                sh:path nltl:shipIceStrengthened ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:machineryComponentType ;
+                sh:minCount 1 ;
+                sh:datatype xsd:string
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:hasValue nltl:polarShipCategoryC
+            ] ;
+            sh:property [
+                sh:path nltl:shipIceStrengthened ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each machinery component of a category A or B ship must have an approved scantling record identifying the approving authority and approval standard." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:shipCategory ?category ;
+          nltl:hasComponent ?component .
+    ?component a nltl:machineryComponent .
+    FILTER (?category IN (
+        nltl:polarShipCategoryA,
+        nltl:polarShipCategoryB
+    ))
+    FILTER NOT EXISTS {
+        ?component nltl:hasApprovalRecord ?approval .
+        ?approval a nltl:approvalRecord ;
+                  nltl:scantlingApprovalStatus nltl:evidenceStateApproved ;
+                  nltl:approvingAuthority ?authority ;
+                  nltl:approvalStandard ?standard .
+        FILTER (
+            DATATYPE(?authority) = xsd:string &&
+            DATATYPE(?standard) = xsd:string
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each machinery component of an ice-strengthened category C ship must have an approved scantling record with authority, standard, operating ice type, and unitless operating ice concentration." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:shipCategory nltl:polarShipCategoryC ;
+          nltl:shipIceStrengthened true ;
+          nltl:hasComponent ?component .
+    ?component a nltl:machineryComponent .
+    FILTER NOT EXISTS {
+        ?component nltl:hasApprovalRecord ?approval .
+        ?approval a nltl:approvalRecord ;
+                  nltl:scantlingApprovalStatus nltl:evidenceStateApproved ;
+                  nltl:approvingAuthority ?authority ;
+                  nltl:approvalStandard ?standard ;
+                  nltl:operatingIceType ?iceType ;
+                  nltl:operatingIceConcentration ?concentration .
+        ?concentration qudt:numericValue ?concentrationValue ;
+                       qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+        FILTER (
+            DATATYPE(?authority) = xsd:string &&
+            DATATYPE(?standard) = xsd:string &&
+            DATATYPE(?iceType) = xsd:string &&
+            DATATYPE(?concentrationValue) = xsd:decimal
+        )
+        FILTER NOT EXISTS {
+            ?concentration qudt:unit ?otherUnit .
+            FILTER (?otherUnit != <http://qudt.org/vocab/unit/UNITLESS>)
+        }
+    }
+}
+"""
+    ] .

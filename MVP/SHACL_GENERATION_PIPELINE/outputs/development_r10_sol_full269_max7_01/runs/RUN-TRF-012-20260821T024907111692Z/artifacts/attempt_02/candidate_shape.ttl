@@ -1,0 +1,179 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF012LowerIceWaterlineShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "At least one intended ice-operating waterline is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Exactly one lower ice waterline is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each comparison station must be represented on the LIWL and on every intended ice-operating waterline, including relevant vertices and broken-line intersections."
+        ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+  $this nltl:hasLowerIceWaterline ?liwl ;
+        nltl:hasIntendedIceOperatingWaterline ?intended .
+
+  {
+    ?liwl nltl:hasWaterlineProfilePoint ?stationPoint .
+  }
+  UNION
+  {
+    ?intended nltl:hasWaterlineProfilePoint ?stationPoint .
+  }
+
+  ?stationPoint nltl:longitudinalPosition ?stationXQ .
+  ?stationXQ qudt:numericValue ?x ;
+             qudt:unit <http://qudt.org/vocab/unit/M> .
+
+  {
+    FILTER NOT EXISTS {
+      ?liwl nltl:hasWaterlineProfilePoint ?liwlPoint .
+      ?liwlPoint nltl:longitudinalPosition ?liwlXQ .
+      ?liwlXQ qudt:numericValue ?liwlX ;
+              qudt:unit <http://qudt.org/vocab/unit/M> .
+      FILTER(xsd:decimal(?liwlX) = xsd:decimal(?x))
+    }
+  }
+  UNION
+  {
+    $this nltl:hasIntendedIceOperatingWaterline ?requiredIntended .
+    FILTER NOT EXISTS {
+      ?requiredIntended nltl:hasWaterlineProfilePoint ?intendedPoint .
+      ?intendedPoint nltl:longitudinalPosition ?intendedXQ .
+      ?intendedXQ qudt:numericValue ?intendedX ;
+                  qudt:unit <http://qudt.org/vocab/unit/M> .
+      FILTER(xsd:decimal(?intendedX) = xsd:decimal(?x))
+    }
+  }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "At every comparison station, the LIWL vertical coordinate must equal the minimum intended-waterline vertical coordinate within relative tolerance 1e-6 and absolute fallback 1e-9 m."
+        ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+  {
+    SELECT $this ?x ?liwlY (MIN(?intendedY) AS ?expectedY)
+    WHERE {
+      $this nltl:hasLowerIceWaterline ?liwl ;
+            nltl:hasIntendedIceOperatingWaterline ?intended .
+
+      {
+        ?liwl nltl:hasWaterlineProfilePoint ?stationPoint .
+      }
+      UNION
+      {
+        ?intended nltl:hasWaterlineProfilePoint ?stationPoint .
+      }
+
+      ?stationPoint nltl:longitudinalPosition ?stationXQ .
+      ?stationXQ qudt:numericValue ?x ;
+                 qudt:unit <http://qudt.org/vocab/unit/M> .
+
+      ?liwl nltl:hasWaterlineProfilePoint ?liwlPoint .
+      ?liwlPoint nltl:longitudinalPosition ?liwlXQ ;
+                 nltl:verticalCoordinate ?liwlYQ .
+      ?liwlXQ qudt:numericValue ?liwlX ;
+              qudt:unit <http://qudt.org/vocab/unit/M> .
+      ?liwlYQ qudt:numericValue ?liwlY ;
+              qudt:unit <http://qudt.org/vocab/unit/M> .
+      FILTER(xsd:decimal(?liwlX) = xsd:decimal(?x))
+
+      ?intended nltl:hasWaterlineProfilePoint ?intendedPoint .
+      ?intendedPoint nltl:longitudinalPosition ?intendedXQ ;
+                     nltl:verticalCoordinate ?intendedYQ .
+      ?intendedXQ qudt:numericValue ?intendedX ;
+                  qudt:unit <http://qudt.org/vocab/unit/M> .
+      ?intendedYQ qudt:numericValue ?intendedY ;
+                  qudt:unit <http://qudt.org/vocab/unit/M> .
+      FILTER(xsd:decimal(?intendedX) = xsd:decimal(?x))
+    }
+    GROUP BY $this ?x ?liwlY
+  }
+  BIND(
+    IF(
+      ABS(xsd:decimal(?expectedY)) * 0.000001 > 0.000000001,
+      ABS(xsd:decimal(?expectedY)) * 0.000001,
+      0.000000001
+    ) AS ?tolerance
+  )
+  FILTER(ABS(xsd:decimal(?liwlY) - xsd:decimal(?expectedY)) > ?tolerance)
+}
+"""
+    ] .
+
+gen:TRF012IceWaterlineShape
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasIntendedIceOperatingWaterline ;
+    sh:targetObjectsOf nltl:hasLowerIceWaterline ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "Each represented ice waterline requires at least one profile point."
+    ] .
+
+gen:TRF012WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasWaterlineProfilePoint ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF012LengthQuantityShape ;
+        sh:message "Each waterline profile point requires one longitudinal position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF012LengthQuantityShape ;
+        sh:message "Each waterline profile point requires one vertical coordinate in metres."
+    ] .
+
+gen:TRF012LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

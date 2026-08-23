@@ -1,0 +1,77 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:IMO008ThinFirstYearIceShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceTypeClassification ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Ice type classification is required to determine whether the thin first-year ice thickness constraint applies."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For thin first-year ice, every reported ice thickness must be a decimal QUDT quantity from 0.3 m through 0.7 m inclusive." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:iceTypeClassification nltl:thinFirstYearIce .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceThickness ?presentThickness .
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:iceThickness ?thickness .
+
+                        FILTER (
+                            NOT EXISTS {
+                                ?thickness a qudt:QuantityValue .
+                            }
+                            ||
+                            NOT EXISTS {
+                                ?thickness qudt:numericValue ?acceptableValue .
+                                FILTER (
+                                    DATATYPE(?acceptableValue) = xsd:decimal
+                                    &&
+                                    ?acceptableValue >= "0.3"^^xsd:decimal
+                                    &&
+                                    ?acceptableValue <= "0.7"^^xsd:decimal
+                                )
+                            }
+                            ||
+                            EXISTS {
+                                ?thickness qudt:numericValue ?reportedValue .
+                                FILTER (
+                                    DATATYPE(?reportedValue) != xsd:decimal
+                                    ||
+                                    ?reportedValue < "0.3"^^xsd:decimal
+                                    ||
+                                    ?reportedValue > "0.7"^^xsd:decimal
+                                )
+                            }
+                            ||
+                            NOT EXISTS {
+                                ?thickness qudt:unit unit:M .
+                            }
+                            ||
+                            EXISTS {
+                                ?thickness qudt:unit ?otherUnit .
+                                FILTER (?otherUnit != unit:M)
+                            }
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

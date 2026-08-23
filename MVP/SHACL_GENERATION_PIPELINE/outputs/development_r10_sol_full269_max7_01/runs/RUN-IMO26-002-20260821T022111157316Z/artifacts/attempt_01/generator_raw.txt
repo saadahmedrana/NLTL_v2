@@ -1,0 +1,204 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LengthOverallValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:GrossTonnageValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:FishingVesselChapter91InputShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:fishingVessel ;
+    sh:property [
+        sh:path nltl:lengthOverall ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthOverallValueShape ;
+        sh:message "A fishing vessel requires one length-overall value in metres to determine Chapter 9-1 applicability."
+    ] .
+
+gen:PleasureYachtChapter91InputShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:pleasureYacht ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:GrossTonnageValueShape ;
+        sh:message "A pleasure yacht requires one gross-tonnage value to determine Chapter 9-1 applicability."
+    ] .
+
+gen:CargoShipChapter91InputShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:cargoShip ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:GrossTonnageValueShape ;
+        sh:message "A cargo ship requires one gross-tonnage value to determine Chapter 9-1 applicability."
+    ] .
+
+gen:Chapter91ApplicabilityShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:targetClass nltl:fishingVessel ;
+    sh:targetClass nltl:pleasureYacht ;
+    sh:targetClass nltl:cargoShip ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A fishing vessel with length overall of at least 24 m must have Chapter 9-1 applicability set to true." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this a nltl:fishingVessel ;
+          nltl:lengthOverall ?lengthValue .
+    ?lengthValue qudt:numericValue ?length ;
+                 qudt:unit unit:M .
+    FILTER(?length >= 24)
+    FILTER(
+        !EXISTS {
+            $this nltl:polarCodeChapter9Dash1Applicable ?applicable .
+            FILTER(
+                datatype(?applicable) = xsd:boolean &&
+                sameTerm(?applicable, true)
+            )
+        } ||
+        EXISTS {
+            $this nltl:polarCodeChapter9Dash1Applicable ?invalidApplicable .
+            FILTER(
+                datatype(?invalidApplicable) != xsd:boolean ||
+                !sameTerm(?invalidApplicable, true)
+            )
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A pleasure yacht of at least 300 gross tonnage requires an unambiguous trade-status value and, when not engaged in trade, Chapter 9-1 applicability set to true." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this a nltl:pleasureYacht ;
+          nltl:grossTonnage ?tonnageValue .
+    ?tonnageValue qudt:numericValue ?grossTonnage ;
+                  qudt:unit unit:UNITLESS .
+    FILTER(?grossTonnage >= 300)
+    FILTER(
+        !EXISTS {
+            $this nltl:engagedInTrade ?tradeStatus .
+            FILTER(datatype(?tradeStatus) = xsd:boolean)
+        } ||
+        EXISTS {
+            $this nltl:engagedInTrade ?invalidTradeStatus .
+            FILTER(datatype(?invalidTradeStatus) != xsd:boolean)
+        } ||
+        EXISTS {
+            $this nltl:engagedInTrade ?tradeStatus1 ;
+                  nltl:engagedInTrade ?tradeStatus2 .
+            FILTER(?tradeStatus1 != ?tradeStatus2)
+        } ||
+        (
+            EXISTS {
+                $this nltl:engagedInTrade ?notEngaged .
+                FILTER(
+                    datatype(?notEngaged) = xsd:boolean &&
+                    sameTerm(?notEngaged, false)
+                )
+            } &&
+            (
+                !EXISTS {
+                    $this nltl:polarCodeChapter9Dash1Applicable ?applicable .
+                    FILTER(
+                        datatype(?applicable) = xsd:boolean &&
+                        sameTerm(?applicable, true)
+                    )
+                } ||
+                EXISTS {
+                    $this nltl:polarCodeChapter9Dash1Applicable ?invalidApplicable .
+                    FILTER(
+                        datatype(?invalidApplicable) != xsd:boolean ||
+                        !sameTerm(?invalidApplicable, true)
+                    )
+                }
+            )
+        )
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A cargo ship from 300 gross tonnage up to but excluding 500 gross tonnage must have Chapter 9-1 applicability set to true." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this a nltl:cargoShip ;
+          nltl:grossTonnage ?tonnageValue .
+    ?tonnageValue qudt:numericValue ?grossTonnage ;
+                  qudt:unit unit:UNITLESS .
+    FILTER(?grossTonnage >= 300 && ?grossTonnage < 500)
+    FILTER(
+        !EXISTS {
+            $this nltl:polarCodeChapter9Dash1Applicable ?applicable .
+            FILTER(
+                datatype(?applicable) = xsd:boolean &&
+                sameTerm(?applicable, true)
+            )
+        } ||
+        EXISTS {
+            $this nltl:polarCodeChapter9Dash1Applicable ?invalidApplicable .
+            FILTER(
+                datatype(?invalidApplicable) != xsd:boolean ||
+                !sameTerm(?invalidApplicable, true)
+            )
+        }
+    )
+}
+"""
+    ] .
+<END_SHACL>

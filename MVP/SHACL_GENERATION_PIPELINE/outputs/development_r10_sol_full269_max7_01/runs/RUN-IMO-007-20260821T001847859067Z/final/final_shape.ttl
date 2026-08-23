@@ -1,0 +1,90 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:OpenWaterIceConditionShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:nodeKind sh:IRI ;
+        sh:message "Ice-condition classification values must be IRIs."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A ship classified for open-water ice conditions must report unitless sea-ice concentration in tenths below 1." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:iceConditionClassification nltl:openWaterIceCondition .
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:seaIceConcentration ?quantity .
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:seaIceConcentration ?quantity .
+                        FILTER (
+                            !(isIRI(?quantity) || isBlank(?quantity))
+                            ||
+                            NOT EXISTS {
+                                ?quantity qudt:numericValue ?numericValue .
+                            }
+                            ||
+                            EXISTS {
+                                ?quantity qudt:numericValue ?numericValue .
+                                FILTER (
+                                    !isLiteral(?numericValue)
+                                    ||
+                                    datatype(?numericValue) != xsd:decimal
+                                    ||
+                                    ?numericValue >= 1
+                                )
+                            }
+                            ||
+                            NOT EXISTS {
+                                ?quantity qudt:unit unit:UNITLESS .
+                            }
+                            ||
+                            EXISTS {
+                                ?quantity qudt:unit ?otherUnit .
+                                FILTER (?otherUnit != unit:UNITLESS)
+                            }
+                        )
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A ship classified for open-water ice conditions must report that ice of land origin is not present." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:iceConditionClassification nltl:openWaterIceCondition .
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceOfLandOriginPresent ?present .
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:iceOfLandOriginPresent ?present .
+                        FILTER (
+                            !isLiteral(?present)
+                            ||
+                            datatype(?present) != xsd:boolean
+                            ||
+                            ?present != false
+                        )
+                    }
+                )
+            }
+        """
+    ] .

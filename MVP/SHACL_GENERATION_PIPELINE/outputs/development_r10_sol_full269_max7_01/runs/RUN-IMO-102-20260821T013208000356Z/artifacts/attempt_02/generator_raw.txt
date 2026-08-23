@@ -1,0 +1,183 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:PolarTrainingRequirementShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceFreeIceCondition
+            nltl:openWaterIceCondition
+            nltl:otherWatersIceCondition
+        ) ;
+        sh:message "The ship must have exactly one controlled polar-training ice-condition classification."
+    ] ;
+    sh:property [
+        sh:path nltl:polarTrainingShipTypeClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:tankerPolarTrainingShipType
+            nltl:passengerShipPolarTrainingShipType
+            nltl:otherShipPolarTrainingType
+        ) ;
+        sh:message "The ship must have exactly one controlled polar-training ship-type classification."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCrewMemberInventory ;
+        sh:class nltl:crewMember ;
+        sh:node gen:PolarTrainingCrewMemberShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:iceConditionClassification ;
+                sh:hasValue nltl:iceFreeIceCondition
+            ] ;
+            sh:property [
+                sh:path nltl:polarTrainingShipTypeClassification ;
+                sh:in (
+                    nltl:tankerPolarTrainingShipType
+                    nltl:passengerShipPolarTrainingShipType
+                    nltl:otherShipPolarTrainingType
+                )
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceConditionClassification ;
+                sh:hasValue nltl:openWaterIceCondition
+            ] ;
+            sh:property [
+                sh:path nltl:polarTrainingShipTypeClassification ;
+                sh:in (
+                    nltl:tankerPolarTrainingShipType
+                    nltl:passengerShipPolarTrainingShipType
+                )
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceConditionClassification ;
+                sh:hasValue nltl:openWaterIceCondition
+            ] ;
+            sh:property [
+                sh:path nltl:polarTrainingShipTypeClassification ;
+                sh:hasValue nltl:otherShipPolarTrainingType
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceConditionClassification ;
+                sh:hasValue nltl:otherWatersIceCondition
+            ] ;
+            sh:property [
+                sh:path nltl:polarTrainingShipTypeClassification ;
+                sh:in (
+                    nltl:tankerPolarTrainingShipType
+                    nltl:passengerShipPolarTrainingShipType
+                    nltl:otherShipPolarTrainingType
+                )
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "An applicable crew member must have one record linked through both training-record relationships with the matrix-selected level and a valid STCW qualification." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?crew
+WHERE {
+    $this nltl:iceConditionClassification ?ice ;
+          nltl:polarTrainingShipTypeClassification ?shipType ;
+          nltl:hasCrewMemberInventory ?crew .
+    ?crew nltl:polarTrainingCrewRoleClassification ?role .
+    FILTER (
+        (
+            ?ice = nltl:openWaterIceCondition &&
+            ?shipType IN (
+                nltl:tankerPolarTrainingShipType,
+                nltl:passengerShipPolarTrainingShipType
+            )
+        ) ||
+        ?ice = nltl:otherWatersIceCondition
+    )
+    BIND(
+        IF(
+            ?ice = nltl:otherWatersIceCondition &&
+            ?role IN (
+                nltl:masterPolarTrainingRole,
+                nltl:chiefMatePolarTrainingRole
+            ),
+            nltl:advancedPolarTrainingLevel,
+            nltl:basicPolarTrainingLevel
+        )
+        AS ?expectedLevel
+    )
+    FILTER NOT EXISTS {
+        ?crew nltl:hasCrewTrainingRecord ?record ;
+              nltl:hasPolarTrainingRecord ?record .
+        ?record nltl:requiredTrainingLevel ?expectedLevel ;
+                nltl:trainingRecordLevel ?expectedLevel ;
+                nltl:stcwQualificationValid ?qualificationValid .
+        FILTER (
+            DATATYPE(?qualificationValid) = xsd:boolean &&
+            ?qualificationValid = true
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "A crew member in a not-applicable matrix cell must have a linked assessment record whose required training level is Not applicable." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?crew
+WHERE {
+    $this nltl:iceConditionClassification ?ice ;
+          nltl:polarTrainingShipTypeClassification ?shipType ;
+          nltl:hasCrewMemberInventory ?crew .
+    ?crew nltl:polarTrainingCrewRoleClassification ?role .
+    FILTER (
+        ?ice = nltl:iceFreeIceCondition ||
+        (
+            ?ice = nltl:openWaterIceCondition &&
+            ?shipType = nltl:otherShipPolarTrainingType
+        )
+    )
+    FILTER NOT EXISTS {
+        ?crew nltl:hasCrewTrainingRecord ?record .
+        ?record nltl:requiredTrainingLevel nltl:polarTrainingNotApplicable .
+    }
+}
+"""
+    ] .
+
+gen:PolarTrainingCrewMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:polarTrainingCrewRoleClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:masterPolarTrainingRole
+            nltl:chiefMatePolarTrainingRole
+            nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+        ) ;
+        sh:message "Each represented crew member must have exactly one controlled polar-training crew role."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCrewTrainingRecord ;
+        sh:class nltl:polarTrainingRecord
+    ] ;
+    sh:property [
+        sh:path nltl:hasPolarTrainingRecord ;
+        sh:class nltl:polarTrainingRecord
+    ] .
+<END_SHACL>

@@ -1,0 +1,172 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MeterQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TransversePenetrationQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 760.0 ;
+        sh:maxInclusive 760.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Transverse penetration must be exactly 760 mm."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:IceDamageExtentShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:damageCenterForwardOfMaxBreadth ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The damage-centre position selector is required to determine longitudinal damage extent."
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLength ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDamageExtent ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:transversePenetration ;
+        sh:node gen:TransversePenetrationQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:verticalDamageExtent ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:selectedVerticalDamagePosition ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "Longitudinal damage extent must equal 4.5% of upper ice waterline length when centred forward of maximum breadth, and 1.5% otherwise, within relative tolerance 1e-6 and absolute fallback 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:damageCenterForwardOfMaxBreadth ?forward ;
+                      nltl:upperIceWaterlineLength ?lengthQuantity ;
+                      nltl:longitudinalDamageExtent ?extentQuantity .
+                ?lengthQuantity qudt:numericValue ?length .
+                ?extentQuantity qudt:numericValue ?reported .
+                BIND(
+                    IF(
+                        ?forward = true,
+                        ?length * "0.045"^^xsd:decimal,
+                        ?length * "0.015"^^xsd:decimal
+                    ) AS ?expected
+                )
+                BIND(
+                    IF(
+                        ABS(?expected) * "0.000001"^^xsd:decimal > "0.000000000001"^^xsd:decimal,
+                        ABS(?expected) * "0.000001"^^xsd:decimal,
+                        "0.000000000001"^^xsd:decimal
+                    ) AS ?tolerance
+                )
+                FILTER(ABS(?reported - ?expected) > ?tolerance)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Vertical damage extent must equal the lesser of 20% of upper ice waterline draught and longitudinal damage extent, within relative tolerance 1e-6 and absolute fallback 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:upperIceWaterlineDraught ?draughtQuantity ;
+                      nltl:longitudinalDamageExtent ?longitudinalQuantity ;
+                      nltl:verticalDamageExtent ?verticalQuantity .
+                ?draughtQuantity qudt:numericValue ?draught .
+                ?longitudinalQuantity qudt:numericValue ?longitudinal .
+                ?verticalQuantity qudt:numericValue ?reported .
+                BIND(?draught * "0.20"^^xsd:decimal AS ?draughtExtent)
+                BIND(
+                    IF(
+                        ?draughtExtent <= ?longitudinal,
+                        ?draughtExtent,
+                        ?longitudinal
+                    ) AS ?expected
+                )
+                BIND(
+                    IF(
+                        ABS(?expected) * "0.000001"^^xsd:decimal > "0.000000000001"^^xsd:decimal,
+                        ABS(?expected) * "0.000001"^^xsd:decimal,
+                        "0.000000000001"^^xsd:decimal
+                    ) AS ?tolerance
+                )
+                FILTER(ABS(?reported - ?expected) > ?tolerance)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Selected vertical damage position must be between the keel and 120% of upper ice waterline draught, inclusive." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:upperIceWaterlineDraught ?draughtQuantity ;
+                      nltl:selectedVerticalDamagePosition ?positionQuantity .
+                ?draughtQuantity qudt:numericValue ?draught .
+                ?positionQuantity qudt:numericValue ?position .
+                BIND(?draught * "1.20"^^xsd:decimal AS ?upperLimit)
+                FILTER(
+                    ?position < "0"^^xsd:decimal ||
+                    ?position > ?upperLimit
+                )
+            }
+        """
+    ] .

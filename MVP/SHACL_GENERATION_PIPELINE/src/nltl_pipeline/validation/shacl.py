@@ -97,6 +97,54 @@ class ShaclStaticValidator:
         self.vocabulary = vocabulary
 
     @staticmethod
+    def _cardinality_policy_items(cardinality_policies: Any) -> list[tuple[str, dict[str, Any]]]:
+        """Normalize canonical mapping and historical list cardinality policies."""
+        if isinstance(cardinality_policies, dict):
+            items = list(cardinality_policies.items())
+        elif isinstance(cardinality_policies, list):
+            items = []
+            for index, entry in enumerate(cardinality_policies):
+                if not isinstance(entry, dict):
+                    raise ValueError(
+                        "historical list entry "
+                        f"{index} must be an object containing a non-empty 'term' field"
+                    )
+                local_name = entry.get("term")
+                if not isinstance(local_name, str) or not local_name.strip():
+                    raise ValueError(
+                        "historical list entry "
+                        f"{index} must contain a non-empty string 'term' field"
+                    )
+                policy = {key: value for key, value in entry.items() if key != "term"}
+                items.append((local_name, policy))
+        else:
+            raise ValueError(
+                "cardinalityPolicies must be an object keyed by canonical term "
+                "or a historical list of policy objects"
+            )
+
+        normalized: list[tuple[str, dict[str, Any]]] = []
+        for local_name, policy in items:
+            if not isinstance(local_name, str) or not local_name.strip():
+                raise ValueError("mapping keys must be non-empty canonical term strings")
+            if not isinstance(policy, dict):
+                raise ValueError(f"policy for {local_name!r} must be an object")
+            for key in ("minCount", "maxCount"):
+                if key not in policy:
+                    continue
+                value = policy[key]
+                if isinstance(value, bool):
+                    raise ValueError(f"{key} for {local_name!r} must be an integer")
+                try:
+                    integer = int(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{key} for {local_name!r} must be an integer") from exc
+                if integer < 0 or str(value).strip() != str(integer):
+                    raise ValueError(f"{key} for {local_name!r} must be a non-negative integer")
+            normalized.append((local_name, policy))
+        return normalized
+
+    @staticmethod
     def _query_canonical_iris(text: str) -> set[str]:
         result = set(FULL_NLTL_IRI_RE.findall(text))
         result.update(NLTL + local for local in CURIE_RE.findall(text))
@@ -553,10 +601,14 @@ class ShaclStaticValidator:
                                 f"Contract datatype policy violation for {local_name}: expected {allowed_iri}, found {datatype}"
                             )
 
-            for policy in contract.get("cardinalityPolicies", []):
-                local_name = str(policy.get("term") or "")
-                if not local_name:
-                    continue
+            try:
+                cardinality_policy_items = self._cardinality_policy_items(
+                    contract.get("cardinalityPolicies", {})
+                )
+            except ValueError as exc:
+                cardinality_policy_items = []
+                errors.append(f"Cardinality policy configuration error: {exc}")
+            for local_name, policy in cardinality_policy_items:
                 for property_shape in graph.subjects(SH.path, URIRef(NLTL + local_name)):
                     for predicate, key in ((SH.minCount, "minCount"), (SH.maxCount, "maxCount")):
                         actual = graph.value(property_shape, predicate)

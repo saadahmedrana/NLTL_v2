@@ -1,0 +1,121 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF069Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue
+    ] ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:pitchType ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:maximumIceTorque ;
+        sh:nodeKind sh:BlankNodeOrIRI ;
+        sh:class qudt:QuantityValue ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN-M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasDesignCondition ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:designCondition ;
+        sh:node [
+            sh:property [
+                sh:path nltl:normalOperationalConditions ;
+                sh:datatype xsd:boolean
+            ] ;
+            sh:property [
+                sh:path nltl:normalServiceLifePropellerIceLoadCondition ;
+                sh:datatype xsd:boolean
+            ] ;
+            sh:property [
+                sh:path nltl:fixedPitchPropellerReversalLoadIncluded ;
+                sh:datatype xsd:boolean
+            ] ;
+            sh:property [
+                sh:path nltl:stoppedPropellerDraggingOutsideLoadModel ;
+                sh:datatype xsd:boolean
+            ] ;
+            sh:property [
+                sh:path nltl:radialIceEntryOutsideLoadModel ;
+                sh:datatype xsd:boolean
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable ship must have a valid maximum ice torque and at least one design condition covering the required normal-service ice-load scope." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:propellerType ?propellerType ;
+          nltl:pitchType ?pitchType .
+    FILTER (
+        ?iceClass IN (
+            nltl:iceClassIaSuper,
+            nltl:iceClassIa,
+            nltl:iceClassIb,
+            nltl:iceClassIc
+        ) &&
+        ?propellerType IN (
+            "open"^^xsd:string,
+            "ducted"^^xsd:string
+        ) &&
+        ?pitchType IN (
+            "controllable"^^xsd:string,
+            "fixed"^^xsd:string
+        )
+    )
+    FILTER NOT EXISTS {
+        $this nltl:maximumIceTorque ?maximumTorque ;
+              nltl:hasDesignCondition ?condition .
+        ?maximumTorque a qudt:QuantityValue ;
+                       qudt:numericValue ?torqueValue ;
+                       qudt:unit unit:KiloN-M .
+        ?condition a nltl:designCondition ;
+                   nltl:normalOperationalConditions true ;
+                   nltl:normalServiceLifePropellerIceLoadCondition true ;
+                   nltl:stoppedPropellerDraggingOutsideLoadModel true ;
+                   nltl:radialIceEntryOutsideLoadModel true .
+        FILTER(isIRI(?condition))
+        FILTER(datatype(?torqueValue) = xsd:decimal)
+        FILTER(
+            ?pitchType = "controllable"^^xsd:string ||
+            EXISTS {
+                ?condition nltl:fixedPitchPropellerReversalLoadIncluded true .
+            }
+        )
+    }
+}
+"""
+    ] .

@@ -1,0 +1,178 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CappedUnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:maxInclusive "1"^^xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MegapascalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:DirectAnalysisCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:directAnalysisCase ;
+    sh:property [
+        sh:path nltl:iceLoadAreaFactorCa ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] .
+
+gen:TRF037ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientA ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientK ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputCoefficientB ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipSizeEngineOutputFactorCd ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:CappedUnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassFactorCp ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:nominalIcePressureP0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MegapascalQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MegapascalQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasDirectAnalysisCase ;
+        sh:minCount 1 ;
+        sh:node gen:DirectAnalysisCaseShape
+    ] ;
+    sh:sparql [
+        sh:message "shipSizeEngineOutputFactorCd must equal min(1, (a * k + b) / 1000) within relative tolerance 1e-6 and absolute fallback 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipSizeEngineOutputCoefficientA ?aQuantity ;
+                      nltl:shipSizeEngineOutputCoefficientK ?kQuantity ;
+                      nltl:shipSizeEngineOutputCoefficientB ?bQuantity ;
+                      nltl:shipSizeEngineOutputFactorCd ?cdQuantity .
+                ?aQuantity qudt:numericValue ?a .
+                ?kQuantity qudt:numericValue ?k .
+                ?bQuantity qudt:numericValue ?b .
+                ?cdQuantity qudt:numericValue ?reportedCd .
+                BIND((?a * ?k + ?b) / "1000"^^xsd:decimal AS ?rawCd)
+                BIND(IF(
+                    ?rawCd > "1"^^xsd:decimal,
+                    "1"^^xsd:decimal,
+                    ?rawCd
+                ) AS ?expectedCd)
+                BIND(IF(
+                    ABS(?expectedCd) * "0.000001"^^xsd:decimal > "0.000000001"^^xsd:decimal,
+                    ABS(?expectedCd) * "0.000001"^^xsd:decimal,
+                    "0.000000001"^^xsd:decimal
+                ) AS ?tolerance)
+                FILTER(ABS(?reportedCd - ?expectedCd) > ?tolerance)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "icePressure must equal cd * cp * ca * p0 for each linked direct analysis case within relative tolerance 1e-6 and absolute fallback 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipSizeEngineOutputFactorCd ?cdQuantity ;
+                      nltl:iceClassFactorCp ?cpQuantity ;
+                      nltl:nominalIcePressureP0 ?p0Quantity ;
+                      nltl:icePressure ?pressureQuantity ;
+                      nltl:hasDirectAnalysisCase ?analysisCase .
+                ?analysisCase nltl:iceLoadAreaFactorCa ?caQuantity .
+                ?cdQuantity qudt:numericValue ?cd .
+                ?cpQuantity qudt:numericValue ?cp .
+                ?caQuantity qudt:numericValue ?ca .
+                ?p0Quantity qudt:numericValue ?p0 .
+                ?pressureQuantity qudt:numericValue ?reportedPressure .
+                BIND(?cd * ?cp * ?ca * ?p0 AS ?expectedPressure)
+                BIND(IF(
+                    ABS(?expectedPressure) * "0.000001"^^xsd:decimal > "0.000000001"^^xsd:decimal,
+                    ABS(?expectedPressure) * "0.000001"^^xsd:decimal,
+                    "0.000000001"^^xsd:decimal
+                ) AS ?tolerance)
+                FILTER(ABS(?reportedPressure - ?expectedPressure) > ?tolerance)
+            }
+        """
+    ] .
+<END_SHACL>

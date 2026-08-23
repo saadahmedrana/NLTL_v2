@@ -1,0 +1,92 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_004_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDisplacement ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_004_DisplacementQuantityShape ;
+        sh:message "The ship shall have one upper ice waterline displacement in metric kilotonnes."
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterlineCase ;
+        sh:minCount 1 ;
+        sh:class nltl:upperIceWaterlineCase ;
+        sh:node gen:I2_004_WaterlineCaseShape ;
+        sh:message "The ship shall have at least one upper ice waterline case."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline displacement shall equal the greatest displacement among the linked upper ice waterline cases, within a relative tolerance of 1e-6 and an absolute fallback of 1e-12 kt." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:upperIceWaterlineDisplacement ?reportedQuantity .
+    ?reportedQuantity qudt:numericValue ?reportedValue .
+    {
+        SELECT $this (MAX(?caseValue) AS ?greatestCaseValue)
+        WHERE {
+            $this nltl:hasUpperIceWaterlineCase ?waterlineCase .
+            ?waterlineCase nltl:waterlineCaseDisplacement ?caseQuantity .
+            ?caseQuantity qudt:numericValue ?rawCaseValue .
+            BIND(xsd:decimal(?rawCaseValue) AS ?caseValue)
+        }
+        GROUP BY $this
+    }
+    BIND(
+        ABS(?greatestCaseValue) * "0.000001"^^xsd:decimal
+        AS ?relativeTolerance
+    )
+    BIND(
+        IF(
+            ?relativeTolerance > "0.000000000001"^^xsd:decimal,
+            ?relativeTolerance,
+            "0.000000000001"^^xsd:decimal
+        )
+        AS ?tolerance
+    )
+    FILTER(
+        ABS(xsd:decimal(?reportedValue) - ?greatestCaseValue) > ?tolerance
+    )
+}
+"""
+    ] .
+
+gen:I2_004_WaterlineCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:upperIceWaterlineCase ;
+    sh:property [
+        sh:path nltl:waterlineCaseDisplacement ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_004_DisplacementQuantityShape ;
+        sh:message "Each upper ice waterline case shall have one displacement in metric kilotonnes."
+    ] .
+
+gen:I2_004_DisplacementQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:KiloTON_Metric
+    ] .
+<END_SHACL>

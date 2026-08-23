@@ -1,0 +1,124 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:MetreQuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TRF084Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Propeller type must be recorded to determine applicability."
+    ] ;
+    sh:or (
+        [
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerType ?propellerType .
+                        FILTER(?propellerType = "CP"^^xsd:string)
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP"^^xsd:string
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gs:MetreQuantityValueShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP"^^xsd:string
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gs:MetreQuantityValueShape
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gs:MetreQuantityValueShape
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "When the CP propeller pitch is not known, the bollard pitch must equal 0.7 times the free-running pitch within a relative tolerance of 1e-6 and an absolute fallback of 1e-12." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX unit: <http://qudt.org/vocab/unit/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerPitchAtMcrBollard ?bollardQuantity ;
+                              nltl:propellerPitchAtMcrFreeRunning ?freeRunningQuantity .
+                        ?bollardQuantity qudt:numericValue ?bollardValue ;
+                                         qudt:unit unit:M .
+                        ?freeRunningQuantity qudt:numericValue ?freeRunningValue ;
+                                             qudt:unit unit:M .
+                        BIND((0.7 * xsd:decimal(?freeRunningValue)) AS ?expected)
+                        BIND(ABS(xsd:decimal(?bollardValue) - ?expected) AS ?difference)
+                        BIND(
+                            IF(
+                                ABS(?expected) * 0.000001 > 0.000000000001,
+                                ABS(?expected) * 0.000001,
+                                0.000000000001
+                            )
+                            AS ?tolerance
+                        )
+                        FILTER(?difference > ?tolerance)
+                    }
+                """
+            ]
+        ]
+    ) .

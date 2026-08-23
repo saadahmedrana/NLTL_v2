@@ -1,0 +1,202 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_051_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MegaNewtonQuantityShape ;
+        sh:message "The design vertical ice force at bow is required in meganewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceShearForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "The design vertical ice shear force is required in kilonewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDistributionFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:message "The longitudinal distribution factor is required."
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MetreQuantityShape ;
+        sh:message "The upper ice waterline length is required in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:class nltl:calculationCase ;
+        sh:node gen:CalculationCaseConditionalShape ;
+        sh:qualifiedValueShape gen:PositiveShearCaseShape ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "At least one valid positive-shear calculation case is required."
+    ] ;
+    sh:sparql [
+        sh:message "For each positive-shear case, Cf must satisfy the specified longitudinal envelope and FI must equal Cf multiplied by FIB." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:designVerticalIceForceAtBow ?fibQuantity ;
+                      nltl:designVerticalIceShearForce ?fiQuantity ;
+                      nltl:longitudinalDistributionFactor ?cfQuantity ;
+                      nltl:upperIceWaterlineLengthLUI ?luiQuantity ;
+                      nltl:hasCalculationCase ?case .
+
+                ?case nltl:shearForceDirection nltl:positiveShearForce ;
+                      nltl:hullGirderLongitudinalPositionFromAft ?positionQuantity .
+
+                ?fibQuantity qudt:numericValue ?fib .
+                ?fiQuantity qudt:numericValue ?fi .
+                ?cfQuantity qudt:numericValue ?cf .
+                ?luiQuantity qudt:numericValue ?lui .
+                ?positionQuantity qudt:numericValue ?position .
+
+                BIND(
+                    ?cf * ?fib * "1000"^^xsd:decimal
+                    AS ?expectedFi
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedFi) * "0.000001"^^xsd:decimal >
+                            "0.000000001"^^xsd:decimal,
+                        ABS(?expectedFi) * "0.000001"^^xsd:decimal,
+                        "0.000000001"^^xsd:decimal
+                    )
+                    AS ?fiTolerance
+                )
+
+                FILTER (
+                    (
+                        ?position >= "0.0"^^xsd:decimal &&
+                        ?position <=
+                            ("0.6"^^xsd:decimal * ?lui) &&
+                        (
+                            ?cf < "0.0"^^xsd:decimal ||
+                            ?cf > "0.0"^^xsd:decimal
+                        )
+                    ) ||
+                    (
+                        ?position >=
+                            ("0.9"^^xsd:decimal * ?lui) &&
+                        ?position <= ?lui &&
+                        (
+                            ?cf < "1.0"^^xsd:decimal ||
+                            ?cf > "1.0"^^xsd:decimal
+                        )
+                    ) ||
+                    ABS(?fi - ?expectedFi) > ?fiTolerance
+                )
+            }
+        """
+    ] .
+
+gen:CalculationCaseConditionalShape
+    a sh:NodeShape ;
+    sh:or (
+        [
+            sh:not [
+                sh:property [
+                    sh:path nltl:shearForceDirection ;
+                    sh:hasValue nltl:positiveShearForce
+                ]
+            ]
+        ]
+        gen:PositiveShearCaseShape
+    ) .
+
+gen:PositiveShearCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:shearForceDirection ;
+        sh:hasValue nltl:positiveShearForce
+    ] ;
+    sh:property [
+        sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MetreQuantityShape ;
+        sh:message "A positive-shear case requires one longitudinal position from aft in metres."
+    ] .
+
+gen:MegaNewtonQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:KiloNewtonQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

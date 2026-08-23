@@ -1,0 +1,430 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_031_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:class nltl:structuralMember
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each linked local frame must have a structural location represented as a structural location value." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame .
+    FILTER (
+        NOT EXISTS {
+            ?member nltl:structuralLocation ?location .
+        }
+        ||
+        EXISTS {
+            ?member nltl:structuralLocation ?location .
+            FILTER NOT EXISTS {
+                ?location a nltl:structuralLocationValue .
+            }
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A side-structure local frame must provide boolean transverse-frame orientation evidence." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+            nltl:structuralLocation nltl:sideStructureLocation .
+    FILTER (
+        NOT EXISTS {
+            ?member nltl:transverseFrameOrientation ?orientation .
+            FILTER(datatype(?orientation) = xsd:boolean)
+        }
+        ||
+        EXISTS {
+            ?member nltl:transverseFrameOrientation ?orientation .
+            FILTER(datatype(?orientation) != xsd:boolean)
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each applicable local frame must provide its profile type, plastic-strength inputs, and at least one valid structural-member load case." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+            nltl:structuralLocation ?location .
+    FILTER(
+        ?location = nltl:bottomStructureLocation
+        ||
+        (
+            ?location = nltl:sideStructureLocation
+            &&
+            EXISTS {
+                ?member nltl:transverseFrameOrientation true .
+            }
+        )
+    )
+    FILTER (
+        NOT EXISTS {
+            $this nltl:frameProfileType ?profileType .
+            ?profileType a nltl:frameProfileTypeValue .
+        }
+        ||
+        EXISTS {
+            $this nltl:frameProfileType ?profileType .
+            FILTER NOT EXISTS {
+                ?profileType a nltl:frameProfileTypeValue .
+            }
+        }
+        ||
+        NOT EXISTS {
+            ?member nltl:plasticStrength ?strength .
+        }
+        ||
+        NOT EXISTS {
+            ?member nltl:midspanPlasticCollapseLoad ?collapseLoad .
+        }
+        ||
+        NOT EXISTS {
+            ?member nltl:hasStructuralMemberLoadCase ?loadCase .
+            ?loadCase a nltl:loadCase .
+        }
+        ||
+        EXISTS {
+            ?member nltl:hasStructuralMemberLoadCase ?loadCase .
+            FILTER NOT EXISTS {
+                ?loadCase a nltl:loadCase .
+            }
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Plastic strength and midspan plastic-collapse load must each use one decimal numeric value and exactly the unit kN." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+            nltl:structuralLocation ?location ;
+            ?quantityProperty ?quantity .
+    FILTER(
+        ?location = nltl:bottomStructureLocation
+        ||
+        (
+            ?location = nltl:sideStructureLocation
+            &&
+            EXISTS {
+                ?member nltl:transverseFrameOrientation true .
+            }
+        )
+    )
+    FILTER(
+        ?quantityProperty IN (
+            nltl:plasticStrength,
+            nltl:midspanPlasticCollapseLoad
+        )
+    )
+    FILTER (
+        NOT EXISTS {
+            ?quantity qudt:numericValue ?numericValue .
+        }
+        ||
+        EXISTS {
+            ?quantity qudt:numericValue ?numericValue .
+            FILTER(datatype(?numericValue) != xsd:decimal)
+        }
+        ||
+        EXISTS {
+            ?quantity qudt:numericValue ?numericValue1 ;
+                      qudt:numericValue ?numericValue2 .
+            FILTER(!sameTerm(?numericValue1, ?numericValue2))
+        }
+        ||
+        NOT EXISTS {
+            ?quantity qudt:unit unit:KiloN .
+        }
+        ||
+        EXISTS {
+            ?quantity qudt:unit ?unit .
+            FILTER(?unit != unit:KiloN)
+        }
+        ||
+        EXISTS {
+            ?quantity qudt:unit ?unit1 ;
+                      qudt:unit ?unit2 .
+            FILTER(!sameTerm(?unit1, ?unit2))
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every load case of an applicable local frame must provide combined shear-and-bending demand." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+            nltl:structuralLocation ?location ;
+            nltl:hasStructuralMemberLoadCase ?loadCase .
+    FILTER(
+        ?location = nltl:bottomStructureLocation
+        ||
+        (
+            ?location = nltl:sideStructureLocation
+            &&
+            EXISTS {
+                ?member nltl:transverseFrameOrientation true .
+            }
+        )
+    )
+    FILTER NOT EXISTS {
+        ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each combined shear-and-bending demand must have one decimal numeric value and exactly one unit." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+            nltl:structuralLocation ?location ;
+            nltl:hasStructuralMemberLoadCase ?loadCase .
+    ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+    FILTER(
+        ?location = nltl:bottomStructureLocation
+        ||
+        (
+            ?location = nltl:sideStructureLocation
+            &&
+            EXISTS {
+                ?member nltl:transverseFrameOrientation true .
+            }
+        )
+    )
+    FILTER (
+        NOT EXISTS {
+            ?demand qudt:numericValue ?numericValue .
+        }
+        ||
+        EXISTS {
+            ?demand qudt:numericValue ?numericValue .
+            FILTER(datatype(?numericValue) != xsd:decimal)
+        }
+        ||
+        EXISTS {
+            ?demand qudt:numericValue ?numericValue1 ;
+                    qudt:numericValue ?numericValue2 .
+            FILTER(!sameTerm(?numericValue1, ?numericValue2))
+        }
+        ||
+        NOT EXISTS {
+            ?demand qudt:unit ?unit .
+        }
+        ||
+        EXISTS {
+            ?demand qudt:unit ?unit1 ;
+                    qudt:unit ?unit2 .
+            FILTER(!sameTerm(?unit1, ?unit2))
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a bottom-structure local frame, every load case must apply the patch-load height parallel to the frame." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+            nltl:structuralLocation nltl:bottomStructureLocation ;
+            nltl:hasStructuralMemberLoadCase ?loadCase .
+    FILTER (
+        NOT EXISTS {
+            ?loadCase nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame .
+        }
+        ||
+        EXISTS {
+            ?loadCase nltl:loadPatchOrientation ?orientation .
+            FILTER(?orientation != nltl:loadPatchHeightParallelToFrame)
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A ship with an applicable bottom-structure local frame must provide patch load using one decimal numeric value and exactly the unit kN." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+            nltl:structuralLocation nltl:bottomStructureLocation .
+    FILTER (
+        NOT EXISTS {
+            $this nltl:patchLoad ?patchLoad .
+        }
+        ||
+        EXISTS {
+            $this nltl:patchLoad ?patchLoad .
+            FILTER (
+                NOT EXISTS {
+                    ?patchLoad qudt:numericValue ?numericValue .
+                }
+                ||
+                EXISTS {
+                    ?patchLoad qudt:numericValue ?numericValue .
+                    FILTER(datatype(?numericValue) != xsd:decimal)
+                }
+                ||
+                EXISTS {
+                    ?patchLoad qudt:numericValue ?numericValue1 ;
+                               qudt:numericValue ?numericValue2 .
+                    FILTER(!sameTerm(?numericValue1, ?numericValue2))
+                }
+                ||
+                NOT EXISTS {
+                    ?patchLoad qudt:unit unit:KiloN .
+                }
+                ||
+                EXISTS {
+                    ?patchLoad qudt:unit ?unit .
+                    FILTER(?unit != unit:KiloN)
+                }
+                ||
+                EXISTS {
+                    ?patchLoad qudt:unit ?unit1 ;
+                               qudt:unit ?unit2 .
+                    FILTER(!sameTerm(?unit1, ?unit2))
+                }
+            )
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Plastic strength must equal the magnitude of the midspan plastic-collapse load within relative tolerance 1e-6 and absolute fallback 1e-9." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+            nltl:structuralLocation ?location ;
+            nltl:midspanPlasticCollapseLoad ?collapseQuantity ;
+            nltl:plasticStrength ?strengthQuantity .
+    ?collapseQuantity qudt:numericValue ?collapseValue .
+    ?strengthQuantity qudt:numericValue ?strengthValue .
+    FILTER(
+        ?location = nltl:bottomStructureLocation
+        ||
+        (
+            ?location = nltl:sideStructureLocation
+            &&
+            EXISTS {
+                ?member nltl:transverseFrameOrientation true .
+            }
+        )
+    )
+    BIND(ABS(xsd:decimal(?collapseValue)) AS ?expectedStrength)
+    BIND(
+        IF(
+            ?expectedStrength * 0.000001 > 0.000000001,
+            ?expectedStrength * 0.000001,
+            0.000000001
+        )
+        AS ?tolerance
+    )
+    FILTER(
+        ABS(xsd:decimal(?strengthValue) - ?expectedStrength) > ?tolerance
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Combined shear-and-bending demand must use the plastic-strength unit and must not exceed plastic strength." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasStructuralMember ?member .
+    ?member a nltl:localFrame ;
+            nltl:structuralLocation ?location ;
+            nltl:plasticStrength ?strengthQuantity ;
+            nltl:hasStructuralMemberLoadCase ?loadCase .
+    ?loadCase nltl:combinedShearAndBendingDemand ?demandQuantity .
+    ?strengthQuantity qudt:numericValue ?strengthValue ;
+                      qudt:unit ?strengthUnit .
+    ?demandQuantity qudt:numericValue ?demandValue ;
+                    qudt:unit ?demandUnit .
+    FILTER(
+        ?location = nltl:bottomStructureLocation
+        ||
+        (
+            ?location = nltl:sideStructureLocation
+            &&
+            EXISTS {
+                ?member nltl:transverseFrameOrientation true .
+            }
+        )
+    )
+    FILTER(
+        ?demandUnit != ?strengthUnit
+        ||
+        xsd:decimal(?demandValue) > xsd:decimal(?strengthValue)
+    )
+}
+"""
+    ] .

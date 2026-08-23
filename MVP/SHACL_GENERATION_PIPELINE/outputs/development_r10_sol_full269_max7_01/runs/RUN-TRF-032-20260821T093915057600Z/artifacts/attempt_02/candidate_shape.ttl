@@ -1,0 +1,138 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF032Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceStrengtheningStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ice-strengthening status must be recorded as one boolean value."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:iceStrengtheningStatus ;
+                sh:hasValue true
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceStrengtheningStatus ;
+                sh:hasValue false
+            ] ;
+            sh:property [
+                sh:path nltl:regulationRequiredScantling ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:nodeKind sh:IRI ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:classificationSocietyRequiredScantling ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:nodeKind sh:IRI ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a ship without ice strengthening, the compared scantlings must use the same unit and, when the regulation scantling is lower, exactly one selected design scantling must equal the classification-society scantling in that unit." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+    $this nltl:iceStrengtheningStatus false ;
+          nltl:regulationRequiredScantling ?regulationScantling ;
+          nltl:classificationSocietyRequiredScantling ?classScantling .
+
+    ?regulationScantling
+        qudt:numericValue ?regulationValue ;
+        qudt:unit ?regulationUnit .
+
+    ?classScantling
+        qudt:numericValue ?classValue ;
+        qudt:unit ?classUnit .
+
+    FILTER (
+        ?regulationUnit != ?classUnit
+        ||
+        (
+            ?regulationUnit = ?classUnit
+            && ?regulationValue < ?classValue
+            && (
+                NOT EXISTS {
+                    $this nltl:selectedDesignScantling ?selectedScantling .
+                    ?selectedScantling
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?selectedValue ;
+                        qudt:unit ?classUnit .
+                    FILTER (
+                        DATATYPE(?selectedValue) = xsd:decimal
+                        && ?selectedValue = ?classValue
+                    )
+                }
+                ||
+                EXISTS {
+                    $this nltl:selectedDesignScantling ?selectedScantling1,
+                                                       ?selectedScantling2 .
+                    FILTER (!sameTerm(?selectedScantling1, ?selectedScantling2))
+                }
+                ||
+                EXISTS {
+                    $this nltl:selectedDesignScantling ?selectedScantling .
+                    ?selectedScantling
+                        qudt:numericValue ?selectedValue1,
+                                          ?selectedValue2 .
+                    FILTER (!sameTerm(?selectedValue1, ?selectedValue2))
+                }
+                ||
+                EXISTS {
+                    $this nltl:selectedDesignScantling ?selectedScantling .
+                    ?selectedScantling
+                        qudt:unit ?selectedUnit1,
+                                  ?selectedUnit2 .
+                    FILTER (!sameTerm(?selectedUnit1, ?selectedUnit2))
+                }
+            )
+        )
+    )
+}
+"""
+    ] .

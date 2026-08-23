@@ -1,0 +1,176 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_034_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:class nltl:structuralMember ;
+        sh:node gen:I2_034_StructuralMemberShape
+    ] ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:class nltl:frameProfileTypeValue ;
+        sh:nodeKind sh:IRI
+    ] .
+
+gen:I2_034_StructuralMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalFrameOrientation ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "Each represented structural member must state whether it has longitudinal frame orientation."
+    ] ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:class nltl:structuralLocationValue ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "Each represented structural member must state its structural location."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberLoadCase ;
+        sh:class nltl:loadCase ;
+        sh:node gen:I2_034_LoadCaseShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:longitudinalFrameOrientation ;
+                sh:in ( false )
+            ]
+        ]
+        [
+            sh:not [
+                sh:property [
+                    sh:path nltl:structuralLocation ;
+                    sh:hasValue nltl:sideStructureLocation
+                ]
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:longitudinalFrameOrientation ;
+                sh:in ( true )
+            ] ;
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:hasValue nltl:sideStructureLocation
+            ] ;
+            sh:node gen:I2_034_ApplicableMemberShape
+        ]
+    ) ;
+    sh:message "A represented member must be non-longitudinal, outside the side structure, or satisfy the applicable longitudinal side-frame requirements." .
+
+gen:I2_034_LoadCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:minCount 1 ;
+        sh:node gen:I2_034_DemandQuantityShape ;
+        sh:message "Each represented structural-member load case must provide combined shear-and-bending demand."
+    ] .
+
+gen:I2_034_DemandQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Combined shear-and-bending demand must have a decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Combined shear-and-bending demand must have exactly one stated unit."
+    ] .
+
+gen:I2_034_PlasticStrengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Plastic strength must have a decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:maxCount 1 ;
+        sh:message "Plastic strength must have exactly one unit, kilonewton."
+    ] .
+
+gen:I2_034_MidspanCollapseQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Midspan plastic-collapse load must have a decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:maxCount 1 ;
+        sh:message "Midspan plastic-collapse load must have exactly one unit, kilonewton."
+    ] .
+
+gen:I2_034_ApplicableMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:plasticStrength ;
+        sh:minCount 1 ;
+        sh:node gen:I2_034_PlasticStrengthQuantityShape ;
+        sh:message "An applicable longitudinal side-frame member must provide its plastic strength."
+    ] ;
+    sh:property [
+        sh:path nltl:midspanPlasticCollapseLoad ;
+        sh:minCount 1 ;
+        sh:node gen:I2_034_MidspanCollapseQuantityShape ;
+        sh:message "An applicable longitudinal side-frame member must provide its midspan plastic-collapse load."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Demand and strength units must agree, plastic strength must match the midspan collapse load within tolerance, and demand must not exceed either value." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:plasticStrength ?strength ;
+          nltl:midspanPlasticCollapseLoad ?collapse ;
+          nltl:hasStructuralMemberLoadCase ?loadCase .
+    ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+    ?strength qudt:numericValue ?strengthValue ;
+              qudt:unit ?strengthUnit .
+    ?collapse qudt:numericValue ?collapseValue ;
+              qudt:unit ?collapseUnit .
+    ?demand qudt:numericValue ?demandValue ;
+            qudt:unit ?demandUnit .
+    FILTER (
+        ?strengthUnit != ?collapseUnit ||
+        ?demandUnit != ?strengthUnit ||
+        ABS(?strengthValue - ?collapseValue) >
+            IF(
+                ABS(?collapseValue) * "0.000001"^^xsd:decimal >
+                    "0.000000000001"^^xsd:decimal,
+                ABS(?collapseValue) * "0.000001"^^xsd:decimal,
+                "0.000000000001"^^xsd:decimal
+            ) ||
+        ?demandValue > ?strengthValue ||
+        ?demandValue > ?collapseValue
+    )
+}
+"""
+    ] .
+<END_SHACL>

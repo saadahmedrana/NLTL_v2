@@ -1,0 +1,166 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF040Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "Ice class is required to determine the applicable ice-strengthening provisions."
+    ] ;
+    sh:property [
+        sh:path nltl:weatherDeckBelowIceBeltUpperLimit ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "The weather-deck position relative to the ice-belt upper limit is required."
+    ] ;
+    sh:property [
+        sh:path nltl:sidescuttleInIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:in ( false ) ;
+        sh:minCount 1 ;
+        sh:message "Sidescuttles shall not be situated in the ice belt."
+    ] ;
+    sh:property [
+        sh:path nltl:bowRegionEquivalent ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:forefootShellStrengtheningStatus ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:midbodyEquivalent ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:upperBowIceBeltStrengtheningStatus ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:bulwarkStrengthStatus ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:freeingPortStrengthStatus ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:openWaterServiceSpeed ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For ice class IA Super, forefoot shell strengthening shall be equivalent to bow-region strengthening." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:iceClass nltl:iceClassIaSuper .
+    FILTER NOT EXISTS {
+        $this nltl:forefootShellStrengtheningStatus ?forefoot ;
+              nltl:bowRegionEquivalent ?bow .
+        FILTER(
+            datatype(?forefoot) = xsd:boolean &&
+            datatype(?bow) = xsd:boolean &&
+            ?forefoot = ?bow
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Open-water service speed in knots is required for ice classes IA Super and IA." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:iceClass ?iceClass .
+    FILTER(?iceClass IN (nltl:iceClassIaSuper, nltl:iceClassIa))
+    FILTER NOT EXISTS {
+        $this nltl:openWaterServiceSpeed ?speed .
+        ?speed qudt:numericValue ?speedValue ;
+               qudt:unit unit:KN .
+        FILTER(datatype(?speedValue) = xsd:decimal)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "At an open-water service speed of at least 18 knots, upper-bow ice-belt strengthening shall be equivalent to midbody strengthening." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:openWaterServiceSpeed ?speed .
+    ?speed qudt:numericValue ?speedValue ;
+           qudt:unit unit:KN .
+    FILTER(?iceClass IN (nltl:iceClassIaSuper, nltl:iceClassIa))
+    FILTER(datatype(?speedValue) = xsd:decimal)
+    FILTER(?speedValue >= "18"^^xsd:decimal)
+    FILTER NOT EXISTS {
+        $this nltl:upperBowIceBeltStrengtheningStatus ?upperBow ;
+              nltl:midbodyEquivalent ?midbody .
+        FILTER(
+            datatype(?upperBow) = xsd:boolean &&
+            datatype(?midbody) = xsd:boolean &&
+            ?upperBow = ?midbody
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Where the weather deck is below the ice-belt upper limit, the bulwark and freeing ports shall meet the ice-belt shell strength requirement." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:weatherDeckBelowIceBeltUpperLimit ?deckBelow .
+    FILTER(datatype(?deckBelow) = xsd:boolean)
+    FILTER(?deckBelow = true)
+    FILTER NOT EXISTS {
+        $this nltl:bulwarkStrengthStatus ?bulwark ;
+              nltl:freeingPortStrengthStatus ?freeingPort .
+        FILTER(
+            datatype(?bulwark) = xsd:boolean &&
+            datatype(?freeingPort) = xsd:boolean &&
+            ?bulwark = true &&
+            ?freeingPort = true
+        )
+    }
+}
+"""
+    ] .
+<END_SHACL>

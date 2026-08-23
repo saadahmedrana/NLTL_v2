@@ -1,0 +1,131 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:LengthQuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity must have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity must have exactly one metre unit."
+    ] .
+
+gs:TRF086Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:maxCount 0
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:datatype xsd:string ;
+                sh:minCount 1
+            ] ;
+            sh:sparql [
+                sh:message "This branch applies only when no propeller type value is CP." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerType ?propellerType .
+                        FILTER(?propellerType = "CP"^^xsd:string)
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:datatype xsd:string ;
+                sh:hasValue "CP"^^xsd:string
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gs:LengthQuantityValueShape ;
+                sh:message "A CP propeller with known pitch must have exactly one bollard-condition MCR pitch."
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:datatype xsd:string ;
+                sh:hasValue "CP"^^xsd:string
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gs:LengthQuantityValueShape ;
+                sh:message "The calculated bollard-condition pitch must be supplied exactly once."
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gs:LengthQuantityValueShape ;
+                sh:message "The free-running MCR pitch operand must be supplied exactly once."
+            ] ;
+            sh:sparql [
+                sh:message "The bollard-condition pitch must equal 0.7 times the free-running pitch within relative tolerance 1e-6 and absolute fallback 1e-12 m." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:pitchValueKnown false ;
+                              nltl:propellerPitchAtMcrBollard ?bollardQuantity ;
+                              nltl:propellerPitchAtMcrFreeRunning ?freeRunningQuantity .
+                        ?bollardQuantity qudt:numericValue ?reported .
+                        ?freeRunningQuantity qudt:numericValue ?freeRunning .
+                        BIND("0.7"^^xsd:decimal * ?freeRunning AS ?expected)
+                        BIND(
+                            IF(
+                                ABS(?expected) * "0.000001"^^xsd:decimal >
+                                    "0.000000000001"^^xsd:decimal,
+                                ABS(?expected) * "0.000001"^^xsd:decimal,
+                                "0.000000000001"^^xsd:decimal
+                            )
+                            AS ?tolerance
+                        )
+                        FILTER(ABS(?reported - ?expected) > ?tolerance)
+                    }
+                """
+            ]
+        ]
+    ) .

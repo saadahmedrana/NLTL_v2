@@ -1,0 +1,243 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:I2_064_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:class nltl:calculationCase ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:nodeKind sh:IRI ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:message "A calculation case and its calculation-method selector are required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A ship using the linear calculation method must provide complete MPa stress inputs, structural-member paths, and satisfied buckling-criteria records." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasCalculationCase ?linearCase .
+    ?linearCase nltl:calculationMethod nltl:linearCalculationMethodValue .
+
+    FILTER (
+        NOT EXISTS {
+            $this nltl:yieldStrength ?yieldQuantity .
+            ?yieldQuantity qudt:numericValue ?yieldValue ;
+                           qudt:unit unit:MegaPA .
+            FILTER(datatype(?yieldValue) = xsd:decimal)
+        }
+        ||
+        EXISTS {
+            $this nltl:yieldStrength ?yieldQuantity .
+            FILTER (
+                NOT EXISTS {
+                    ?yieldQuantity qudt:numericValue ?yieldValue .
+                    FILTER(datatype(?yieldValue) = xsd:decimal)
+                }
+                ||
+                NOT EXISTS {
+                    ?yieldQuantity qudt:unit unit:MegaPA .
+                }
+                ||
+                EXISTS {
+                    ?yieldQuantity qudt:unit ?yieldUnit .
+                    FILTER(?yieldUnit != unit:MegaPA)
+                }
+            )
+        }
+        ||
+        NOT EXISTS {
+            $this nltl:hasStructuralMember ?member .
+            ?member a nltl:structuralMember .
+        }
+        ||
+        EXISTS {
+            $this nltl:hasStructuralMember ?member .
+            FILTER (
+                NOT EXISTS {
+                    ?member a nltl:structuralMember .
+                }
+                ||
+                NOT EXISTS {
+                    ?member nltl:hasStructuralMemberWeb ?web .
+                    ?web a nltl:structuralMemberWeb .
+                }
+                ||
+                NOT EXISTS {
+                    ?member nltl:hasStructuralMemberFlange ?flange .
+                    ?flange a nltl:structuralMemberFlange .
+                }
+            )
+        }
+        ||
+        EXISTS {
+            $this nltl:hasStructuralMember ?member .
+            ?member nltl:hasStructuralMemberWeb ?web .
+            FILTER (
+                NOT EXISTS {
+                    ?web a nltl:structuralMemberWeb .
+                }
+                ||
+                NOT EXISTS {
+                    ?web nltl:nominalShearStress ?stressQuantity .
+                    ?stressQuantity qudt:numericValue ?stressValue ;
+                                    qudt:unit unit:MegaPA .
+                    FILTER(datatype(?stressValue) = xsd:decimal)
+                }
+                ||
+                EXISTS {
+                    ?web nltl:nominalShearStress ?stressQuantity .
+                    FILTER (
+                        NOT EXISTS {
+                            ?stressQuantity qudt:numericValue ?stressValue .
+                            FILTER(datatype(?stressValue) = xsd:decimal)
+                        }
+                        ||
+                        NOT EXISTS {
+                            ?stressQuantity qudt:unit unit:MegaPA .
+                        }
+                        ||
+                        EXISTS {
+                            ?stressQuantity qudt:unit ?stressUnit .
+                            FILTER(?stressUnit != unit:MegaPA)
+                        }
+                    )
+                }
+                ||
+                NOT EXISTS {
+                    ?web nltl:bucklingCriteriaSatisfied true .
+                }
+                ||
+                EXISTS {
+                    ?web nltl:bucklingCriteriaSatisfied ?bucklingStatus .
+                    FILTER(
+                        datatype(?bucklingStatus) != xsd:boolean ||
+                        ?bucklingStatus != true
+                    )
+                }
+            )
+        }
+        ||
+        EXISTS {
+            $this nltl:hasStructuralMember ?member .
+            ?member nltl:hasStructuralMemberFlange ?flange .
+            FILTER (
+                NOT EXISTS {
+                    ?flange a nltl:structuralMemberFlange .
+                }
+                ||
+                NOT EXISTS {
+                    ?flange nltl:nominalFlangeVonMisesStress ?stressQuantity .
+                    ?stressQuantity qudt:numericValue ?stressValue ;
+                                    qudt:unit unit:MegaPA .
+                    FILTER(datatype(?stressValue) = xsd:decimal)
+                }
+                ||
+                EXISTS {
+                    ?flange nltl:nominalFlangeVonMisesStress ?stressQuantity .
+                    FILTER (
+                        NOT EXISTS {
+                            ?stressQuantity qudt:numericValue ?stressValue .
+                            FILTER(datatype(?stressValue) = xsd:decimal)
+                        }
+                        ||
+                        NOT EXISTS {
+                            ?stressQuantity qudt:unit unit:MegaPA .
+                        }
+                        ||
+                        EXISTS {
+                            ?stressQuantity qudt:unit ?stressUnit .
+                            FILTER(?stressUnit != unit:MegaPA)
+                        }
+                    )
+                }
+                ||
+                NOT EXISTS {
+                    ?flange nltl:bucklingCriteriaSatisfied true .
+                }
+                ||
+                EXISTS {
+                    ?flange nltl:bucklingCriteriaSatisfied ?bucklingStatus .
+                    FILTER(
+                        datatype(?bucklingStatus) != xsd:boolean ||
+                        ?bucklingStatus != true
+                    )
+                }
+            )
+        }
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For the linear calculation method, nominal web shear stress must be less than yield strength divided by sqrt(3)." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasCalculationCase ?linearCase ;
+          nltl:yieldStrength ?yieldQuantity ;
+          nltl:hasStructuralMember ?member .
+    ?linearCase nltl:calculationMethod nltl:linearCalculationMethodValue .
+    ?yieldQuantity qudt:numericValue ?yieldValue ;
+                   qudt:unit unit:MegaPA .
+    ?member nltl:hasStructuralMemberWeb ?web .
+    ?web nltl:nominalShearStress ?stressQuantity .
+    ?stressQuantity qudt:numericValue ?stressValue ;
+                    qudt:unit unit:MegaPA .
+
+    FILTER(
+        datatype(?yieldValue) = xsd:decimal &&
+        datatype(?stressValue) = xsd:decimal &&
+        ?stressValue >= (?yieldValue / 1.7320508075688772)
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For the linear calculation method, nominal flange von Mises stress must be less than 1.15 times yield strength." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasCalculationCase ?linearCase ;
+          nltl:yieldStrength ?yieldQuantity ;
+          nltl:hasStructuralMember ?member .
+    ?linearCase nltl:calculationMethod nltl:linearCalculationMethodValue .
+    ?yieldQuantity qudt:numericValue ?yieldValue ;
+                   qudt:unit unit:MegaPA .
+    ?member nltl:hasStructuralMemberFlange ?flange .
+    ?flange nltl:nominalFlangeVonMisesStress ?stressQuantity .
+    ?stressQuantity qudt:numericValue ?stressValue ;
+                    qudt:unit unit:MegaPA .
+
+    FILTER(
+        datatype(?yieldValue) = xsd:decimal &&
+        datatype(?stressValue) = xsd:decimal &&
+        ?stressValue >= (1.15 * ?yieldValue)
+    )
+}
+"""
+    ] .
+<END_SHACL>

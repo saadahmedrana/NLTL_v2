@@ -1,0 +1,102 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PowerQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloW ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:EngineOutputShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propulsionOutputRestrictionApplies ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must state whether a propulsion output restriction applies."
+    ] ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:node gen:PowerQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The engine output P must be provided as a single power value in kilowatts."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:propulsionOutputRestrictionApplies ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propulsionMachineryContinuousOutput ;
+                sh:node gen:PowerQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "When output is not restricted, the propulsion machinery continuous output must be provided."
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propulsionOutputRestrictionApplies ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:restrictedPropulsionOutput ;
+                sh:node gen:PowerQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "When output is restricted, the restricted propulsion output must be provided."
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The engine output P must equal the continuous propulsion output, or the restricted output when a restriction applies." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:propulsionOutputRestrictionApplies ?restriction ;
+          nltl:maximumContinuousRatingPower ?engineOutput .
+    ?engineOutput qudt:numericValue ?engineOutputValue .
+    BIND(
+        IF(
+            ?restriction,
+            nltl:restrictedPropulsionOutput,
+            nltl:propulsionMachineryContinuousOutput
+        )
+        AS ?selectedOutputProperty
+    )
+    $this ?selectedOutputProperty ?selectedOutput .
+    ?selectedOutput qudt:numericValue ?selectedOutputValue .
+    FILTER(?engineOutputValue != ?selectedOutputValue)
+}
+"""
+    ] .
+<END_SHACL>

@@ -1,0 +1,321 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:FrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:node gen:InAreaFrameRequirements
+        ]
+    ) .
+
+gen:InAreaFrameRequirements
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasSupportingBulkhead ;
+        sh:class nltl:supportingStructure
+    ] ;
+    sh:property [
+        sh:path nltl:hasSupportingWebFrame ;
+        sh:class nltl:supportingStructure
+    ] ;
+    sh:property [
+        sh:path nltl:frameAttachment ;
+        sh:class nltl:frameAttachmentRecord
+    ] ;
+    sh:property [
+        sh:path nltl:hasFrameAttachment ;
+        sh:nodeKind sh:BlankNodeOrIRI
+    ] ;
+    sh:property [
+        sh:path nltl:frameWebThickness ;
+        sh:class qudt:QuantityValue ;
+        sh:maxCount 1 ;
+        sh:node gen:MillimetreQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path (
+            nltl:hasFrameAttachment
+            nltl:hasConnectionBracket
+        ) ;
+        sh:class nltl:connectionBracket ;
+        sh:node gen:ConnectionBracketRequirements
+    ] ;
+    sh:property [
+        sh:path nltl:terminatesAtDeckOrIceStringer ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:passesThroughSupportingStructure ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:passesThroughSupportingStructure ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:node gen:ThroughStructureRequirements
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Each frameAttachment value must also be represented by hasFrameAttachment on the same frame." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this ?attachment
+WHERE {
+    $this nltl:frameAttachment ?attachment .
+    FILTER NOT EXISTS {
+        $this nltl:hasFrameAttachment ?attachment .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "Each hasFrameAttachment value must also be represented by frameAttachment on the same frame." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this ?attachment
+WHERE {
+    $this nltl:hasFrameAttachment ?attachment .
+    FILTER NOT EXISTS {
+        $this nltl:frameAttachment ?attachment .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "The frame must have an effective, reciprocal attachment to each linked supporting structure." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this ?support
+WHERE {
+    $this (nltl:hasSupportingBulkhead|nltl:hasSupportingWebFrame) ?support .
+    FILTER NOT EXISTS {
+        $this nltl:hasFrameAttachment ?attachment ;
+              nltl:frameAttachment ?attachment .
+        ?attachment nltl:hasAttachedSupportingStructure ?support ;
+                    nltl:effectiveAttachmentConfirmed true .
+        ?support a nltl:supportingStructure ;
+                 nltl:hasSupportingStructureAttachment ?attachment .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "Effective attachment confirmation for a paired supporting structure must be boolean true." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?support ?attachment ?confirmation
+WHERE {
+    $this (nltl:hasSupportingBulkhead|nltl:hasSupportingWebFrame) ?support ;
+          nltl:hasFrameAttachment ?attachment ;
+          nltl:frameAttachment ?attachment .
+    ?attachment nltl:hasAttachedSupportingStructure ?support ;
+                nltl:effectiveAttachmentConfirmed ?confirmation .
+    ?support a nltl:supportingStructure ;
+             nltl:hasSupportingStructureAttachment ?attachment .
+    FILTER(
+        DATATYPE(?confirmation) != xsd:boolean ||
+        ?confirmation != true
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "A longitudinal frame must have a paired bracket attachment to each linked supporting web frame or bulkhead." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this ?support
+WHERE {
+    $this a nltl:longitudinalFrame ;
+          (nltl:hasSupportingBulkhead|nltl:hasSupportingWebFrame) ?support .
+    FILTER NOT EXISTS {
+        $this nltl:hasFrameAttachment ?attachment ;
+              nltl:frameAttachment ?attachment .
+        ?attachment nltl:hasAttachedSupportingStructure ?support ;
+                    nltl:hasConnectionBracket ?bracket .
+        ?support a nltl:supportingStructure ;
+                 nltl:hasSupportingStructureAttachment ?attachment .
+        ?bracket a nltl:connectionBracket .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "A transverse frame requires an explicit termination-at-deck-or-stringer value." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this a nltl:transverseFrame .
+    FILTER NOT EXISTS {
+        $this nltl:terminatesAtDeckOrIceStringer ?termination .
+        FILTER(
+            DATATYPE(?termination) = xsd:boolean &&
+            (?termination = true || ?termination = false)
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "A terminating transverse frame must have a bracket or similar construction on the attachment paired with each linked supporting structure." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this ?support
+WHERE {
+    $this a nltl:transverseFrame ;
+          nltl:terminatesAtDeckOrIceStringer true ;
+          (nltl:hasSupportingBulkhead|nltl:hasSupportingWebFrame) ?support .
+    FILTER NOT EXISTS {
+        $this nltl:hasFrameAttachment ?attachment ;
+              nltl:frameAttachment ?attachment .
+        ?attachment nltl:hasAttachedSupportingStructure ?support ;
+                    ?alternative ?evidence .
+        ?support a nltl:supportingStructure ;
+                 nltl:hasSupportingStructureAttachment ?attachment .
+        FILTER(
+            ?alternative IN (
+                nltl:hasConnectionBracket,
+                nltl:similarAttachmentConstructionPresent
+            )
+        )
+        FILTER(
+            ?alternative = nltl:hasConnectionBracket ||
+            ?evidence = true
+        )
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "An in-area frame with an installed bracket requires one decimal frame web thickness in millimetres." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?bracket
+WHERE {
+    $this nltl:hasFrameAttachment ?attachment .
+    ?attachment nltl:hasConnectionBracket ?bracket .
+    FILTER NOT EXISTS {
+        $this nltl:frameWebThickness ?frameThickness .
+        ?frameThickness qudt:numericValue ?frameValue ;
+                        qudt:unit unit:MilliM .
+        FILTER(DATATYPE(?frameValue) = xsd:decimal)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "Bracket thickness must be at least the frame web thickness." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?bracket
+WHERE {
+    $this nltl:hasFrameAttachment ?attachment ;
+          nltl:frameWebThickness ?frameThickness .
+    ?attachment nltl:hasConnectionBracket ?bracket .
+    ?frameThickness qudt:numericValue ?frameValue ;
+                    qudt:unit unit:MilliM .
+    ?bracket nltl:bracketThickness ?bracketThickness .
+    ?bracketThickness qudt:numericValue ?bracketValue ;
+                      qudt:unit unit:MilliM .
+    FILTER(
+        DATATYPE(?frameValue) = xsd:decimal &&
+        DATATYPE(?bracketValue) = xsd:decimal &&
+        ?bracketValue < ?frameValue
+    )
+}
+"""
+    ] .
+
+gen:ThroughStructureRequirements
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:webPlateConnectionSideCount ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 2 ;
+        sh:maxInclusive 2 ;
+        sh:message "A frame passing through a supporting structure must have exactly two connected web-plate sides."
+    ] .
+
+gen:ConnectionBracketRequirements
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bracketThickness ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MillimetreQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:bracketEdgeStiffened ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:bucklingStiffening ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] .
+
+gen:MillimetreQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MilliM
+    ] .
+<END_SHACL>

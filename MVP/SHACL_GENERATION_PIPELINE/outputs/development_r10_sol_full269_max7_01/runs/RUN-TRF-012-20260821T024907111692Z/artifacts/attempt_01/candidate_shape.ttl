@@ -1,0 +1,144 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:maxCount 1
+    ] .
+
+gen:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:IceWaterlineShape
+    a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:WaterlineProfilePointShape ;
+        sh:minCount 1
+    ] .
+
+gen:LowerIceWaterlineEnvelopeShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasLowerIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "At each represented longitudinal position, the lower ice waterline shall equal the lowest vertical coordinate of the intended ice-operating waterlines within relative tolerance 1e-6 and absolute fallback 1e-9 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?x
+            WHERE {
+                {
+                    SELECT $this ?x ?expected
+                           (COUNT(DISTINCT ?lowerPoint) AS ?lowerCount)
+                           (SAMPLE(?lowerY) AS ?reported)
+                    WHERE {
+                        {
+                            SELECT $this ?x (MIN(?intendedY) AS ?expected)
+                            WHERE {
+                                $this nltl:hasIntendedIceOperatingWaterline/
+                                      nltl:hasWaterlineProfilePoint ?intendedPoint .
+                                ?intendedPoint
+                                    nltl:longitudinalPosition/
+                                        qudt:numericValue ?x ;
+                                    nltl:verticalCoordinate/
+                                        qudt:numericValue ?intendedY .
+                            }
+                            GROUP BY $this ?x
+                        }
+                        OPTIONAL {
+                            $this nltl:hasLowerIceWaterline/
+                                  nltl:hasWaterlineProfilePoint ?lowerPoint .
+                            ?lowerPoint
+                                nltl:longitudinalPosition/
+                                    qudt:numericValue ?lowerX ;
+                                nltl:verticalCoordinate/
+                                    qudt:numericValue ?lowerY .
+                            FILTER (?lowerX = ?x)
+                        }
+                    }
+                    GROUP BY $this ?x ?expected
+                }
+                BIND(
+                    IF(
+                        ABS(?expected) * 0.000001 > 0.000000001,
+                        ABS(?expected) * 0.000001,
+                        0.000000001
+                    ) AS ?tolerance
+                )
+                FILTER (
+                    ?lowerCount != 1 ||
+                    ABS(?reported - ?expected) > ?tolerance
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every lower ice waterline profile point shall have a corresponding represented longitudinal position on an intended ice-operating waterline." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?lowerPoint
+            WHERE {
+                $this nltl:hasLowerIceWaterline/
+                      nltl:hasWaterlineProfilePoint ?lowerPoint .
+                ?lowerPoint nltl:longitudinalPosition/
+                            qudt:numericValue ?lowerX .
+                FILTER NOT EXISTS {
+                    $this nltl:hasIntendedIceOperatingWaterline/
+                          nltl:hasWaterlineProfilePoint ?intendedPoint .
+                    ?intendedPoint nltl:longitudinalPosition/
+                                   qudt:numericValue ?intendedX .
+                    FILTER (?intendedX = ?lowerX)
+                }
+            }
+        """
+    ] .

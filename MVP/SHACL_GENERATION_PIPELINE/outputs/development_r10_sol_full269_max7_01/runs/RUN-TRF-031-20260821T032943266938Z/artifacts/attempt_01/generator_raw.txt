@@ -1,0 +1,130 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:StressQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TRF031Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:combinedBendingShearStress ;
+        sh:node gs:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Combined bending and shear stress must be provided in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldPoint ;
+        sh:node gs:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Yield point must be provided in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:vonMisesYieldCriterion ;
+        sh:datatype xsd:string ;
+        sh:minLength 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The von Mises yield criterion record must be provided."
+    ] ;
+    sh:property [
+        sh:path nltl:beamTheoryUsed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Whether beam theory is used must be stated."
+    ] ;
+    sh:sparql [
+        sh:message "Combined bending and shear stress must be lower than the yield point." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:combinedBendingShearStress ?combinedQuantity ;
+                      nltl:yieldPoint ?yieldQuantity .
+                ?combinedQuantity qudt:numericValue ?combined .
+                ?yieldQuantity qudt:numericValue ?yield .
+                FILTER (?combined >= ?yield)
+            }
+        """
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:allowableShearStress ;
+                sh:node gs:StressQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Beam-theory calculations require allowable shear stress in MPa."
+            ] ;
+            sh:property [
+                sh:path nltl:yieldShearStress ;
+                sh:node gs:StressQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Beam-theory calculations require yield shear stress in MPa."
+            ] ;
+            sh:sparql [
+                sh:message "Yield shear stress must equal yield point divided by sqrt(3), within 1e-6 relative tolerance or 1e-9 MPa absolute tolerance, and allowable shear stress must not exceed 0.9 times the calculated yield shear stress." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:yieldPoint ?yieldQuantity ;
+                              nltl:yieldShearStress ?yieldShearQuantity ;
+                              nltl:allowableShearStress ?allowableQuantity .
+                        ?yieldQuantity qudt:numericValue ?yield .
+                        ?yieldShearQuantity qudt:numericValue ?yieldShear .
+                        ?allowableQuantity qudt:numericValue ?allowable .
+                        BIND (?yield / 1.7320508075688772 AS ?expectedYieldShear)
+                        BIND (
+                            IF (
+                                ABS(?expectedYieldShear) * 0.000001 > 0.000000001,
+                                ABS(?expectedYieldShear) * 0.000001,
+                                0.000000001
+                            )
+                            AS ?tolerance
+                        )
+                        FILTER (
+                            ABS(?yieldShear - ?expectedYieldShear) > ?tolerance ||
+                            ?allowable > (0.9 * ?expectedYieldShear)
+                        )
+                    }
+                """
+            ]
+        ]
+    ) .
+<END_SHACL>

@@ -35,6 +35,74 @@ class ShaclValidationTests(unittest.TestCase):
         self.assertTrue(report.meta_shacl_valid)
         self.assertTrue(report.vocabulary_valid)
 
+    def _validate_with_cardinality_policy(self, policies, candidate=None):
+        context = self.vocabulary.build_context_pack("IMO26-014")
+        context.selection["dependencyContract"] = dict(context.selection["dependencyContract"])
+        context.selection["dependencyContract"]["cardinalityPolicies"] = policies
+        raw = candidate or offline_smoke_responses("IMO26-014")["generator"][1]
+        return self.validator.validate_raw(raw, context)[1]
+
+    def test_mapping_cardinality_policy_with_table_reference_does_not_crash(self) -> None:
+        report = self._validate_with_cardinality_policy({
+            "tableReference": {
+                "minCount": 1,
+                "maxCount": 1,
+                "hasValue": "iacsUrI2Table8",
+            }
+        })
+        self.assertTrue(report.valid, report.errors)
+
+    def test_mapping_cardinality_policy_accepts_declared_counts(self) -> None:
+        report = self._validate_with_cardinality_policy({
+            "operatesOnlyInContinuousDaylight": {
+                "minCount": 1,
+                "maxCount": 1,
+            }
+        })
+        self.assertTrue(report.valid, report.errors)
+
+    def test_mapping_cardinality_policy_reports_different_candidate_count(self) -> None:
+        correct = offline_smoke_responses("IMO26-014")["generator"][1]
+        for predicate, altered_count in (("minCount", 0), ("maxCount", 2)):
+            with self.subTest(predicate=predicate):
+                altered = correct.replace(f"sh:{predicate} 1", f"sh:{predicate} {altered_count}")
+                report = self._validate_with_cardinality_policy({
+                    "operatesOnlyInContinuousDaylight": {"minCount": 1, "maxCount": 1}
+                }, altered)
+                self.assertFalse(report.valid)
+                self.assertTrue(any(
+                    item == (
+                        f"Unsupported sh:{predicate} for operatesOnlyInContinuousDaylight: "
+                        f"found {altered_count}; contract permits 1"
+                    )
+                    for item in report.errors
+                ), report.errors)
+
+    def test_historical_list_cardinality_policy_remains_supported(self) -> None:
+        report = self._validate_with_cardinality_policy([{
+            "term": "operatesOnlyInContinuousDaylight",
+            "minCount": 1,
+            "maxCount": 1,
+        }])
+        self.assertTrue(report.valid, report.errors)
+
+    def test_malformed_cardinality_policies_are_controlled_validation_errors(self) -> None:
+        malformed = (
+            "operatesOnlyInContinuousDaylight",
+            ["operatesOnlyInContinuousDaylight"],
+            {"operatesOnlyInContinuousDaylight": "minCount=1"},
+            [{"minCount": 1}],
+            {"operatesOnlyInContinuousDaylight": {"minCount": "not-an-integer"}},
+        )
+        for policies in malformed:
+            with self.subTest(policies=policies):
+                report = self._validate_with_cardinality_policy(policies)
+                self.assertFalse(report.valid)
+                self.assertTrue(any(
+                    item.startswith("Cardinality policy configuration error:")
+                    for item in report.errors
+                ), report.errors)
+
     def test_unapproved_query_namespace_is_detected(self) -> None:
         correct = offline_smoke_responses("IMO26-014")["generator"][1]
         altered = correct.replace(

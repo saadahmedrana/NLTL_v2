@@ -1,0 +1,152 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF069Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "Ice class is required to determine whether the propulsion-machinery rule applies."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Propeller type is required to determine whether the propulsion-machinery rule applies."
+    ] ;
+    sh:property [
+        sh:path nltl:pitchType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Pitch type is required to determine whether the propulsion-machinery rule applies."
+    ] ;
+    sh:sparql [
+        sh:message "An applicable propulsion-machinery design must provide maximum ice torque and conforming design-load conditions, including fixed-pitch reversal loads where applicable." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:iceClass ?iceClass ;
+          nltl:propellerType ?propellerType ;
+          nltl:pitchType ?pitchType .
+
+    FILTER (
+        ?iceClass IN (
+            nltl:iceClassIaSuper,
+            nltl:iceClassIa,
+            nltl:iceClassIb,
+            nltl:iceClassIc
+        )
+    )
+    FILTER (
+        ?propellerType IN (
+            "open"^^xsd:string,
+            "ducted"^^xsd:string
+        )
+    )
+    FILTER (
+        ?pitchType IN (
+            "controllable"^^xsd:string,
+            "fixed"^^xsd:string
+        )
+    )
+
+    FILTER (
+        NOT EXISTS {
+            $this nltl:hasDesignCondition ?anyCondition .
+        }
+        ||
+        EXISTS {
+            $this nltl:hasDesignCondition ?condition .
+            FILTER NOT EXISTS {
+                ?condition a nltl:designCondition ;
+                    nltl:normalOperationalConditions true ;
+                    nltl:normalServiceLifePropellerIceLoadCondition true ;
+                    nltl:stoppedPropellerDraggingOutsideLoadModel true ;
+                    nltl:radialIceEntryOutsideLoadModel true .
+                FILTER (ISIRI(?condition))
+            }
+        }
+        ||
+        (
+            EXISTS {
+                $this nltl:pitchType "fixed"^^xsd:string .
+            }
+            &&
+            EXISTS {
+                $this nltl:hasDesignCondition ?fixedPitchCondition .
+                FILTER NOT EXISTS {
+                    ?fixedPitchCondition
+                        nltl:fixedPitchPropellerReversalLoadIncluded true .
+                }
+            }
+        )
+        ||
+        EXISTS {
+            $this nltl:hasDesignCondition ?typedCondition .
+            ?typedCondition ?booleanProperty ?booleanValue .
+            FILTER (
+                ?booleanProperty IN (
+                    nltl:normalOperationalConditions,
+                    nltl:normalServiceLifePropellerIceLoadCondition,
+                    nltl:fixedPitchPropellerReversalLoadIncluded,
+                    nltl:stoppedPropellerDraggingOutsideLoadModel,
+                    nltl:radialIceEntryOutsideLoadModel
+                )
+            )
+            FILTER (
+                !ISLITERAL(?booleanValue)
+                ||
+                DATATYPE(?booleanValue) != xsd:boolean
+            )
+        }
+        ||
+        NOT EXISTS {
+            $this nltl:maximumIceTorque ?anyTorque .
+        }
+        ||
+        EXISTS {
+            $this nltl:maximumIceTorque ?torque .
+            FILTER NOT EXISTS {
+                ?torque a qudt:QuantityValue ;
+                    qudt:numericValue ?numericValue ;
+                    qudt:unit unit:KiloN-M .
+                FILTER (
+                    ISLITERAL(?numericValue)
+                    &&
+                    DATATYPE(?numericValue) = xsd:decimal
+                )
+            }
+        }
+        ||
+        EXISTS {
+            $this nltl:maximumIceTorque ?torqueWithInvalidValue .
+            ?torqueWithInvalidValue qudt:numericValue ?invalidNumericValue .
+            FILTER (
+                !ISLITERAL(?invalidNumericValue)
+                ||
+                DATATYPE(?invalidNumericValue) != xsd:decimal
+            )
+        }
+        ||
+        EXISTS {
+            $this nltl:maximumIceTorque ?torqueWithInvalidUnit .
+            ?torqueWithInvalidUnit qudt:unit ?actualUnit .
+            FILTER (?actualUnit != unit:KiloN-M)
+        }
+    )
+}
+"""
+    ] .
+<END_SHACL>

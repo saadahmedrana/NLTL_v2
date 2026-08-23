@@ -1,0 +1,110 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO118Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:class nltl:passengerShip
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:minCount 1 ;
+                sh:nodeKind sh:IRI
+            ]
+        ]
+    ) ;
+    sh:message "Ship category or passenger-ship classification evidence is required." ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:sewageDischargeToSea ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeSewageParagraph4Point2Point1Point3ComplianceStatus ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A construction date is required for a Category A, Category B, or passenger ship." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    FILTER (
+        EXISTS {
+            $this nltl:shipCategory ?category .
+            FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+        }
+        ||
+        EXISTS {
+            $this a nltl:passengerShip .
+        }
+    )
+    FILTER NOT EXISTS {
+        $this nltl:constructionDate ?date .
+        FILTER (datatype(?date) = xsd:date)
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable ship constructed on or after 1 January 2017, sewage discharge to sea must be false unless compliance with Polar Code paragraph 4.2.1.3 is true." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:constructionDate ?date .
+    FILTER (datatype(?date) = xsd:date)
+    FILTER (
+        YEAR(?date) > 2017
+        ||
+        (
+            YEAR(?date) = 2017
+            &&
+            (
+                MONTH(?date) > 1
+                ||
+                (MONTH(?date) = 1 && DAY(?date) >= 1)
+            )
+        )
+    )
+    FILTER (
+        EXISTS {
+            $this nltl:shipCategory ?category .
+            FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+        }
+        ||
+        EXISTS {
+            $this a nltl:passengerShip .
+        }
+    )
+    FILTER NOT EXISTS {
+        $this nltl:sewageDischargeToSea ?discharge .
+        FILTER (
+            datatype(?discharge) = xsd:boolean
+            &&
+            ?discharge = "false"^^xsd:boolean
+        )
+    }
+    FILTER NOT EXISTS {
+        $this nltl:polarCodeSewageParagraph4Point2Point1Point3ComplianceStatus ?compliance .
+        FILTER (
+            datatype(?compliance) = xsd:boolean
+            &&
+            ?compliance = "true"^^xsd:boolean
+        )
+    }
+}
+"""
+    ] .

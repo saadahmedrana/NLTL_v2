@@ -1,0 +1,139 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ShipSteelRenewalShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPlating ;
+        sh:node gen:IceStrengthenedPlatingShape
+    ] ;
+    sh:property [
+        sh:path nltl:gaugedThickness ;
+        sh:maxCount 1 ;
+        sh:node gen:GaugedThicknessValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:steelRenewalRequired ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "Gauged thickness is required when linked plating is ice strengthened." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasPlating ?plating .
+                ?plating nltl:iceStrengthenedStructureStatus "true"^^xsd:boolean .
+                FILTER NOT EXISTS {
+                    $this nltl:gaugedThickness ?gaugedThickness .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Steel renewal status is required when linked plating is ice strengthened." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasPlating ?plating .
+                ?plating nltl:iceStrengthenedStructureStatus "true"^^xsd:boolean .
+                FILTER NOT EXISTS {
+                    $this nltl:steelRenewalRequired ?renewalRequired .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Steel renewal must be required when gauged thickness is less than the required net plate thickness plus 0.5 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasPlating ?plating ;
+                      nltl:gaugedThickness ?gaugedQuantity ;
+                      nltl:steelRenewalRequired ?renewalRequired .
+                ?plating nltl:iceStrengthenedStructureStatus "true"^^xsd:boolean ;
+                         nltl:iceLoadRequiredNetPlateThickness ?requiredQuantity .
+                ?gaugedQuantity qudt:numericValue ?gaugedValue ;
+                                qudt:unit <http://qudt.org/vocab/unit/M> .
+                ?requiredQuantity qudt:numericValue ?requiredValue ;
+                                  qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+                FILTER (
+                    (xsd:decimal(?gaugedValue) * 1000.0) <
+                    (xsd:decimal(?requiredValue) + 0.5)
+                )
+                FILTER (?renewalRequired = "false"^^xsd:boolean)
+            }
+        """
+    ] .
+
+gen:IceStrengthenedPlatingShape
+    a sh:NodeShape ;
+    sh:class nltl:plating ;
+    sh:class nltl:hullStructure ;
+    sh:property [
+        sh:path nltl:iceStrengthenedStructureStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:iceStrengthenedStructureStatus ;
+                sh:hasValue "false"^^xsd:boolean
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceStrengthenedStructureStatus ;
+                sh:hasValue "true"^^xsd:boolean
+            ] ;
+            sh:property [
+                sh:path nltl:iceLoadRequiredNetPlateThickness ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:RequiredNetPlateThicknessValueShape
+            ]
+        ]
+    ) .
+
+gen:GaugedThicknessValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:RequiredNetPlateThicknessValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

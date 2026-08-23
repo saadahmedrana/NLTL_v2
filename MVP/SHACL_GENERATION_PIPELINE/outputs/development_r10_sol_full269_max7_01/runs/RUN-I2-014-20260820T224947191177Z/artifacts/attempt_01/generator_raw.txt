@@ -1,0 +1,287 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:BowSubregionRequirementShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:bowLength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape ;
+        sh:message "The ship must have one bow length in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:bowSubregionCount ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive "4"^^xsd:integer ;
+        sh:maxInclusive "4"^^xsd:integer ;
+        sh:message "The bow subregion count must be four."
+    ] ;
+    sh:property [
+        sh:path nltl:hasBowSubregionCalculationCase ;
+        sh:minCount 4 ;
+        sh:maxCount 4 ;
+        sh:class nltl:bowSubregionCalculationCase ;
+        sh:node gen:BowSubregionCalculationCaseShape ;
+        sh:message "The ship must have exactly four bow subregion calculation cases."
+    ] ;
+    sh:property [
+        sh:path nltl:selectedMaximumBowForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:ForceQuantityShape ;
+        sh:message "The selected maximum bow force must be reported in meganewtons."
+    ] ;
+    sh:property [
+        sh:path nltl:selectedMaximumBowLineLoad ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LineLoadQuantityShape ;
+        sh:message "The selected maximum bow line load must be reported in meganewtons per metre."
+    ] ;
+    sh:property [
+        sh:path nltl:selectedMaximumBowPressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PressureQuantityShape ;
+        sh:message "The selected maximum bow pressure must be reported in megapascals."
+    ] ;
+    sh:sparql [
+        sh:message "The four calculation cases must represent the four distinct bow-subregion midpoint positions at 1/8, 3/8, 5/8 and 7/8 of the bow length, within relative tolerance 1e-6 and absolute fallback 1e-9 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                {
+                    SELECT $this
+                    WHERE {
+                        $this nltl:bowLength ?lengthNode ;
+                              nltl:hasBowSubregionCalculationCase ?case .
+                        ?lengthNode qudt:numericValue ?length .
+                        ?case nltl:bowSubregionMidLengthPosition ?positionNode .
+                        ?positionNode qudt:numericValue ?position .
+
+                        BIND(?length / 8 AS ?p1)
+                        BIND((3 * ?length) / 8 AS ?p2)
+                        BIND((5 * ?length) / 8 AS ?p3)
+                        BIND((7 * ?length) / 8 AS ?p4)
+
+                        BIND(IF(ABS(?p1) * 0.000001 > 0.000000001,
+                                ABS(?p1) * 0.000001,
+                                0.000000001) AS ?t1)
+                        BIND(IF(ABS(?p2) * 0.000001 > 0.000000001,
+                                ABS(?p2) * 0.000001,
+                                0.000000001) AS ?t2)
+                        BIND(IF(ABS(?p3) * 0.000001 > 0.000000001,
+                                ABS(?p3) * 0.000001,
+                                0.000000001) AS ?t3)
+                        BIND(IF(ABS(?p4) * 0.000001 > 0.000000001,
+                                ABS(?p4) * 0.000001,
+                                0.000000001) AS ?t4)
+
+                        BIND(
+                            IF(ABS(?position - ?p1) <= ?t1, 1,
+                                IF(ABS(?position - ?p2) <= ?t2, 2,
+                                    IF(ABS(?position - ?p3) <= ?t3, 3,
+                                        IF(ABS(?position - ?p4) <= ?t4, 4, 0)
+                                    )
+                                )
+                            ) AS ?slot
+                        )
+                    }
+                    GROUP BY $this
+                    HAVING (
+                        SUM(IF(?slot > 0, 1, 0)) != 4 ||
+                        COUNT(DISTINCT IF(?slot > 0, ?slot, 0)) != 4
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The selected bow force, line load and pressure must equal the respective maxima from the four calculation cases within relative tolerance 1e-6 and absolute fallback 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:selectedMaximumBowForce ?selectedForceNode ;
+                      nltl:selectedMaximumBowLineLoad ?selectedLineLoadNode ;
+                      nltl:selectedMaximumBowPressure ?selectedPressureNode .
+
+                ?selectedForceNode qudt:numericValue ?selectedForce .
+                ?selectedLineLoadNode qudt:numericValue ?selectedLineLoad .
+                ?selectedPressureNode qudt:numericValue ?selectedPressure .
+
+                {
+                    SELECT $this
+                           (MAX(?force) AS ?maximumForce)
+                           (MAX(?lineLoad) AS ?maximumLineLoad)
+                           (MAX(?pressure) AS ?maximumPressure)
+                    WHERE {
+                        $this nltl:hasBowSubregionCalculationCase ?case .
+                        ?case nltl:bowSubregionCalculatedForce ?forceNode ;
+                              nltl:bowSubregionCalculatedLineLoad ?lineLoadNode ;
+                              nltl:bowSubregionCalculatedPressure ?pressureNode .
+                        ?forceNode qudt:numericValue ?force .
+                        ?lineLoadNode qudt:numericValue ?lineLoad .
+                        ?pressureNode qudt:numericValue ?pressure .
+                    }
+                    GROUP BY $this
+                }
+
+                BIND(IF(ABS(?maximumForce) * 0.000001 > 0.000000001,
+                        ABS(?maximumForce) * 0.000001,
+                        0.000000001) AS ?forceTolerance)
+                BIND(IF(ABS(?maximumLineLoad) * 0.000001 > 0.000000001,
+                        ABS(?maximumLineLoad) * 0.000001,
+                        0.000000001) AS ?lineLoadTolerance)
+                BIND(IF(ABS(?maximumPressure) * 0.000001 > 0.000000001,
+                        ABS(?maximumPressure) * 0.000001,
+                        0.000000001) AS ?pressureTolerance)
+
+                FILTER (
+                    ABS(?selectedForce - ?maximumForce) > ?forceTolerance ||
+                    ABS(?selectedLineLoad - ?maximumLineLoad) > ?lineLoadTolerance ||
+                    ABS(?selectedPressure - ?maximumPressure) > ?pressureTolerance
+                )
+            }
+        """
+    ] .
+
+gen:BowSubregionCalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:bowSubregionCalculationCase ;
+    sh:property [
+        sh:path nltl:bowSubregionMidLengthPosition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape ;
+        sh:message "Each bow subregion case must have one midpoint position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:bowSubregionAspectRatio ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:message "Each bow subregion case must have one load-patch aspect ratio."
+    ] ;
+    sh:property [
+        sh:path nltl:bowSubregionCalculatedForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:ForceQuantityShape ;
+        sh:message "Each bow subregion case must report one calculated force."
+    ] ;
+    sh:property [
+        sh:path nltl:bowSubregionCalculatedLineLoad ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LineLoadQuantityShape ;
+        sh:message "Each bow subregion case must report one calculated line load."
+    ] ;
+    sh:property [
+        sh:path nltl:bowSubregionCalculatedPressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PressureQuantityShape ;
+        sh:message "Each bow subregion case must report one calculated pressure."
+    ] ;
+    sh:property [
+        sh:path nltl:bowSubregionCalculationEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact ;
+        sh:message "Each bow subregion case must reference calculation evidence."
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .
+
+gen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaN
+    ] .
+
+gen:LineLoadQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaN-M-PER-M2
+    ] .
+
+gen:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:MegaPA
+    ] .
+
+gen:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:UNITLESS
+    ] .
+<END_SHACL>

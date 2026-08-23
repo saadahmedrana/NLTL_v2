@@ -425,6 +425,47 @@ class VocabularyRepository:
                 raise ConfigurationError(
                     f"Direct contract contains absent canonical terms for {requirement_id}: {missing_direct}"
                 )
+            index_major_version = int(str(self.index_payload.get("version", "0")).split(".", 1)[0])
+            if contract.get("verificationMode") == "DIRECT_CALCULATION" and index_major_version >= 12:
+                missing_calculation_metadata = [
+                    field for field in ("operandTerms", "resultTerms", "comparisonModel")
+                    if not contract.get(field)
+                ]
+                if missing_calculation_metadata:
+                    raise ConfigurationError(
+                        "Complete DIRECT_CALCULATION contract lacks required calculation metadata "
+                        f"for {requirement_id}: {missing_calculation_metadata}"
+                    )
+        index_major_version = int(str(self.index_payload.get("version", "0")).split(".", 1)[0])
+        table_model = contract.get("tableModel")
+        if (
+            index_major_version >= 13
+            and isinstance(table_model, dict)
+            and table_model.get("structured") is True
+            and table_model.get("canonicalTableReference")
+        ):
+            reference = str(table_model["canonicalTableReference"])
+            reference_term = self.all_terms.get(reference)
+            if not reference_term:
+                raise ConfigurationError(
+                    f"Structured table reference is absent from the registry for {requirement_id}: {reference}"
+                )
+            if (
+                reference_term.get("kind") != "NamedIndividual"
+                or reference_term.get("parentOrRange")
+                != f"{NLTL}tableReferenceValue"
+            ):
+                raise ConfigurationError(
+                    f"Structured table reference is not a tableReferenceValue for {requirement_id}: {reference}"
+                )
+            if reference not in indexed:
+                raise ConfigurationError(
+                    f"Structured table reference is absent from the requirement index for {requirement_id}: {reference}"
+                )
+            if reference not in set(contract.get("controlledValueTerms", [])):
+                raise ConfigurationError(
+                    f"Structured table reference is absent from controlledValueTerms for {requirement_id}: {reference}"
+                )
         if int(contract.get("schemaVersion", 1)) >= 2:
             def class_is_compatible(actual_iri: str, expected_iri: str) -> bool:
                 """Return true when actual is expected or one of its subclasses."""
