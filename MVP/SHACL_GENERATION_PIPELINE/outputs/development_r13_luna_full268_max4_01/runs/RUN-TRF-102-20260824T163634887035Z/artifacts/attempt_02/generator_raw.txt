@@ -1,0 +1,186 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:QuantityValueUnitlessShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:QuantityValueMetreShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:QuantityValueKiloNewtonShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:QuantityValueKiloNewtonMetreShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN-M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF102Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:approvedSpindleTorqueStressAnalysis ;
+                sh:maxCount 0
+            ] ;
+            sh:property [
+                sh:path nltl:bladeExpandedAreaRatio ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:QuantityValueUnitlessShape
+            ] ;
+            sh:property [
+                sh:path nltl:propellerBladeCount ;
+                sh:datatype xsd:integer ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:leadingEdgeChordPortionAtZeroPointEightRadius ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:QuantityValueMetreShape
+            ] ;
+            sh:property [
+                sh:path nltl:trailingEdgeChordPortionAtZeroPointEightRadius ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:QuantityValueMetreShape
+            ] ;
+            sh:property [
+                sh:path nltl:extremeIceForce ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:QuantityValueKiloNewtonShape
+            ] ;
+            sh:property [
+                sh:path nltl:bladeFailureSpindleTorqueFactor ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:QuantityValueUnitlessShape
+            ] ;
+            sh:property [
+                sh:path nltl:bladeFailureSpindleTorque ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:QuantityValueKiloNewtonMetreShape
+            ] ;
+            sh:property [
+                sh:path nltl:maximumSpindleTorque ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:QuantityValueKiloNewtonMetreShape
+            ] ;
+            sh:sparql [
+                sh:message "The spindle torque results must satisfy the declared blade-failure torque formula." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:bladeExpandedAreaRatio ?earNode ;
+                              nltl:propellerBladeCount ?z ;
+                              nltl:leadingEdgeChordPortionAtZeroPointEightRadius ?leNode ;
+                              nltl:trailingEdgeChordPortionAtZeroPointEightRadius ?teNode ;
+                              nltl:extremeIceForce ?forceNode ;
+                              nltl:bladeFailureSpindleTorqueFactor ?factorNode ;
+                              nltl:bladeFailureSpindleTorque ?bladeTorqueNode ;
+                              nltl:maximumSpindleTorque ?maximumTorqueNode .
+
+                        ?earNode qudt:numericValue ?ear .
+                        ?leNode qudt:numericValue ?le .
+                        ?teNode qudt:numericValue ?te .
+                        ?forceNode qudt:numericValue ?force .
+                        ?factorNode qudt:numericValue ?reportedFactor .
+                        ?bladeTorqueNode qudt:numericValue ?reportedBladeTorque .
+                        ?maximumTorqueNode qudt:numericValue ?reportedMaximumTorque .
+
+                        BIND (0.7 * (1 - (((4 * ?ear) / ?z) * ((4 * ?ear) / ?z) * ((4 * ?ear) / ?z))) AS ?rawFactor)
+                        BIND (IF(?rawFactor < 0.3, 0.3, ?rawFactor) AS ?expectedFactor)
+                        BIND (IF(?le > (0.8 * ?te), ?le, (0.8 * ?te)) AS ?chordTerm)
+                        BIND (?chordTerm * ?expectedFactor * ?force AS ?expectedTorque)
+
+                        FILTER (
+                            ABS(?reportedFactor - ?expectedFactor) >
+                            (0.000001 * IF(ABS(?expectedFactor) > 1, ABS(?expectedFactor), 1))
+                            ||
+                            ABS(?reportedBladeTorque - ?expectedTorque) >
+                            (0.000001 * IF(ABS(?expectedTorque) > 1, ABS(?expectedTorque), 1))
+                            ||
+                            ABS(?reportedMaximumTorque - ?expectedTorque) >
+                            (0.000001 * IF(ABS(?expectedTorque) > 1, ABS(?expectedTorque), 1))
+                        )
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:approvedSpindleTorqueStressAnalysis ;
+                sh:minCount 1 ;
+                sh:node [
+                    sh:class nltl:approvalRecord
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:maximumSpindleTorque ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:QuantityValueKiloNewtonMetreShape
+            ]
+        ]
+    ] .
+<END_SHACL>

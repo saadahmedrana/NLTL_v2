@@ -1,0 +1,102 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO032ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:minCount 1 ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        ) ;
+        sh:message "A ship category of Category A, B, or C is required."
+    ] ;
+    sh:property [
+        sh:path nltl:shipIceStrengthened ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "The ship ice-strengthening status is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Applicable scantling approval evidence must have approved status, an authorized approving authority, and the required approval standard; ice-strengthened Category C evidence must also state operating ice type and concentration." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?cat ;
+                      nltl:shipIceStrengthened ?ice .
+
+                FILTER (
+                    ?cat IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                    || (
+                        ?cat = nltl:polarShipCategoryC
+                        && ?ice = true
+                    )
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:hasApprovalRecord ?missingRecord
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasApprovalRecord ?record .
+                        FILTER NOT EXISTS {
+                            ?record nltl:scantlingApprovalStatus nltl:evidenceStateApproved ;
+                                     nltl:approvingAuthority ?authority ;
+                                     nltl:approvalStandard ?standard .
+
+                            FILTER (
+                                (
+                                    ?cat IN (
+                                        nltl:polarShipCategoryA,
+                                        nltl:polarShipCategoryB
+                                    )
+                                    && ?authority IN (
+                                        "Administration",
+                                        "recognized organization accepted by the Administration"
+                                    )
+                                    && ?standard IN (
+                                        "standard acceptable to the Organization",
+                                        "another standard offering an equivalent level of safety"
+                                    )
+                                )
+                                ||
+                                (
+                                    ?cat = nltl:polarShipCategoryC
+                                    && ?ice = true
+                                    && ?authority IN (
+                                        "Administration",
+                                        "recognized organization accepted by the Administration"
+                                    )
+                                    && ?standard = "acceptable standard adequate for operating ice type and concentration"
+                                    && EXISTS {
+                                        ?record nltl:operatingIceType ?iceType .
+                                        FILTER (datatype(?iceType) = xsd:string)
+                                    }
+                                    && EXISTS {
+                                        ?record nltl:operatingIceConcentration ?concentration .
+                                        ?concentration qudt:numericValue ?numericValue ;
+                                                       qudt:unit qudt:UNITLESS .
+                                        FILTER (datatype(?numericValue) = xsd:decimal)
+                                    }
+                                )
+                            )
+                        }
+                    }
+                )
+            }
+        """ ;
+    ] .

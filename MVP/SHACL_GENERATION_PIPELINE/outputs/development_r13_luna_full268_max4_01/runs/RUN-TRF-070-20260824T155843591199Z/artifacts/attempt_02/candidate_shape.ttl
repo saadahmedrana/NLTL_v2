@@ -1,0 +1,198 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF070ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        gen:TRF070ApplicableShipShape
+        gen:TRF070NonApplicableShipShape
+    ) .
+
+gen:TRF070ApplicableShipShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:mainPropulsionThruster ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An applicable ship must identify a main propulsion thruster."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterType ;
+        sh:datatype xsd:string ;
+        sh:in ( "azimuthing" "fixed" ) ;
+        sh:minCount 1 ;
+        sh:message "An applicable ship must identify an azimuthing or fixed thruster."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerIceInteractionLoad ;
+        sh:node gen:TRF070KiloNewtonQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The applicable ship must provide the propeller/ice interaction load."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterBodyIceInteractionLoad ;
+        sh:node gen:TRF070KiloNewtonQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The applicable ship must provide the thruster-body/ice interaction load."
+    ] ;
+    sh:property [
+        sh:path nltl:localIcePressure ;
+        sh:node gen:TRF070MegaPascalQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The applicable ship must provide the local ice pressure."
+    ] ;
+    sh:property [
+        sh:path nltl:serviceLife ;
+        sh:node gen:TRF070YearQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The applicable ship must provide the service life associated with the expected ice loads."
+    ] ;
+    sh:property [
+        sh:path nltl:hasDesignCondition ;
+        sh:node gen:TRF070DesignConditionShape ;
+        sh:minCount 1 ;
+        sh:message "The applicable ship must provide a normal-operational design condition with expected load and externally assessed local-strength capacity."
+    ] ;
+    sh:or (
+        gen:TRF070ExtremeLoadShipShape
+        gen:TRF070NonExtremeLoadShipShape
+    ) .
+
+gen:TRF070NonApplicableShipShape
+    a sh:NodeShape ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:mainPropulsionThruster ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:sparql [
+                sh:message "A non-applicable ship must identify a thruster type other than azimuthing or fixed." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:thrusterType ?t .
+                        FILTER (?t NOT IN ("azimuthing", "fixed"))
+                    }
+                """
+            ]
+        ]
+    ) .
+
+gen:TRF070DesignConditionShape
+    a sh:NodeShape ;
+    sh:class nltl:designCondition ;
+    sh:property [
+        sh:path nltl:normalOperationalConditions ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The design condition must be identified as normal operational conditions."
+    ] ;
+    sh:property [
+        sh:path nltl:designConditionExpectedLoad ;
+        sh:node gen:TRF070KiloNewtonQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The design condition must provide the expected service-life load."
+    ] ;
+    sh:property [
+        sh:path nltl:designConditionLocalStrengthCapacity ;
+        sh:node gen:TRF070KiloNewtonQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The design condition must provide the externally assessed local-strength capacity."
+    ] .
+
+gen:TRF070ExtremeLoadShipShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:extremeLoad ;
+        sh:node gen:TRF070KiloNewtonQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The extreme-load design branch must identify the applicable extreme load."
+    ] ;
+    sh:sparql [
+        sh:message "For a thruster body designed for extreme loads, local-strength capacity must be at least the local ice pressure." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:extremeLoad ?extremeLoad ;
+                      nltl:localIcePressure ?pressure ;
+                      nltl:hasDesignCondition ?condition .
+                ?condition nltl:designConditionLocalStrengthCapacity ?capacity .
+                ?pressure qudt:numericValue ?pressureValue ;
+                          qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                ?capacity qudt:numericValue ?capacityValue ;
+                          qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                FILTER (?capacityValue < ?pressureValue)
+            }
+        """
+    ] .
+
+gen:TRF070NonExtremeLoadShipShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:extremeLoad ;
+        sh:maxCount 0
+    ] .
+
+gen:TRF070KiloNewtonQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF070MegaPascalQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF070YearQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/YR> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

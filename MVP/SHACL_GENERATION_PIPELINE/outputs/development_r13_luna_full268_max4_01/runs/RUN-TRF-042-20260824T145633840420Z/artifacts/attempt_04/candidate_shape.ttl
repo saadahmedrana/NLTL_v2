@@ -1,0 +1,175 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-042-PlatingShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:materialApprovalStatus ;
+        sh:class nltl:evidenceState ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:specialSurfaceCoatingMaintained ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "The longitudinal plating factor f2 must satisfy its applicable ratio envelope and piecewise formula within the specified tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?hNode ;
+                      nltl:spacing ?sNode ;
+                      nltl:longitudinalPlatingFactorF2 ?fNode .
+                ?hNode qudt:numericValue ?h ;
+                       qudt:unit <http://qudt.org/vocab/unit/M> .
+                ?sNode qudt:numericValue ?s ;
+                       qudt:unit <http://qudt.org/vocab/unit/M> .
+                ?fNode qudt:numericValue ?f2 ;
+                       qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+
+                BIND (?h / ?s AS ?ratio)
+                BIND (
+                    IF(
+                        ?ratio <= 1,
+                        0.4 / ?ratio + 0.6,
+                        1.4 - 0.4 * ?ratio
+                    )
+                    AS ?expected
+                )
+                BIND (
+                    IF(
+                        ABS(?expected) * 1e-6 > 1e-12,
+                        ABS(?expected) * 1e-6,
+                        1e-12
+                    )
+                    AS ?tolerance
+                )
+
+                FILTER (
+                    ?s <= 0 ||
+                    ?ratio <= 0 ||
+                    ?ratio > 1.8 ||
+                    ABS(?f2 - ?expected) > ?tolerance
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The abrasion and corrosion increment must be 2 mm, or less than 2 mm only with a maintained special surface coating and approved material evidence." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:corrosionAbrasionAddition ?corrosionNode .
+                ?corrosionNode qudt:numericValue ?corrosion ;
+                               qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+
+                FILTER (
+                    ?corrosion > 2 ||
+                    (
+                        ?corrosion < 2 &&
+                        (
+                            NOT EXISTS {
+                                $this nltl:specialSurfaceCoatingMaintained true
+                            }
+                            ||
+                            NOT EXISTS {
+                                $this nltl:materialApprovalStatus nltl:evidenceStateApproved
+                            }
+                        )
+                    )
+                )
+            }
+        """
+    ] .

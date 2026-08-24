@@ -1,0 +1,251 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:PowerQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloW ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:AreaQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:VolumeQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:RatioQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:OrdinaryInletChestShape a sh:NodeShape ;
+    sh:class nltl:inletChest ;
+    sh:property [
+        sh:path nltl:nearCentrelineAndWellAftIfPossible ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceAccumulationSpaceAboveInlet ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:fullCapacityDischargePipeConnected ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:recommendedChestVolume ;
+        sh:node gs:VolumeQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:seaChestVolume ;
+        sh:node gs:VolumeQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:strainerOpenArea ;
+        sh:node gs:AreaQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:inletPipeArea ;
+        sh:node gs:AreaQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:strainerOpenAreaRatio ;
+        sh:node gs:RatioQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "The inlet chest volume, strainer area, or area ratio does not satisfy the required calculation." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasComponent $this .
+                ?ship nltl:totalRelevantEnginePower ?powerNode .
+                ?powerNode qudt:numericValue ?power ;
+                    qudt:unit unit:KiloW .
+                $this nltl:recommendedChestVolume ?recommendedNode .
+                ?recommendedNode qudt:numericValue ?recommendedVolume ;
+                    qudt:unit unit:M3 .
+                $this nltl:seaChestVolume ?seaNode .
+                ?seaNode qudt:numericValue ?seaVolume ;
+                    qudt:unit unit:M3 .
+                $this nltl:strainerOpenArea ?strainerNode .
+                ?strainerNode qudt:numericValue ?strainerArea ;
+                    qudt:unit unit:M2 .
+                $this nltl:inletPipeArea ?inletNode .
+                ?inletNode qudt:numericValue ?inletArea ;
+                    qudt:unit unit:M2 .
+                $this nltl:strainerOpenAreaRatio ?ratioNode .
+                ?ratioNode qudt:numericValue ?reportedRatio ;
+                    qudt:unit unit:UNITLESS .
+                FILTER (?inletArea > 0)
+                BIND (?power / 750 AS ?expectedVolume)
+                BIND (?strainerArea / ?inletArea AS ?expectedRatio)
+                FILTER (?strainerArea < 4 * ?inletArea)
+                FILTER (
+                    (?expectedVolume > 0 &&
+                     (?recommendedVolume < ?expectedVolume - (0.000001 * ?expectedVolume) ||
+                      ?recommendedVolume > ?expectedVolume + (0.000001 * ?expectedVolume) ||
+                      ?seaVolume < ?expectedVolume - (0.000001 * ?expectedVolume) ||
+                      ?seaVolume > ?expectedVolume + (0.000001 * ?expectedVolume)))
+                    ||
+                    (?expectedVolume <= 0 &&
+                     (?recommendedVolume < ?expectedVolume - 0.000001 ||
+                      ?recommendedVolume > ?expectedVolume + 0.000001 ||
+                      ?seaVolume < ?expectedVolume - 0.000001 ||
+                      ?seaVolume > ?expectedVolume + 0.000001))
+                    ||
+                    (?expectedRatio > 0 &&
+                     (?reportedRatio < ?expectedRatio - (0.000001 * ?expectedRatio) ||
+                      ?reportedRatio > ?expectedRatio + (0.000001 * ?expectedRatio)))
+                    ||
+                    (?expectedRatio <= 0 &&
+                     (?reportedRatio < ?expectedRatio - 0.000001 ||
+                      ?reportedRatio > ?expectedRatio + 0.000001))
+                )
+            }
+        """
+    ] .
+
+gs:AlternatingInletChestShape a sh:NodeShape ;
+    sh:class nltl:inletChest ;
+    sh:property [
+        sh:path nltl:alternatingCoolingWaterIntakeAndDischarge ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:node gs:PowerQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:totalRelevantEnginePower ;
+        sh:node gs:PowerQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasComponent ;
+        sh:class nltl:shipComponent ;
+        sh:minCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:hasComponent ;
+                sh:qualifiedValueShape gs:OrdinaryInletChestShape ;
+                sh:qualifiedMinCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:coolingWaterChestAlternativeArrangementUsed ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:hasComponent ;
+                sh:qualifiedValueShape gs:AlternatingInletChestShape ;
+                sh:qualifiedMinCount 2
+            ]
+        ]
+    ) .

@@ -1,0 +1,118 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-111-Static> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:polarShipCategoryA nltl:polarShipCategoryB )
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:tankType ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:individualTankCapacity ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M3 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:tankOuterShellSeparation ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable Category A or B ship, each linked oil residue or oily bilge water holding tank requires a valid capacity; tanks over 30 m3 require at least 0.76 m separation from the outer shell." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this rdf:type nltl:ship ;
+                      nltl:shipCategory ?category ;
+                      nltl:constructionDate ?constructionDate ;
+                      nltl:hasComponent ?tank .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER (?constructionDate >= "2017-01-01"^^xsd:date)
+
+                {
+                    ?tank rdf:type nltl:oilResidueTank
+                }
+                UNION
+                {
+                    ?tank rdf:type nltl:oilyBilgeWaterHoldingTank
+                }
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:individualTankCapacity ?capacityNode .
+                        ?capacityNode qudt:numericValue ?capacity ;
+                                      qudt:unit unit:M3 .
+                        FILTER (datatype(?capacity) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:individualTankCapacity ?capacityNode2 .
+                        ?capacityNode2 qudt:numericValue ?capacity2 ;
+                                       qudt:unit unit:M3 .
+                        FILTER (
+                            datatype(?capacity2) = xsd:decimal &&
+                            ?capacity2 > "30"^^xsd:decimal
+                        )
+                        FILTER NOT EXISTS {
+                            $this nltl:tankOuterShellSeparation ?separationNode .
+                            ?separationNode qudt:numericValue ?separation ;
+                                             qudt:unit unit:M .
+                            FILTER (
+                                datatype(?separation) = xsd:decimal &&
+                                ?separation >= "0.76"^^xsd:decimal
+                            )
+                        }
+                    }
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,665 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:SteelGradeRequirementCaseShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:steelGradeRequirementCase ;
+    sh:property [
+        sh:path nltl:steelGradeRequirementCasePlating ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:plating ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each steel grade requirement case must identify one assessed plating."
+    ] ;
+    sh:property [
+        sh:path nltl:asBuiltPlateThickness ;
+        sh:nodeKind sh:IRI ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:AsBuiltPlateThicknessShape ;
+        sh:message "Each steel grade requirement case must provide one as-built plate thickness."
+    ] ;
+    sh:property [
+        sh:path nltl:steelMaterialClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelMaterialClassValue ;
+        sh:in (
+            nltl:steelMaterialClassOne
+            nltl:steelMaterialClassTwo
+            nltl:steelMaterialClassThree
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each steel grade requirement case must provide one permitted material class."
+    ] ;
+    sh:property [
+        sh:path nltl:steelStrengthCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelStrengthCategoryValue ;
+        sh:in (
+            nltl:normalStrengthSteelCategory
+            nltl:highTensileSteelCategory
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each steel grade requirement case must provide one permitted steel strength category."
+    ] ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:tableReferenceValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue nltl:iacsUrI2Table8 ;
+        sh:message "Each steel grade requirement case must reference IACS UR I2 Table 8."
+    ] ;
+    sh:property [
+        sh:path nltl:actualHullStructuralSteelGrade ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeValue ;
+        sh:in (
+            nltl:steelGradeAh
+            nltl:steelGradeB
+            nltl:steelGradeD
+            nltl:steelGradeDh
+            nltl:steelGradeE
+            nltl:steelGradeEh
+            nltl:steelGradeFh
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:SteelGradeValueShape ;
+        sh:message "Each steel grade requirement case must provide one permitted actual steel grade."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredHullStructuralSteelGrade ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeValue ;
+        sh:in (
+            nltl:steelGradeAh
+            nltl:steelGradeB
+            nltl:steelGradeD
+            nltl:steelGradeDh
+            nltl:steelGradeE
+            nltl:steelGradeEh
+            nltl:steelGradeFh
+        ) ;
+        sh:maxCount 1 ;
+        sh:node gen:SteelGradeValueShape ;
+        sh:message "An applicable table selection must provide one permitted required steel grade."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The required steel grade must match the applicable Table 8 row; non-applicable combinations must not carry a required grade." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  $this nltl:asBuiltPlateThickness ?q ;
+        nltl:steelMaterialClass ?m ;
+        nltl:steelStrengthCategory ?c .
+  ?q qudt:numericValue ?t ;
+     qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+
+  BIND(IF(?t <= 10, 1,
+    IF(?t <= 15, 2,
+      IF(?t <= 20, 3,
+        IF(?t <= 25, 4,
+          IF(?t <= 30, 5,
+            IF(?t <= 35, 6,
+              IF(?t <= 40, 7,
+                IF(?t <= 45, 8,
+                  IF(?t <= 50, 9, 0)
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  ) AS ?b)
+
+  ?ship nltl:hasSteelGradeRequirementCase $this ;
+        nltl:polarClass ?pc .
+
+  BIND(
+    !(?m = nltl:steelMaterialClassThree &&
+      ?c = nltl:normalStrengthSteelCategory &&
+      (
+        (?b >= 7 && ?b <= 10 &&
+         ?pc IN (
+           nltl:polarClassPc1,
+           nltl:polarClassPc2,
+           nltl:polarClassPc3
+         ))
+        ||
+        (?b = 10 &&
+         ?pc IN (
+           nltl:polarClassPc4,
+           nltl:polarClassPc5
+         ))
+      )
+    ) AS ?applicable
+  )
+
+  BIND(
+    (
+      (?b >= 1 && ?b <= 3 &&
+       (
+         (
+           ?m = nltl:steelMaterialClassOne &&
+           ?pc IN (
+             nltl:polarClassPc1,
+             nltl:polarClassPc2,
+             nltl:polarClassPc3,
+             nltl:polarClassPc4,
+             nltl:polarClassPc5,
+             nltl:polarClassPc6,
+             nltl:polarClassPc7
+           ) &&
+           (
+             (?c = nltl:normalStrengthSteelCategory &&
+              EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeB })
+             ||
+             (?c = nltl:highTensileSteelCategory &&
+              EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeAh })
+           )
+         )
+         ||
+         (
+           ?m = nltl:steelMaterialClassTwo &&
+           (
+             (?b = 1 &&
+              (
+                (?c = nltl:normalStrengthSteelCategory &&
+                 EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeB })
+                ||
+                (?c = nltl:highTensileSteelCategory &&
+                 EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeAh })
+              ))
+             ||
+             (?b >= 2 &&
+              (
+                (?c = nltl:normalStrengthSteelCategory &&
+                 EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeD })
+                ||
+                (?c = nltl:highTensileSteelCategory &&
+                 EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeDh })
+              ))
+           ) &&
+           ?pc IN (
+             nltl:polarClassPc1,
+             nltl:polarClassPc2,
+             nltl:polarClassPc3,
+             nltl:polarClassPc4,
+             nltl:polarClassPc5,
+             nltl:polarClassPc6,
+             nltl:polarClassPc7
+           )
+         )
+         ||
+         (
+           ?m = nltl:steelMaterialClassThree &&
+           (
+             (
+               ?pc IN (
+                 nltl:polarClassPc1,
+                 nltl:polarClassPc2,
+                 nltl:polarClassPc3,
+                 nltl:polarClassPc4,
+                 nltl:polarClassPc5
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeE })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeEh })
+               )
+             )
+             ||
+             (
+               ?pc IN (
+                 nltl:polarClassPc6,
+                 nltl:polarClassPc7
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeB })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeAh })
+               )
+             )
+           )
+         )
+       ))
+      )
+      ||
+      (?b >= 4 && ?b <= 6 &&
+       (
+         (
+           ?m IN (
+             nltl:steelMaterialClassOne,
+             nltl:steelMaterialClassTwo
+           ) &&
+           (
+             (
+               ?pc IN (
+                 nltl:polarClassPc1,
+                 nltl:polarClassPc2,
+                 nltl:polarClassPc3,
+                 nltl:polarClassPc4,
+                 nltl:polarClassPc5
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeD })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeDh })
+               )
+             )
+             ||
+             (
+               ?pc IN (
+                 nltl:polarClassPc6,
+                 nltl:polarClassPc7
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeB })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeAh })
+               )
+             )
+           )
+         )
+         ||
+         (
+           ?m = nltl:steelMaterialClassThree &&
+           (
+             (
+               ?pc IN (
+                 nltl:polarClassPc1,
+                 nltl:polarClassPc2,
+                 nltl:polarClassPc3,
+                 nltl:polarClassPc4,
+                 nltl:polarClassPc5
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeE })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeEh })
+               )
+             )
+             ||
+             (
+               ?pc IN (
+                 nltl:polarClassPc6,
+                 nltl:polarClassPc7
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeD })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeDh })
+               )
+             )
+           )
+         )
+       ))
+      )
+      ||
+      (?b = 7 &&
+       (
+         (
+           ?m = nltl:steelMaterialClassOne &&
+           (
+             (?c = nltl:normalStrengthSteelCategory &&
+              EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeD })
+             ||
+             (?c = nltl:highTensileSteelCategory &&
+              EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeDh })
+           )
+         )
+         ||
+         (
+           ?m = nltl:steelMaterialClassTwo &&
+           (
+             (
+               ?pc IN (
+                 nltl:polarClassPc1,
+                 nltl:polarClassPc2,
+                 nltl:polarClassPc3,
+                 nltl:polarClassPc4,
+                 nltl:polarClassPc5
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeE })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeEh })
+               )
+             )
+             ||
+             (
+               ?pc IN (
+                 nltl:polarClassPc6,
+                 nltl:polarClassPc7
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeD })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeDh })
+               )
+             )
+           )
+         )
+         ||
+         (
+           ?m = nltl:steelMaterialClassThree &&
+           ?pc IN (
+             nltl:polarClassPc4,
+             nltl:polarClassPc5,
+             nltl:polarClassPc6,
+             nltl:polarClassPc7
+           ) &&
+           ?c = nltl:highTensileSteelCategory &&
+           EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeEh }
+         )
+       ))
+      )
+      ||
+      (?b = 8 &&
+       (
+         (
+           ?m IN (
+             nltl:steelMaterialClassOne,
+             nltl:steelMaterialClassTwo
+           ) &&
+           (
+             (
+               ?pc IN (
+                 nltl:polarClassPc1,
+                 nltl:polarClassPc2,
+                 nltl:polarClassPc3,
+                 nltl:polarClassPc4,
+                 nltl:polarClassPc5
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeD })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeDh })
+               )
+             )
+             ||
+             (
+               ?pc IN (
+                 nltl:polarClassPc6,
+                 nltl:polarClassPc7
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeD })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeDh })
+               )
+             )
+           )
+         )
+         ||
+         (
+           ?m = nltl:steelMaterialClassThree &&
+           (
+             (
+               ?pc IN (
+                 nltl:polarClassPc1,
+                 nltl:polarClassPc2,
+                 nltl:polarClassPc3
+               ) &&
+               ?c = nltl:highTensileSteelCategory &&
+               EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeFh }
+             )
+             ||
+             (
+               ?pc IN (
+                 nltl:polarClassPc4,
+                 nltl:polarClassPc5,
+                 nltl:polarClassPc6,
+                 nltl:polarClassPc7
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeE })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeEh })
+               )
+             )
+           )
+         )
+       ))
+      )
+      ||
+      (?b >= 9 && ?b <= 10 &&
+       (
+         (
+           ?m IN (
+             nltl:steelMaterialClassOne,
+             nltl:steelMaterialClassTwo
+           ) &&
+           (
+             (
+               ?pc IN (
+                 nltl:polarClassPc1,
+                 nltl:polarClassPc2,
+                 nltl:polarClassPc3,
+                 nltl:polarClassPc4,
+                 nltl:polarClassPc5
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeE })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeEh })
+               )
+             )
+             ||
+             (
+               ?pc IN (
+                 nltl:polarClassPc6,
+                 nltl:polarClassPc7
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeD })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeDh })
+               )
+             )
+           )
+         )
+         ||
+         (
+           ?m = nltl:steelMaterialClassThree &&
+           (
+             (
+               ?pc IN (
+                 nltl:polarClassPc1,
+                 nltl:polarClassPc2,
+                 nltl:polarClassPc3,
+                 nltl:polarClassPc4,
+                 nltl:polarClassPc5
+               ) &&
+               ?c = nltl:highTensileSteelCategory &&
+               EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeFh }
+             )
+             ||
+             (
+               ?pc IN (
+                 nltl:polarClassPc6,
+                 nltl:polarClassPc7
+               ) &&
+               (
+                 (?c = nltl:normalStrengthSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeE })
+                 ||
+                 (?c = nltl:highTensileSteelCategory &&
+                  EXISTS { ?this nltl:requiredHullStructuralSteelGrade nltl:steelGradeEh })
+               )
+             )
+           )
+         )
+       ))
+      )
+    ) AS ?declaredGrade
+  )
+
+  FILTER(
+    (?b = 0) ||
+    (?applicable && NOT EXISTS {
+      $this nltl:requiredHullStructuralSteelGrade ?missingResult
+    }) ||
+    (!?applicable && EXISTS {
+      $this nltl:requiredHullStructuralSteelGrade ?nonApplicableResult
+    }) ||
+    (?applicable && !?declaredGrade)
+  )
+}
+""" ;
+    ] .
+
+gen:AsBuiltPlateThicknessShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:SteelGradeValueShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:steelGradeValue ;
+    sh:property [
+        sh:path nltl:steelGradeOrderRank ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each represented steel grade value must have exactly one integer order rank."
+    ] .
+
+gen:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:polarClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:polarClassValue ;
+        sh:in (
+            nltl:polarClassPc1
+            nltl:polarClassPc2
+            nltl:polarClassPc3
+            nltl:polarClassPc4
+            nltl:polarClassPc5
+            nltl:polarClassPc6
+            nltl:polarClassPc7
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must provide one permitted Polar Class."
+    ] ;
+    sh:property [
+        sh:path nltl:hasSteelGradeRequirementCase ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeRequirementCase ;
+        sh:node gen:SteelGradeRequirementCaseShape
+    ] .
+
+gen:SteelGradeComparisonShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:steelGradeRequirementCase ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The actual steel grade must be at least the required grade by rank within the same steel strength category." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  $this nltl:steelStrengthCategory ?category ;
+        nltl:actualHullStructuralSteelGrade ?actual ;
+        nltl:requiredHullStructuralSteelGrade ?required .
+  ?actual nltl:steelGradeOrderRank ?actualRank .
+  ?required nltl:steelGradeOrderRank ?requiredRank .
+
+  FILTER(
+    (
+      ?category = nltl:normalStrengthSteelCategory &&
+      (
+        ?actual NOT IN (
+          nltl:steelGradeB,
+          nltl:steelGradeD,
+          nltl:steelGradeE
+        ) ||
+        ?required NOT IN (
+          nltl:steelGradeB,
+          nltl:steelGradeD,
+          nltl:steelGradeE
+        )
+      )
+    )
+    ||
+    (
+      ?category = nltl:highTensileSteelCategory &&
+      (
+        ?actual NOT IN (
+          nltl:steelGradeAh,
+          nltl:steelGradeDh,
+          nltl:steelGradeEh,
+          nltl:steelGradeFh
+        ) ||
+        ?required NOT IN (
+          nltl:steelGradeAh,
+          nltl:steelGradeDh,
+          nltl:steelGradeEh,
+          nltl:steelGradeFh
+        )
+      )
+    )
+    ||
+    (?actualRank < ?requiredRank)
+  )
+}
+""" ;
+    ] .
+<END_SHACL>

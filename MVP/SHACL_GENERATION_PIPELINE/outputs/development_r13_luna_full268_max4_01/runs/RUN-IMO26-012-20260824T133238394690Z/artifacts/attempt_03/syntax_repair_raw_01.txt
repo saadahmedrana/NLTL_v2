@@ -1,0 +1,152 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltl:GrossTonnageValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+nltl:GrossTonnageApplicableShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive 500
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "At least two distinct typed non-magnetic heading means are required, and each must be connected to this ship's main and emergency power sources and be independent from another such means." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:grossTonnage ?grossQuantity .
+                ?grossQuantity qudt:numericValue ?grossTonnage .
+                FILTER (?grossTonnage >= 500)
+
+                $this nltl:hasNonMagneticHeadingMeans ?means1 .
+                $this nltl:hasNonMagneticHeadingMeans ?means2 .
+                ?means1 a nltl:nonMagneticHeadingMeans .
+                ?means2 a nltl:nonMagneticHeadingMeans .
+                FILTER (?means1 != ?means2)
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasNonMagneticHeadingMeans ?means .
+                    ?means a nltl:nonMagneticHeadingMeans .
+                    FILTER NOT EXISTS {
+                        ?means nltl:connectedToMainPower $this .
+                    }
+                }
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasNonMagneticHeadingMeans ?means .
+                    ?means a nltl:nonMagneticHeadingMeans .
+                    FILTER NOT EXISTS {
+                        ?means nltl:connectedToEmergencyPower $this .
+                    }
+                }
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasNonMagneticHeadingMeans ?means .
+                    ?means a nltl:nonMagneticHeadingMeans .
+                    FILTER NOT EXISTS {
+                        ?means nltl:independentFromHeadingMeans ?otherMeans .
+                        FILTER (?otherMeans != ?means)
+                        $this nltl:hasNonMagneticHeadingMeans ?otherMeans .
+                        ?otherMeans a nltl:nonMagneticHeadingMeans .
+                    }
+                }
+            }
+        """
+    ] .
+
+nltl:GrossTonnageNonApplicableShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:maxExclusive 500
+            ]
+        ]
+    ] .
+
+nltl:HeadingMeansShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:connectedToMainPower ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:connectedToEmergencyPower ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:independentFromHeadingMeans ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each typed non-magnetic heading means must connect to the specific ship that owns it as both its main and emergency power source." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    ?ship a nltl:ship ;
+                          nltl:hasNonMagneticHeadingMeans $this .
+                    $this nltl:connectedToMainPower ?mainPower .
+                    FILTER (?mainPower = ?ship)
+                    $this nltl:connectedToEmergencyPower ?emergencyPower .
+                    FILTER (?emergencyPower = ?ship)
+                }
+            }
+        """
+    ] .
+
+nltl:IMO26_012_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:node nltl:GrossTonnageValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Gross tonnage is required to determine whether the two-heading-means rule applies."
+    ] ;
+    sh:property [
+        sh:path nltl:hasNonMagneticHeadingMeans ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:nonMagneticHeadingMeans ;
+        sh:node nltl:HeadingMeansShape
+    ] ;
+    sh:or (
+        nltl:GrossTonnageApplicableShape
+        nltl:GrossTonnageNonApplicableShape
+    ) .
+
+</END_SHACL>

@@ -1,0 +1,140 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF017Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloW ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Maximum continuous rating power is required in kW."
+    ] ;
+    sh:property [
+        sh:path nltl:propulsionMachineryContinuousOutput ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloW ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Propulsion machinery continuous output is required in kW."
+    ] ;
+    sh:property [
+        sh:path nltl:additionalPropulsionPower ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloW ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:maxCount 1 ;
+        sh:message "Additional propulsion power, when present, must be recorded in kW and included in total propulsion output."
+    ] ;
+    sh:property [
+        sh:path nltl:propulsionOutputRestrictionApplies ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "It must be specified whether propulsion output is restricted."
+    ] ;
+    sh:property [
+        sh:path nltl:restrictedPropulsionOutput ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloW ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:maxCount 1 ;
+        sh:message "Restricted propulsion output, when applicable, must be recorded in kW."
+    ] ;
+    sh:sparql [
+        sh:message "Maximum continuous rating power must equal the total continuous propulsion output, including any additional propulsion power sources." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:propulsionOutputRestrictionApplies false ;
+                      nltl:maximumContinuousRatingPower ?mcrNode ;
+                      nltl:propulsionMachineryContinuousOutput ?machineryNode .
+                ?mcrNode qudt:numericValue ?mcr .
+                ?machineryNode qudt:numericValue ?machinery .
+                OPTIONAL {
+                    $this nltl:additionalPropulsionPower ?additionalNode .
+                    ?additionalNode qudt:numericValue ?additional .
+                }
+                BIND(IF(BOUND(?additional), ?additional, "0"^^xsd:decimal) AS ?additionalPower)
+                BIND(?machinery + ?additionalPower AS ?total)
+                FILTER(
+                    ABS(?mcr - ?total) >
+                    (1e-6 * IF(ABS(?total) > 0.001, ABS(?total), 0.001))
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "When propulsion output is restricted, maximum continuous rating power must equal the restricted propulsion output." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this
+            WHERE {
+                $this nltl:propulsionOutputRestrictionApplies true ;
+                      nltl:maximumContinuousRatingPower ?mcrNode ;
+                      nltl:restrictedPropulsionOutput ?restrictedNode .
+                ?mcrNode qudt:numericValue ?mcr .
+                ?restrictedNode qudt:numericValue ?restricted .
+                FILTER(?mcr != ?restricted)
+            }
+        """
+    ] .

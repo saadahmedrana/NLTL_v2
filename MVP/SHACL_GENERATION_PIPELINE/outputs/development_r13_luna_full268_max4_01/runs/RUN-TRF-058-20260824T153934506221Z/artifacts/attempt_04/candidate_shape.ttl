@@ -1,0 +1,102 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF058WebFrameShape a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:property [
+        sh:path nltl:supportedStringerOutsideIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "supportedStringerOutsideIceBelt must be recorded as a single boolean value."
+    ] ;
+    sh:sparql [
+        sh:message "When supportedStringerOutsideIceBelt is true, iceLoadForce, stringerOutsideIceBeltHeight, stringerSpan, and adjustedIceLoadForce must each provide a decimal quantity in the required unit." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:supportedStringerOutsideIceBelt ?supported .
+                FILTER (?supported = true)
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceLoadForce ?force .
+                        ?force qudt:numericValue ?forceValue ;
+                               qudt:unit qudt:KiloN .
+                        FILTER (datatype(?forceValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:stringerOutsideIceBeltHeight ?height .
+                        ?height qudt:numericValue ?heightValue ;
+                                qudt:unit qudt:M .
+                        FILTER (datatype(?heightValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:stringerSpan ?span .
+                        ?span qudt:numericValue ?spanValue ;
+                              qudt:unit qudt:M .
+                        FILTER (datatype(?spanValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:adjustedIceLoadForce ?adjusted .
+                        ?adjusted qudt:numericValue ?adjustedValue ;
+                                  qudt:unit qudt:KiloN .
+                        FILTER (datatype(?adjustedValue) = xsd:decimal)
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "When supportedStringerOutsideIceBelt is true, adjustedIceLoadForce must equal iceLoadForce multiplied by (1 - stringerOutsideIceBeltHeight / stringerSpan) within a relative tolerance of 1e-6 with a 1e-9 absolute fallback." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:supportedStringerOutsideIceBelt ?supported ;
+                      nltl:iceLoadForce ?force ;
+                      nltl:stringerOutsideIceBeltHeight ?height ;
+                      nltl:stringerSpan ?span ;
+                      nltl:adjustedIceLoadForce ?adjusted .
+
+                ?force qudt:numericValue ?forceValue ;
+                       qudt:unit qudt:KiloN .
+                ?height qudt:numericValue ?heightValue ;
+                        qudt:unit qudt:M .
+                ?span qudt:numericValue ?spanValue ;
+                      qudt:unit qudt:M .
+                ?adjusted qudt:numericValue ?adjustedValue ;
+                          qudt:unit qudt:KiloN .
+
+                FILTER (?supported = true)
+                FILTER (datatype(?forceValue) = xsd:decimal)
+                FILTER (datatype(?heightValue) = xsd:decimal)
+                FILTER (datatype(?spanValue) = xsd:decimal)
+                FILTER (datatype(?adjustedValue) = xsd:decimal)
+
+                BIND (?forceValue * (1.0 - (?heightValue / ?spanValue)) AS ?expected)
+                BIND (IF(?expected >= 0.0, ?expected, -?expected) AS ?absoluteExpected)
+                BIND (?adjustedValue - ?expected AS ?difference)
+                BIND (IF(?difference >= 0.0, ?difference, -?difference) AS ?absoluteDifference)
+                BIND (
+                    IF(
+                        (0.000001 * ?absoluteExpected) > 0.000000001,
+                        (0.000001 * ?absoluteExpected),
+                        0.000000001
+                    ) AS ?tolerance
+                )
+
+                FILTER (?absoluteDifference > ?tolerance)
+            }
+        """
+    ] .

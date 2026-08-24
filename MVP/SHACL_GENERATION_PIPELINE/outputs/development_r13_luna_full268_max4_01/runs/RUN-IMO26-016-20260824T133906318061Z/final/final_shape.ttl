@@ -1,0 +1,166 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO26-016> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship type is required for Chapter 11-1 applicability." ;
+    ] ;
+    sh:property [
+        sh:path nltl:shipOperatesInPolarWaters ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The polar-water operating status is required." ;
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeChapter11Dash1Applicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The Chapter 11-1 applicability result is required." ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the ship operates in polar waters, the inputs required by its ship-type branch must be present with the specified quantity units and datatypes." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipOperatesInPolarWaters ?polar ;
+                      nltl:shipType ?type .
+                FILTER (?polar = true)
+                FILTER (
+                    (?type = "fishing_vessel" &&
+                     NOT EXISTS {
+                         $this nltl:lengthOverall ?length .
+                         ?length qudt:numericValue ?value ;
+                                 qudt:unit unit:M .
+                     })
+                    ||
+                    (?type = "pleasure_yacht" &&
+                     (
+                         NOT EXISTS {
+                             $this nltl:grossTonnage ?tonnage .
+                             ?tonnage qudt:numericValue ?value ;
+                                      qudt:unit unit:UNITLESS .
+                         }
+                         ||
+                         NOT EXISTS {
+                             $this nltl:engagedInTrade ?trade .
+                             FILTER (datatype(?trade) = xsd:boolean)
+                         }
+                     ))
+                    ||
+                    (?type = "cargo_ship" &&
+                     NOT EXISTS {
+                         $this nltl:grossTonnage ?tonnage .
+                         ?tonnage qudt:numericValue ?value ;
+                                  qudt:unit unit:UNITLESS .
+                     })
+                )
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Chapter 11-1 applicability must be true exactly for qualifying polar-water fishing vessels, pleasure yachts, and cargo ships, and false otherwise." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            SELECT $this
+            WHERE {
+                {
+                    $this nltl:shipOperatesInPolarWaters false ;
+                          nltl:polarCodeChapter11Dash1Applicable ?app .
+                    FILTER (?app != false)
+                }
+                UNION
+                {
+                    $this nltl:shipOperatesInPolarWaters true ;
+                          nltl:shipType "fishing_vessel" ;
+                          nltl:lengthOverall ?length ;
+                          nltl:polarCodeChapter11Dash1Applicable ?app .
+                    ?length qudt:numericValue ?value ;
+                            qudt:unit unit:M .
+                    FILTER (
+                        (?value >= 24 && ?app != true)
+                        ||
+                        (?value < 24 && ?app != false)
+                    )
+                }
+                UNION
+                {
+                    $this nltl:shipOperatesInPolarWaters true ;
+                          nltl:shipType "pleasure_yacht" ;
+                          nltl:grossTonnage ?tonnage ;
+                          nltl:engagedInTrade ?trade ;
+                          nltl:polarCodeChapter11Dash1Applicable ?app .
+                    ?tonnage qudt:numericValue ?value ;
+                             qudt:unit unit:UNITLESS .
+                    FILTER (
+                        (
+                            ?value >= 300 &&
+                            ?trade = false &&
+                            ?app != true
+                        )
+                        ||
+                        (
+                            (
+                                ?value < 300 ||
+                                ?trade != false
+                            ) &&
+                            ?app != false
+                        )
+                    )
+                }
+                UNION
+                {
+                    $this nltl:shipOperatesInPolarWaters true ;
+                          nltl:shipType "cargo_ship" ;
+                          nltl:grossTonnage ?tonnage ;
+                          nltl:polarCodeChapter11Dash1Applicable ?app .
+                    ?tonnage qudt:numericValue ?value ;
+                             qudt:unit unit:UNITLESS .
+                    FILTER (
+                        (
+                            ?value >= 300 &&
+                            ?value < 500 &&
+                            ?app != true
+                        )
+                        ||
+                        (
+                            (
+                                ?value < 300 ||
+                                ?value >= 500
+                            ) &&
+                            ?app != false
+                        )
+                    )
+                }
+                UNION
+                {
+                    $this nltl:shipOperatesInPolarWaters true ;
+                          nltl:shipType ?type ;
+                          nltl:polarCodeChapter11Dash1Applicable ?app .
+                    FILTER (
+                        ?type != "fishing_vessel" &&
+                        ?type != "pleasure_yacht" &&
+                        ?type != "cargo_ship" &&
+                        ?app != false
+                    )
+                }
+            }
+        """ ;
+    ] .

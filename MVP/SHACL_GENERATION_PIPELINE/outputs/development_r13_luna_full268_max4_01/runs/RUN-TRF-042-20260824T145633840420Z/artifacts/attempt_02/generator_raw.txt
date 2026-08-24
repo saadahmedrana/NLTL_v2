@@ -1,0 +1,185 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LengthMillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthMetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CorrosionAdditionExactTwoShape
+    a sh:NodeShape ;
+    sh:node gen:LengthMillimetreQuantityShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minInclusive 2.0 ;
+        sh:maxInclusive 2.0
+    ] .
+
+gen:CorrosionAdditionBelowTwoShape
+    a sh:NodeShape ;
+    sh:node gen:LengthMillimetreQuantityShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:maxExclusive 2.0
+    ] .
+
+gen:TRF042PlatingShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:node gen:LengthMetreQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "designIceLoadHeight must be supplied as a metre-valued quantity"
+    ] ;
+
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:node gen:LengthMetreQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "spacing must be supplied as a metre-valued quantity"
+    ] ;
+
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "longitudinalPlatingFactorF2 must be supplied as a dimensionless quantity"
+    ] ;
+
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:node gen:CorrosionAdditionExactTwoShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:node gen:CorrosionAdditionBelowTwoShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:specialSurfaceCoatingMaintained ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:materialApprovalStatus ;
+                sh:class nltl:evidenceState ;
+                sh:hasValue nltl:evidenceStateApproved ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) ;
+
+    sh:sparql [
+        sh:message "longitudinalPlatingFactorF2 must equal the applicable piecewise formula of designIceLoadHeight divided by spacing, within max(1e-6*ABS(expected),1e-12)" ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                {
+                    $this nltl:designIceLoadHeight ?hNode ;
+                           nltl:spacing ?sNode ;
+                           nltl:longitudinalPlatingFactorF2 ?fNode .
+                    ?hNode qudt:numericValue ?h .
+                    ?sNode qudt:numericValue ?s .
+                    ?fNode qudt:numericValue ?actual .
+                    BIND (?h / ?s AS ?ratio)
+                    FILTER (?ratio <= 1.0)
+                    BIND (0.4 / ?ratio + 0.6 AS ?expected)
+                    FILTER (
+                        ABS(?actual - ?expected) >
+                        IF(
+                            0.000001 * ABS(?expected) > 0.000000000001,
+                            0.000001 * ABS(?expected),
+                            0.000000000001
+                        )
+                    )
+                }
+                UNION
+                {
+                    $this nltl:designIceLoadHeight ?hNode ;
+                           nltl:spacing ?sNode ;
+                           nltl:longitudinalPlatingFactorF2 ?fNode .
+                    ?hNode qudt:numericValue ?h .
+                    ?sNode qudt:numericValue ?s .
+                    ?fNode qudt:numericValue ?actual .
+                    BIND (?h / ?s AS ?ratio)
+                    FILTER (?ratio >= 1.0 && ?ratio <= 1.8)
+                    BIND (1.4 - 0.4 * ?ratio AS ?expected)
+                    FILTER (
+                        ABS(?actual - ?expected) >
+                        IF(
+                            0.000001 * ABS(?expected) > 0.000000000001,
+                            0.000001 * ABS(?expected),
+                            0.000000000001
+                        )
+                    )
+                }
+            }
+        """
+    ] .
+<END_SHACL>

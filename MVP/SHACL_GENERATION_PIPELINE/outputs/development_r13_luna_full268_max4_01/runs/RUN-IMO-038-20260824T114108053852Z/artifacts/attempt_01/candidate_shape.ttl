@@ -1,0 +1,169 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MeterQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MilliMeterQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:IMO038Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:damageCenterForwardOfMaxBreadth ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The damage-center position is required to select the longitudinal damage extent formula."
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLength ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The upper ice waterline length is required."
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The upper ice waterline draught is required."
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDamageExtent ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The longitudinal damage extent is required and must use metres."
+    ] ;
+    sh:property [
+        sh:path nltl:transversePenetration ;
+        sh:node gen:MilliMeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The transverse penetration is required and must be 760 mm."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalDamageExtent ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The vertical damage extent is required and must use metres."
+    ] ;
+    sh:property [
+        sh:path nltl:selectedVerticalDamagePosition ;
+        sh:node gen:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The selected vertical damage position is required and must use metres."
+    ] ;
+    sh:property [
+        sh:path nltl:allowedVerticalPosition ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The allowed vertical position must be recorded."
+    ] ;
+    sh:property [
+        sh:path nltl:transversePenetration ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "760"^^xsd:decimal ;
+                sh:maxInclusive "760"^^xsd:decimal
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "The longitudinal damage extent must equal 4.5% of upper ice waterline length when the damage centre is forward of maximum breadth, otherwise 1.5%, within the specified numerical tolerance; the vertical extent must equal the lesser of 20% of draught and longitudinal extent; and the selected vertical position must not exceed 120% of draught." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:damageCenterForwardOfMaxBreadth ?forward ;
+                      nltl:upperIceWaterlineLength ?lengthNode ;
+                      nltl:upperIceWaterlineDraught ?draughtNode ;
+                      nltl:longitudinalDamageExtent ?longitudinalNode ;
+                      nltl:verticalDamageExtent ?verticalNode ;
+                      nltl:selectedVerticalDamagePosition ?selectedNode .
+
+                ?lengthNode qudt:numericValue ?length .
+                ?draughtNode qudt:numericValue ?draught .
+                ?longitudinalNode qudt:numericValue ?longitudinal .
+                ?verticalNode qudt:numericValue ?vertical .
+                ?selectedNode qudt:numericValue ?selected .
+
+                BIND(
+                    IF(
+                        ?forward = true,
+                        "0.045"^^xsd:decimal * ?length,
+                        "0.015"^^xsd:decimal * ?length
+                    ) AS ?expectedLongitudinal
+                )
+                BIND(
+                    "0.20"^^xsd:decimal * ?draught AS ?draughtExtent
+                )
+                BIND(
+                    IF(
+                        ?draughtExtent < ?expectedLongitudinal,
+                        ?draughtExtent,
+                        ?expectedLongitudinal
+                    ) AS ?expectedVertical
+                )
+                BIND(
+                    "1.20"^^xsd:decimal * ?draught AS ?maximumPosition
+                )
+
+                FILTER(
+                    ABS(?longitudinal - ?expectedLongitudinal) >
+                    (
+                        "0.000001"^^xsd:decimal *
+                        ABS(?expectedLongitudinal)
+                    )
+                    &&
+                    ABS(?longitudinal - ?expectedLongitudinal) >
+                    "0.000000001"^^xsd:decimal
+                    ||
+                    ABS(?vertical - ?expectedVertical) >
+                    (
+                        "0.000001"^^xsd:decimal *
+                        ABS(?expectedVertical)
+                    )
+                    &&
+                    ABS(?vertical - ?expectedVertical) >
+                    "0.000000001"^^xsd:decimal
+                    ||
+                    ?selected > ?maximumPosition
+                )
+            }
+        """
+    ] .

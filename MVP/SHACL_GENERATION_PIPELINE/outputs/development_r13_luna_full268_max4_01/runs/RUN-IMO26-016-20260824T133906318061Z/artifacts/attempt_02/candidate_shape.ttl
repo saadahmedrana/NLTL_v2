@@ -1,0 +1,195 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix q: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO26-016> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipOperatesInPolarWaters ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeChapter11Dash1Applicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:engagedInTrade ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:lengthOverall ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path q:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path q:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path q:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path q:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Polar-water applicability requires the input for the ship-type branch." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX q: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  $this nltl:shipOperatesInPolarWaters true ;
+        nltl:shipType ?type .
+  {
+    FILTER (?type = "fishing_vessel")
+    FILTER NOT EXISTS {
+      $this nltl:lengthOverall ?lengthQuantity .
+      ?lengthQuantity q:numericValue ?length ;
+                      q:unit <http://qudt.org/vocab/unit/M> .
+      FILTER (datatype(?length) = xsd:decimal && ?length >= 24)
+    }
+  }
+  UNION
+  {
+    FILTER (?type = "pleasure_yacht")
+    FILTER NOT EXISTS {
+      $this nltl:grossTonnage ?tonnageQuantity ;
+            nltl:engagedInTrade false .
+      ?tonnageQuantity q:numericValue ?tonnage ;
+                       q:unit <http://qudt.org/vocab/unit/UNITLESS> .
+      FILTER (datatype(?tonnage) = xsd:decimal && ?tonnage >= 300)
+    }
+  }
+  UNION
+  {
+    FILTER (?type = "cargo_ship")
+    FILTER NOT EXISTS {
+      $this nltl:grossTonnage ?tonnageQuantity .
+      ?tonnageQuantity q:numericValue ?tonnage ;
+                       q:unit <http://qudt.org/vocab/unit/UNITLESS> .
+      FILTER (datatype(?tonnage) = xsd:decimal && ?tonnage >= 300 && ?tonnage < 500)
+    }
+  }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Chapter 11-1 applicability must exactly match the ship type, inputs, and polar-water status." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX q: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  $this nltl:shipOperatesInPolarWaters ?polar ;
+        nltl:polarCodeChapter11Dash1Applicable ?applicable ;
+        nltl:shipType ?type .
+  FILTER (
+    (?polar = false && ?applicable != false)
+    ||
+    (?polar = true && (
+      (
+        ?type = "fishing_vessel" &&
+        (
+          (?applicable = true && NOT EXISTS {
+            $this nltl:lengthOverall ?lengthQuantity .
+            ?lengthQuantity q:numericValue ?length ;
+                            q:unit <http://qudt.org/vocab/unit/M> .
+            FILTER (datatype(?length) = xsd:decimal && ?length >= 24)
+          })
+          ||
+          (?applicable = false && EXISTS {
+            $this nltl:lengthOverall ?lengthQuantity .
+            ?lengthQuantity q:numericValue ?length ;
+                            q:unit <http://qudt.org/vocab/unit/M> .
+            FILTER (datatype(?length) = xsd:decimal && ?length >= 24)
+          })
+        )
+      )
+      ||
+      (
+        ?type = "pleasure_yacht" &&
+        (
+          (?applicable = true && NOT EXISTS {
+            $this nltl:grossTonnage ?tonnageQuantity ;
+                  nltl:engagedInTrade false .
+            ?tonnageQuantity q:numericValue ?tonnage ;
+                             q:unit <http://qudt.org/vocab/unit/UNITLESS> .
+            FILTER (datatype(?tonnage) = xsd:decimal && ?tonnage >= 300)
+          })
+          ||
+          (?applicable = false && EXISTS {
+            $this nltl:grossTonnage ?tonnageQuantity ;
+                  nltl:engagedInTrade false .
+            ?tonnageQuantity q:numericValue ?tonnage ;
+                             q:unit <http://qudt.org/vocab/unit/UNITLESS> .
+            FILTER (datatype(?tonnage) = xsd:decimal && ?tonnage >= 300)
+          })
+        )
+      )
+      ||
+      (
+        ?type = "cargo_ship" &&
+        (
+          (?applicable = true && NOT EXISTS {
+            $this nltl:grossTonnage ?tonnageQuantity .
+            ?tonnageQuantity q:numericValue ?tonnage ;
+                             q:unit <http://qudt.org/vocab/unit/UNITLESS> .
+            FILTER (datatype(?tonnage) = xsd:decimal && ?tonnage >= 300 && ?tonnage < 500)
+          })
+          ||
+          (?applicable = false && EXISTS {
+            $this nltl:grossTonnage ?tonnageQuantity .
+            ?tonnageQuantity q:numericValue ?tonnage ;
+                             q:unit <http://qudt.org/vocab/unit/UNITLESS> .
+            FILTER (datatype(?tonnage) = xsd:decimal && ?tonnage >= 300 && ?tonnage < 500)
+          })
+        )
+      )
+      ||
+      (
+        ?type NOT IN ("fishing_vessel", "pleasure_yacht", "cargo_ship") &&
+        ?applicable != false
+      )
+    ))
+  )
+}
+"""
+    ] .

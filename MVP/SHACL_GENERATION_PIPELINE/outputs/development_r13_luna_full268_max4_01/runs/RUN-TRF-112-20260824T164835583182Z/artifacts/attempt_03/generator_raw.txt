@@ -1,0 +1,148 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF112Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPropulsionLoadCase ;
+        sh:node [
+            sh:class nltl:loadCase ;
+            sh:or (
+                [
+                    sh:property [
+                        sh:path nltl:shaftLineLoadCaseType ;
+                        sh:hasValue nltl:bladeFailureLoadCase ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path nltl:bladeFailureUltimateLoad ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:node [
+                            sh:class qudt:QuantityValue ;
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ] ;
+                            sh:property [
+                                sh:path qudt:unit ;
+                                sh:hasValue unit:KiloN ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ]
+                        ]
+                    ] ;
+                    sh:property [
+                        sh:path nltl:combinedAxialBendingTorsionLoad ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:node [
+                            sh:class qudt:QuantityValue ;
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ] ;
+                            sh:property [
+                                sh:path qudt:unit ;
+                                sh:hasValue unit:KiloN ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ]
+                        ]
+                    ]
+                ]
+                [
+                    sh:property [
+                        sh:path nltl:shaftLineLoadCaseType ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:sparql [
+                        sh:message "A load case must have a shaft-line load-case type other than the blade-failure case when it is not applicable to this requirement." ;
+                        sh:select """
+                            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                            SELECT $this
+                            WHERE {
+                                $this nltl:shaftLineLoadCaseType ?caseType .
+                                FILTER (?caseType != nltl:bladeFailureLoadCase)
+                            }
+                        """
+                    ]
+                ]
+            )
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "For an applicable blade-failure load case, each linked propeller shaft-line component must provide externally calculated bending and torsional yield safety factors of at least 1.0, dimensionless." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasPropulsionLoadCase ?loadCase .
+                ?loadCase nltl:shaftLineLoadCaseType nltl:bladeFailureLoadCase .
+                $this nltl:hasPropellerShaftLineComponent ?component .
+
+                FILTER (
+                    NOT EXISTS {
+                        ?component nltl:bendingYieldSafetyFactor ?bendingFactor .
+                        ?bendingFactor a qudt:QuantityValue ;
+                            qudt:numericValue ?bendingValue ;
+                            qudt:unit unit:UNITLESS .
+                        FILTER (
+                            datatype(?bendingValue) = xsd:decimal &&
+                            ?bendingValue >= 1.0
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?component nltl:torsionalYieldSafetyFactor ?torsionalFactor .
+                        ?torsionalFactor a qudt:QuantityValue ;
+                            qudt:numericValue ?torsionalValue ;
+                            qudt:unit unit:UNITLESS .
+                        FILTER (
+                            datatype(?torsionalValue) = xsd:decimal &&
+                            ?torsionalValue >= 1.0
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        ?component nltl:bendingYieldSafetyFactor ?bendingFactor1, ?bendingFactor2 .
+                        FILTER (?bendingFactor1 != ?bendingFactor2)
+                    }
+                    ||
+                    EXISTS {
+                        ?component nltl:torsionalYieldSafetyFactor ?torsionalFactor1, ?torsionalFactor2 .
+                        FILTER (?torsionalFactor1 != ?torsionalFactor2)
+                    }
+                    ||
+                    EXISTS {
+                        ?component nltl:bendingYieldSafetyFactor ?bendingFactor .
+                        ?bendingFactor qudt:unit ?bendingUnit .
+                        FILTER (?bendingUnit != unit:UNITLESS)
+                    }
+                    ||
+                    EXISTS {
+                        ?component nltl:torsionalYieldSafetyFactor ?torsionalFactor .
+                        ?torsionalFactor qudt:unit ?torsionalUnit .
+                        FILTER (?torsionalUnit != unit:UNITLESS)
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

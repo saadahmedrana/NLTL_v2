@@ -1,0 +1,153 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-086> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must identify its propeller type."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "For a CP propeller with known pitch value, pitchValueKnown must be true."
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "A CP propeller with known pitch value must provide the propeller pitch at MCR in bollard condition in metres."
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "For a CP propeller with unknown pitch value, pitchValueKnown must be false."
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "An unknown CP propeller pitch requires the free-running MCR pitch in metres."
+            ] ;
+            sh:sparql [
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX unit: <http://qudt.org/vocab/unit/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerType "CP" .
+                        $this nltl:pitchValueKnown false .
+                        $this nltl:propellerPitchAtMcrBollard ?bollardNode .
+                        ?bollardNode qudt:numericValue ?bollardValue .
+                        ?bollardNode qudt:unit unit:M .
+                        $this nltl:propellerPitchAtMcrFreeRunning ?freeNode .
+                        ?freeNode qudt:numericValue ?freeValue .
+                        ?freeNode qudt:unit unit:M .
+                        BIND(0.7 * ?freeValue AS ?expectedValue)
+                        BIND(0.000001 * ?expectedValue AS ?relativeTolerance)
+                        BIND(IF(?relativeTolerance > 0.000000001,
+                                ?relativeTolerance,
+                                0.000000001) AS ?tolerance)
+                        FILTER(
+                            ?bollardValue < (?expectedValue - ?tolerance) ||
+                            ?bollardValue > (?expectedValue + ?tolerance)
+                        )
+                    }
+                """ ;
+                sh:message "For an unknown CP propeller pitch, the bollard MCR pitch must equal 0.7 times the free-running MCR pitch within the permitted numerical tolerance."
+            ]
+        ]
+        [
+            sh:sparql [
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerType ?propellerType .
+                        FILTER(?propellerType = "CP")
+                    }
+                """ ;
+                sh:message "This branch applies only when the propeller type is not CP."
+            ]
+        ]
+    ) .

@@ -1,0 +1,207 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2_022_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPlating ;
+        sh:node gs:I2_022_PlatingCase ;
+        sh:message "Each linked plating must provide the applicability information and, when applicable, the required readiness inputs and externally calculated result."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For applicable plating, the ship must provide valid average ice pressure, peak pressure factor, yield strength, and load patch height quantities." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasPlating ?plating .
+                ?plating nltl:framingAngleOmega ?angle .
+                ?angle qudt:numericValue ?angleValue ;
+                       qudt:unit unit:DEG .
+                FILTER(datatype(?angleValue) = xsd:decimal)
+                FILTER(?angleValue >= "70"^^xsd:decimal)
+                FILTER(
+                    NOT EXISTS {
+                        $this nltl:averageIcePressure ?pressure .
+                        ?pressure a qudt:QuantityValue ;
+                                  qudt:numericValue ?pressureValue ;
+                                  qudt:unit unit:MegaPA .
+                        FILTER(datatype(?pressureValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:peakPressureFactor ?peakFactor .
+                        ?peakFactor a qudt:QuantityValue ;
+                                    qudt:numericValue ?peakValue ;
+                                    qudt:unit unit:UNITLESS .
+                        FILTER(datatype(?peakValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:yieldStrength ?yield .
+                        ?yield a qudt:QuantityValue ;
+                               qudt:numericValue ?yieldValue ;
+                               qudt:unit unit:MegaPA .
+                        FILTER(datatype(?yieldValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:loadPatchHeight ?height .
+                        ?height a qudt:QuantityValue ;
+                                qudt:numericValue ?heightValue ;
+                                qudt:unit unit:M .
+                        FILTER(datatype(?heightValue) = xsd:decimal)
+                    }
+                )
+            }
+        """
+    ] .
+
+gs:I2_022_PlatingCase
+    a sh:NodeShape ;
+    sh:class nltl:plating ;
+    sh:or (
+        gs:I2_022_ApplicablePlating
+        gs:I2_022_NonApplicablePlating
+    ) .
+
+gs:I2_022_ApplicablePlating
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:qualifiedValueShape [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "70"^^xsd:decimal
+            ]
+        ] ;
+        sh:qualifiedMinCount 1 ;
+        sh:message "Applicable transversely-framed plating must have a framing angle of at least 70 degrees."
+    ] ;
+    sh:property [
+        sh:path nltl:platingHullAreaClassification ;
+        sh:in (
+            nltl:bowIntermediateBottomHullArea
+            nltl:midbodyBottomHullArea
+            nltl:sternBottomHullArea
+        ) ;
+        sh:minCount 1 ;
+        sh:message "Applicable plating must identify one of the permitted bottom hull areas."
+    ] ;
+    sh:property [
+        sh:path nltl:platingSupportedByStructuralMember ;
+        sh:minCount 1 ;
+        sh:node gs:I2_022_StructuralMember ;
+        sh:message "Applicable plating must identify a supporting structural member with the required structural inputs."
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadRequiredNetPlateThickness ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MilliM ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Applicable plating must provide the externally calculated net ice-load plate thickness in millimetres."
+    ] .
+
+gs:I2_022_NonApplicablePlating
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:maxCount 1 ;
+                sh:minCount 1 ;
+                sh:qualifiedValueShape [
+                    sh:minExclusive "70"^^xsd:decimal
+                ]
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Non-applicable plating must document a framing angle below 70 degrees."
+    ] .
+
+gs:I2_022_StructuralMember
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The supporting structural member must provide frame spacing in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The supporting structural member must provide the selected hull area factor."
+    ] .

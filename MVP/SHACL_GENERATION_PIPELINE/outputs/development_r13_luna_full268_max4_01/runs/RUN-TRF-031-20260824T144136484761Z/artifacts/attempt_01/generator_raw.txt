@@ -1,0 +1,130 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-031-StressQuantityShape>
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA>
+    ] .
+
+<urn:nltl:generated-shape:TRF-031-Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldPoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-031-StressQuantityShape>
+    ] ;
+    sh:property [
+        sh:path nltl:combinedBendingShearStress ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-031-StressQuantityShape>
+    ] ;
+    sh:property [
+        sh:path nltl:yieldShearStress ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-031-StressQuantityShape>
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:allowableShearStress ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node <urn:nltl:generated-shape:TRF-031-StressQuantityShape>
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Combined bending and shear stress must be lower than the yield point." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:yieldPoint ?yieldNode ;
+                      nltl:combinedBendingShearStress ?combinedNode .
+                ?yieldNode qudt:numericValue ?yield ;
+                           qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                ?combinedNode qudt:numericValue ?combined ;
+                               qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                FILTER (?combined >= ?yield)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Yield shear stress must equal yield point divided by sqrt(3), within a relative tolerance of 1e-6 and an absolute fallback of 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:yieldPoint ?yieldNode ;
+                      nltl:yieldShearStress ?resultNode .
+                ?yieldNode qudt:numericValue ?yield ;
+                           qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                ?resultNode qudt:numericValue ?reported ;
+                            qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                BIND (?yield / 1.7320508075688772 AS ?expected)
+                FILTER (
+                    ABS(?reported - ?expected) > 0.000000001 &&
+                    ABS(?reported - ?expected) > (ABS(?expected) * 0.000001)
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "When beam theory is used, allowable shear stress must be no larger than 0.9 times yield shear stress." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:beamTheoryUsed true ;
+                      nltl:yieldPoint ?yieldNode ;
+                      nltl:allowableShearStress ?allowableNode .
+                ?yieldNode qudt:numericValue ?yield ;
+                           qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                ?allowableNode qudt:numericValue ?allowable ;
+                               qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                BIND (?yield / 1.7320508075688772 AS ?yieldShear)
+                FILTER (?allowable > (0.9 * ?yieldShear))
+            }
+        """
+    ] .
+<END_SHACL>
