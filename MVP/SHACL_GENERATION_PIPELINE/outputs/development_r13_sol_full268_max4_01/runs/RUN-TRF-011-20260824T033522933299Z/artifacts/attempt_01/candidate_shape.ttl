@@ -1,0 +1,151 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF011ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:TRF011WaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "At least one intended ice-operating waterline with profile points is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:TRF011WaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "An upper ice waterline with profile points is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline must equal the pointwise maximum vertical coordinate of the intended ice-operating waterlines at every represented longitudinal position." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?x
+WHERE {
+    {
+        SELECT $this ?x (MAX(xsd:decimal(?intendedYRaw)) AS ?expectedY)
+        WHERE {
+            {
+                $this nltl:hasIntendedIceOperatingWaterline ?keyWaterline .
+                ?keyWaterline nltl:hasWaterlineProfilePoint ?keyPoint .
+                ?keyPoint nltl:longitudinalPosition ?keyXValue .
+                ?keyXValue qudt:numericValue ?keyXRaw ;
+                    qudt:unit unit:M .
+                BIND(xsd:decimal(?keyXRaw) AS ?x)
+            }
+            UNION
+            {
+                $this nltl:hasUpperIceWaterline ?keyWaterline .
+                ?keyWaterline nltl:hasWaterlineProfilePoint ?keyPoint .
+                ?keyPoint nltl:longitudinalPosition ?keyXValue .
+                ?keyXValue qudt:numericValue ?keyXRaw ;
+                    qudt:unit unit:M .
+                BIND(xsd:decimal(?keyXRaw) AS ?x)
+            }
+            OPTIONAL {
+                $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+                ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+                ?intendedPoint nltl:longitudinalPosition ?intendedXValue ;
+                    nltl:verticalCoordinate ?intendedYValue .
+                ?intendedXValue qudt:numericValue ?intendedXRaw ;
+                    qudt:unit unit:M .
+                ?intendedYValue qudt:numericValue ?intendedYRaw ;
+                    qudt:unit unit:M .
+                FILTER(xsd:decimal(?intendedXRaw) = ?x)
+            }
+        }
+        GROUP BY $this ?x
+    }
+    BIND(COALESCE(?expectedY, 0.0) AS ?expectedSafe)
+    BIND(
+        IF(
+            ABS(?expectedSafe) * 0.000001 > 0.000000000001,
+            ABS(?expectedSafe) * 0.000001,
+            0.000000000001
+        ) AS ?tolerance
+    )
+    OPTIONAL {
+        $this nltl:hasUpperIceWaterline ?upperWaterline .
+        ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+        ?upperPoint nltl:longitudinalPosition ?upperXValue ;
+            nltl:verticalCoordinate ?upperYValue .
+        ?upperXValue qudt:numericValue ?upperXRaw ;
+            qudt:unit unit:M .
+        ?upperYValue qudt:numericValue ?upperYRaw ;
+            qudt:unit unit:M .
+        FILTER(xsd:decimal(?upperXRaw) = ?x)
+    }
+}
+GROUP BY $this ?x ?expectedY ?expectedSafe ?tolerance
+HAVING (
+    !BOUND(?expectedY)
+    || COUNT(DISTINCT ?upperPoint) = 0
+    || SUM(
+        IF(
+            BOUND(?upperPoint),
+            IF(
+                ABS(xsd:decimal(?upperYRaw) - ?expectedSafe) <= ?tolerance,
+                0,
+                1
+            ),
+            0
+        )
+    ) > 0
+)
+"""
+    ] .
+
+gen:TRF011WaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:TRF011WaterlineProfilePointShape ;
+        sh:minCount 1 ;
+        sh:message "The waterline must have at least one profile point."
+    ] .
+
+gen:TRF011WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:node gen:TRF011LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each waterline profile point must have exactly one longitudinal position."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:node gen:TRF011LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each waterline profile point must have exactly one vertical coordinate."
+    ] .
+
+gen:TRF011LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

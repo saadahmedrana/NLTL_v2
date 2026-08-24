@@ -1,0 +1,103 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix shape: <urn:nltl:generated-shape:> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+shape:TRF032Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceStrengtheningStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must state whether it has been ice strengthened."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:iceStrengtheningStatus ;
+                sh:hasValue true
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceStrengtheningStatus ;
+                sh:hasValue false
+            ] ;
+            sh:property [
+                sh:path nltl:regulationRequiredScantling ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "A single regulation-required scantling value is required for a ship that has not been ice strengthened."
+            ] ;
+            sh:property [
+                sh:path nltl:classificationSocietyRequiredScantling ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "A single classification-society-required scantling value is required for a ship that has not been ice strengthened."
+            ] ;
+            sh:property [
+                sh:path nltl:selectedDesignScantling ;
+                sh:maxCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the regulation-required scantling is less than the classification-society-required scantling for a ship that has not been ice strengthened, one selected design scantling at least as large as the classification-society value is required." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:iceStrengtheningStatus false ;
+          nltl:regulationRequiredScantling ?regulationQuantity ;
+          nltl:classificationSocietyRequiredScantling ?classificationQuantity .
+    ?regulationQuantity qudt:numericValue ?regulationValue .
+    ?classificationQuantity qudt:numericValue ?classificationValue .
+
+    FILTER (
+        xsd:decimal(?regulationValue) <
+        xsd:decimal(?classificationValue)
+    )
+
+    FILTER NOT EXISTS {
+        $this nltl:selectedDesignScantling ?selectedQuantity .
+        ?selectedQuantity a qudt:QuantityValue ;
+                          qudt:numericValue ?selectedValue .
+        FILTER (DATATYPE(?selectedValue) = xsd:decimal)
+        FILTER (
+            xsd:decimal(?selectedValue) >=
+            xsd:decimal(?classificationValue)
+        )
+        FILTER NOT EXISTS {
+            ?selectedQuantity qudt:numericValue ?otherSelectedValue .
+            FILTER (?otherSelectedValue != ?selectedValue)
+        }
+    }
+}
+"""
+    ] .
+<END_SHACL>

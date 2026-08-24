@@ -1,0 +1,192 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PolarTrainingShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceFreeIceCondition
+            nltl:openWaterIceCondition
+            nltl:otherWatersIceCondition
+        ) ;
+        sh:message "The ship must have exactly one controlled ice-condition classification for the polar-training matrix."
+    ] ;
+    sh:property [
+        sh:path nltl:polarTrainingShipTypeClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:tankerPolarTrainingShipType
+            nltl:passengerShipPolarTrainingShipType
+            nltl:otherShipPolarTrainingType
+        ) ;
+        sh:message "The ship must have exactly one controlled ship-type classification for the polar-training matrix."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCrewMemberInventory ;
+        sh:class nltl:crewMember ;
+        sh:node gen:PolarTrainingCrewMemberShape
+    ] ;
+    sh:sparql [
+        sh:message "Each represented crew member must have the training level and, where applicable, valid matching STCW qualification required by the clause 12.3.1 matrix." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this ?crew
+WHERE {
+    $this nltl:iceConditionClassification ?iceCondition ;
+          nltl:polarTrainingShipTypeClassification ?shipType ;
+          nltl:hasCrewMemberInventory ?crew .
+    ?crew nltl:polarTrainingCrewRoleClassification ?crewRole .
+
+    BIND(
+        IF(
+            ?iceCondition = nltl:iceFreeIceCondition,
+            nltl:polarTrainingNotApplicable,
+            IF(
+                ?iceCondition = nltl:openWaterIceCondition,
+                IF(
+                    ?shipType = nltl:otherShipPolarTrainingType,
+                    nltl:polarTrainingNotApplicable,
+                    nltl:basicPolarTrainingLevel
+                ),
+                IF(
+                    ?crewRole = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole,
+                    nltl:basicPolarTrainingLevel,
+                    nltl:advancedPolarTrainingLevel
+                )
+            )
+        )
+        AS ?expectedLevel
+    )
+
+    FILTER(
+        NOT EXISTS {
+            ?crew nltl:hasCrewTrainingRecord ?trainingRecord .
+            ?trainingRecord nltl:requiredTrainingLevel ?expectedLevel .
+            FILTER(
+                ?expectedLevel = nltl:polarTrainingNotApplicable ||
+                EXISTS {
+                    ?trainingRecord
+                        nltl:trainingRecordLevel ?expectedLevel ;
+                        nltl:stcwQualificationValid true .
+                }
+            )
+        }
+        ||
+        (
+            ?expectedLevel != nltl:polarTrainingNotApplicable &&
+            NOT EXISTS {
+                ?crew nltl:hasPolarTrainingRecord ?polarRecord .
+                ?polarRecord
+                    nltl:requiredTrainingLevel ?expectedLevel ;
+                    nltl:trainingRecordLevel ?expectedLevel ;
+                    nltl:stcwQualificationValid true .
+            }
+        )
+    )
+}
+"""
+    ] .
+
+gen:PolarTrainingCrewMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:polarTrainingCrewRoleClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:masterPolarTrainingRole
+            nltl:chiefMatePolarTrainingRole
+            nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+        ) ;
+        sh:message "Each represented crew member must have exactly one controlled polar-training crew role."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCrewTrainingRecord ;
+        sh:class nltl:polarTrainingRecord ;
+        sh:node gen:PolarTrainingRecordShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasPolarTrainingRecord ;
+        sh:class nltl:polarTrainingRecord ;
+        sh:node gen:PolarTrainingRecordShape
+    ] .
+
+gen:PolarTrainingRecordShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:requiredTrainingLevel ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:basicPolarTrainingLevel
+            nltl:advancedPolarTrainingLevel
+            nltl:polarTrainingNotApplicable
+        ) ;
+        sh:message "The polar-training record must state exactly one controlled required training level."
+    ] ;
+    sh:property [
+        sh:path nltl:trainingRecordLevel ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:basicPolarTrainingLevel
+            nltl:advancedPolarTrainingLevel
+            nltl:polarTrainingNotApplicable
+        )
+    ] ;
+    sh:property [
+        sh:path nltl:stcwQualificationValid ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:requiredTrainingLevel ;
+                sh:hasValue nltl:polarTrainingNotApplicable
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:requiredTrainingLevel ;
+                sh:in (
+                    nltl:basicPolarTrainingLevel
+                    nltl:advancedPolarTrainingLevel
+                )
+            ] ;
+            sh:property [
+                sh:path nltl:trainingRecordLevel ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:in (
+                    nltl:basicPolarTrainingLevel
+                    nltl:advancedPolarTrainingLevel
+                )
+            ] ;
+            sh:property [
+                sh:path nltl:stcwQualificationValid ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "When a training-record level is stated, it must equal the required training level." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this
+WHERE {
+    $this nltl:requiredTrainingLevel ?requiredLevel ;
+          nltl:trainingRecordLevel ?recordedLevel .
+    FILTER(?requiredLevel != ?recordedLevel)
+}
+"""
+    ] .

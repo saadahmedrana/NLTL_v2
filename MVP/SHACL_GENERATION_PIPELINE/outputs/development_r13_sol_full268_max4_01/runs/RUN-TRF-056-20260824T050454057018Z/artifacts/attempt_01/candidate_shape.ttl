@@ -1,0 +1,92 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF056ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hasWeatherdeckHatch ;
+                sh:maxCount 0
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipBreadth ;
+                sh:minCount 1 ;
+                sh:node gen:TRF056LengthQuantityShape ;
+                sh:message "Ship breadth is required to determine whether a linked weatherdeck hatch is very long."
+            ] ;
+            sh:property [
+                sh:path nltl:hasWeatherdeckHatch ;
+                sh:node gen:TRF056WeatherdeckHatchInputShape
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A weatherdeck hatch longer than half the ship breadth must represent ship-side deflection and have both hatch-cover and hatch-fitting design evidence." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this ?hatch
+WHERE {
+    $this nltl:shipBreadth ?breadth ;
+          nltl:hasWeatherdeckHatch ?hatch .
+    ?breadth qudt:numericValue ?breadthValue ;
+             qudt:unit unit:M .
+    ?hatch nltl:hatchOpeningLength ?openingLength .
+    ?openingLength qudt:numericValue ?openingLengthValue ;
+                   qudt:unit unit:M .
+    FILTER(
+        datatype(?breadthValue) = xsd:decimal &&
+        datatype(?openingLengthValue) = xsd:decimal &&
+        ?openingLengthValue > (?breadthValue / 2)
+    )
+    FILTER NOT EXISTS {
+        ?hatch nltl:shipSideDeflection ?deflection ;
+               nltl:hasHatchCoverDesignEvidence ?coverEvidence ;
+               nltl:hasHatchFittingDesignEvidence ?fittingEvidence .
+        ?deflection rdf:type qudt:QuantityValue ;
+                    qudt:numericValue ?deflectionValue ;
+                    qudt:unit unit:M .
+        ?coverEvidence rdf:type nltl:hatchCoverDesignEvidence .
+        ?fittingEvidence rdf:type nltl:hatchFittingDesignEvidence .
+        FILTER(datatype(?deflectionValue) = xsd:decimal)
+    }
+}
+"""
+    ] .
+
+gen:TRF056WeatherdeckHatchInputShape
+    a sh:NodeShape ;
+    sh:class nltl:weatherdeckHatch ;
+    sh:property [
+        sh:path nltl:hatchOpeningLength ;
+        sh:minCount 1 ;
+        sh:node gen:TRF056LengthQuantityShape ;
+        sh:message "Hatch opening length is required to determine whether the weatherdeck hatch is very long."
+    ] .
+
+gen:TRF056LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .

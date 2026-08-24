@@ -1,0 +1,133 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:StressQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:ShipStressAcceptanceShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldPoint ;
+        sh:node gs:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single yield point in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:combinedBendingShearStress ;
+        sh:node gs:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single combined bending and shear stress in MPa is required."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldShearStress ;
+        sh:node gs:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single calculated yield shear stress in MPa is required."
+    ] ;
+    sh:sparql [
+        sh:message "The combined bending and shear stress must be lower than the yield point." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:combinedBendingShearStress ?combinedQuantity ;
+                      nltl:yieldPoint ?yieldQuantity .
+                ?combinedQuantity qudt:numericValue ?combined .
+                ?yieldQuantity qudt:numericValue ?yield .
+                FILTER (?combined >= ?yield)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Yield shear stress must equal yield point divided by sqrt(3), within a relative tolerance of 1e-6 and an absolute fallback of 1e-9 MPa." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:yieldPoint ?yieldQuantity ;
+                      nltl:yieldShearStress ?shearQuantity .
+                ?yieldQuantity qudt:numericValue ?yield .
+                ?shearQuantity qudt:numericValue ?reportedShear .
+                BIND (?yield / 1.7320508075688772 AS ?expectedShear)
+                BIND (
+                    IF (
+                        ABS(?expectedShear) * 0.000001 > 0.000000001,
+                        ABS(?expectedShear) * 0.000001,
+                        0.000000001
+                    ) AS ?tolerance
+                )
+                FILTER (ABS(?reportedShear - ?expectedShear) > ?tolerance)
+            }
+        """
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:allowableShearStress ;
+                sh:node gs:StressQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "A single allowable shear stress in MPa is required when beam theory is used."
+            ] ;
+            sh:sparql [
+                sh:message "When beam theory is used, allowable shear stress must be no larger than 0.9 times yield point divided by sqrt(3)." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:yieldPoint ?yieldQuantity ;
+                              nltl:allowableShearStress ?allowableQuantity .
+                        ?yieldQuantity qudt:numericValue ?yield .
+                        ?allowableQuantity qudt:numericValue ?allowable .
+                        BIND (0.9 * (?yield / 1.7320508075688772) AS ?maximumAllowable)
+                        FILTER (?allowable > ?maximumAllowable)
+                    }
+                """
+            ]
+        ]
+    ) ;
+    sh:message "Beam-theory applicability must be explicitly recorded; when true, the beam-theory allowable shear-stress limit applies." .
+<END_SHACL>

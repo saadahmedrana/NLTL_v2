@@ -1,0 +1,144 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:SalinityQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue nltl:gramPerKilogramSalinityUnit ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF015ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:navigatingInIce ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The navigating-in-ice state must be recorded."
+    ] ;
+    sh:property [
+        sh:path nltl:intendedRouteSeaWaterSalinity ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:SalinityQuantityShape ;
+        sh:message "The intended-route sea-water salinity must be recorded in grams per kilogram."
+    ] ;
+    sh:property [
+        sh:path nltl:loadingCalculationSeaWaterSalinity ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:SalinityQuantityShape ;
+        sh:message "The sea-water salinity used for loading calculations must be recorded in grams per kilogram."
+    ] ;
+    sh:sparql [
+        sh:message "The loading calculation must use the sea-water salinity of the intended route." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:intendedRouteSeaWaterSalinity ?routeSalinity .
+                ?routeSalinity qudt:numericValue ?routeValue .
+                $this nltl:loadingCalculationSeaWaterSalinity ?loadingSalinity .
+                ?loadingSalinity qudt:numericValue ?loadingValue .
+                FILTER (?loadingValue != ?routeValue)
+            }
+        """
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:navigatingInIce ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:navigatingInIce ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:upperIceWaterlineDraught ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:MetreQuantityShape ;
+                sh:message "The upper ice waterline draught must be recorded when navigating in ice."
+            ] ;
+            sh:property [
+                sh:path nltl:operatingDraught ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:MetreQuantityShape ;
+                sh:message "The operating draught must be recorded when navigating in ice."
+            ] ;
+            sh:property [
+                sh:path nltl:maximumPermittedIceTrim ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:MetreQuantityShape ;
+                sh:message "The maximum permitted ice trim must be recorded when navigating in ice."
+            ] ;
+            sh:property [
+                sh:path nltl:operatingTrim ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:MetreQuantityShape ;
+                sh:message "The operating trim must be recorded when navigating in ice."
+            ] ;
+            sh:sparql [
+                sh:message "When navigating in ice, operating draught must not exceed the upper ice waterline draught and operating trim must not exceed the maximum permitted ice trim." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:operatingDraught ?operatingDraught .
+                        ?operatingDraught qudt:numericValue ?operatingDraughtValue .
+                        $this nltl:upperIceWaterlineDraught ?upperIceWaterlineDraught .
+                        ?upperIceWaterlineDraught qudt:numericValue ?upperIceWaterlineDraughtValue .
+                        $this nltl:operatingTrim ?operatingTrim .
+                        ?operatingTrim qudt:numericValue ?operatingTrimValue .
+                        $this nltl:maximumPermittedIceTrim ?maximumPermittedIceTrim .
+                        ?maximumPermittedIceTrim qudt:numericValue ?maximumPermittedIceTrimValue .
+                        FILTER (
+                            ?operatingDraughtValue > ?upperIceWaterlineDraughtValue ||
+                            ?operatingTrimValue > ?maximumPermittedIceTrimValue
+                        )
+                    }
+                """
+            ]
+        ]
+    ) .

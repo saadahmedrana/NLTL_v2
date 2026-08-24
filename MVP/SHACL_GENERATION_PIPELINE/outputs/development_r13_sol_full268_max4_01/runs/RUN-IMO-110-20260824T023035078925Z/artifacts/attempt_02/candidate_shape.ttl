@@ -1,0 +1,72 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:IMO110Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Applicable Category A or B oil tankers shall have both required cargo-tank protection statuses set to true." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:shipType ?shipType ;
+                      nltl:deadweight ?deadweight ;
+                      nltl:constructionDate ?constructionDate .
+
+                ?deadweight qudt:numericValue ?deadweightValue ;
+                            qudt:unit unit:TON_Metric .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER (
+                    DATATYPE(?shipType) = xsd:string &&
+                    ?shipType = "oil_tanker"^^xsd:string
+                )
+                FILTER (
+                    DATATYPE(?deadweightValue) = xsd:decimal &&
+                    ?deadweightValue < "5000"^^xsd:decimal
+                )
+                FILTER (DATATYPE(?constructionDate) = xsd:date)
+                FILTER (
+                    YEAR(?constructionDate) > 2017 ||
+                    (
+                        YEAR(?constructionDate) = 2017 &&
+                        (
+                            MONTH(?constructionDate) > 1 ||
+                            (
+                                MONTH(?constructionDate) = 1 &&
+                                DAY(?constructionDate) >= 1
+                            )
+                        )
+                    )
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:entireCargoTankLengthDoubleBottomProtectionStatus ?doubleBottomStatus .
+                        FILTER (
+                            DATATYPE(?doubleBottomStatus) = xsd:boolean &&
+                            ?doubleBottomStatus = true
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:wingTankProtectionStatus ?wingTankStatus .
+                        FILTER (
+                            DATATYPE(?wingTankStatus) = xsd:boolean &&
+                            ?wingTankStatus = true
+                        )
+                    }
+                )
+            }
+        """
+    ] .

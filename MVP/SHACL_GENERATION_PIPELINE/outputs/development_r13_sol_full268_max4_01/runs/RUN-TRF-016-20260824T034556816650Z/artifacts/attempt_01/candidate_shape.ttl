@@ -1,0 +1,250 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MetricTonQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:TON_Metric ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UpperIceWaterlineShape
+    a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:waterlineDisplacement ;
+        sh:node gen:MetricTonQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:BallastTankShape
+    a sh:NodeShape ;
+    sh:class nltl:ballastTank ;
+    sh:property [
+        sh:path nltl:situatedAboveLowerIceWaterline ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:usedToReachLowerIceWaterline ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:freezingPreventionPresent ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:situatedAboveLowerIceWaterline ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:usedToReachLowerIceWaterline ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:situatedAboveLowerIceWaterline ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:usedToReachLowerIceWaterline ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:freezingPreventionPresent ;
+                sh:hasValue true
+            ]
+        ]
+    ) .
+
+gen:TRF016ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:navigatingInIce ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:navigatingInIce ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:navigatingInIce ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:draughtAmidships ;
+                sh:node gen:MetreQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:liwlDraughtAmidships ;
+                sh:node gen:MetreQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) ;
+    sh:property [
+        sh:path nltl:propellerHighestPointSubmerged ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The highest point of the propeller must be submerged."
+    ] ;
+    sh:property [
+        sh:path nltl:displacementAtUpperIceWaterline ;
+        sh:node gen:MetricTonQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:levelIceThickness ;
+        sh:node gen:MetreQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:forwardDraught ;
+        sh:node gen:MetreQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasBallastTank ;
+        sh:class nltl:ballastTank ;
+        sh:node gen:BallastTankShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:UpperIceWaterlineShape
+    ] ;
+    sh:sparql [
+        sh:message "When navigating in ice, draught amidships must be at least the LIWL draught amidships." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:navigatingInIce true ;
+                      nltl:draughtAmidships ?draughtQuantity ;
+                      nltl:liwlDraughtAmidships ?liwlQuantity .
+                ?draughtQuantity qudt:numericValue ?draught .
+                ?liwlQuantity qudt:numericValue ?liwl .
+                FILTER (?draught < ?liwl)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Forward draught must be at least the lesser of (2 + 0.00025 times UIWL displacement) times level ice thickness and four times level ice thickness." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:displacementAtUpperIceWaterline ?displacementQuantity ;
+                      nltl:levelIceThickness ?iceThicknessQuantity ;
+                      nltl:forwardDraught ?forwardDraughtQuantity .
+                ?displacementQuantity qudt:numericValue ?displacement .
+                ?iceThicknessQuantity qudt:numericValue ?iceThickness .
+                ?forwardDraughtQuantity qudt:numericValue ?forwardDraught .
+                BIND(
+                    (2 + (0.00025 * ?displacement)) * ?iceThickness
+                    AS ?displacementThreshold
+                )
+                BIND(4 * ?iceThickness AS ?fourThicknessThreshold)
+                BIND(
+                    IF(
+                        ?displacementThreshold <= ?fourThicknessThreshold,
+                        ?displacementThreshold,
+                        ?fourThicknessThreshold
+                    )
+                    AS ?requiredForwardDraught
+                )
+                FILTER (?forwardDraught < ?requiredForwardDraught)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "UIWL displacement must correspond to the greatest displacement among represented upper ice waterlines." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:displacementAtUpperIceWaterline ?selectedQuantity .
+                ?selectedQuantity qudt:numericValue ?selectedDisplacement .
+                {
+                    SELECT $this (MAX(?candidateDisplacement) AS ?greatestDisplacement)
+                    WHERE {
+                        $this nltl:hasUpperIceWaterline ?waterline .
+                        ?waterline nltl:waterlineDisplacement ?candidateQuantity .
+                        ?candidateQuantity
+                            qudt:numericValue ?candidateDisplacement ;
+                            qudt:unit <http://qudt.org/vocab/unit/TON_Metric> .
+                    }
+                    GROUP BY $this
+                }
+                BIND(
+                    IF(
+                        ABS(?greatestDisplacement) * 0.000001 > 0.000000001,
+                        ABS(?greatestDisplacement) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?tolerance
+                )
+                FILTER (
+                    ABS(?selectedDisplacement - ?greatestDisplacement) > ?tolerance
+                )
+            }
+        """
+    ] .

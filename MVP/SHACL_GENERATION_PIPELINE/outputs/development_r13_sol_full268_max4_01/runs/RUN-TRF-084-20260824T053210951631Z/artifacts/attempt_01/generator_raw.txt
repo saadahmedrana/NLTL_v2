@@ -1,0 +1,136 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF084Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        gen:TRF084NonCpBranch
+        gen:TRF084CpKnownBranch
+        gen:TRF084CpUnknownBranch
+    ) .
+
+gen:TRF084NonCpBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType .
+                FILTER(STR(?propellerType) = "CP")
+            }
+        """
+    ] .
+
+gen:TRF084CpKnownBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:hasValue "CP"^^xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrBollard ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF084PitchQuantityShape ;
+        sh:message "A known CP propeller pitch at MCR bollard condition is required."
+    ] .
+
+gen:TRF084CpUnknownBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:hasValue "CP"^^xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue false ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrFreeRunning ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF084PitchQuantityShape ;
+        sh:message "The free-running MCR propeller pitch is required when the bollard pitch is not known."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrBollard ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF084PitchQuantityShape ;
+        sh:message "The calculated bollard-condition propeller pitch is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The bollard-condition pitch must equal 0.7 times the free-running MCR pitch within a relative tolerance of 1e-6 and an absolute fallback of 1e-12 metres." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:propellerPitchAtMcrFreeRunning ?freeRunningPitch ;
+                      nltl:propellerPitchAtMcrBollard ?bollardPitch .
+                ?freeRunningPitch qudt:numericValue ?freeRunningValue ;
+                                  qudt:unit <http://qudt.org/vocab/unit/M> .
+                ?bollardPitch qudt:numericValue ?bollardValue ;
+                              qudt:unit <http://qudt.org/vocab/unit/M> .
+                BIND((?freeRunningValue * "0.7"^^xsd:decimal) AS ?expected)
+                BIND(
+                    IF(
+                        ABS(?expected) * "0.000001"^^xsd:decimal > "0.000000000001"^^xsd:decimal,
+                        ABS(?expected) * "0.000001"^^xsd:decimal,
+                        "0.000000000001"^^xsd:decimal
+                    ) AS ?tolerance
+                )
+                FILTER(ABS(?bollardValue - ?expected) > ?tolerance)
+            }
+        """
+    ] .
+
+gen:TRF084PitchQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

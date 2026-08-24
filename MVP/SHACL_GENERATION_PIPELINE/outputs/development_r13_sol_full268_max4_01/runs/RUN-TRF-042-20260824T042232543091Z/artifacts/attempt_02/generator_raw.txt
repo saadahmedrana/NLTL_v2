@@ -1,0 +1,270 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF042PlatingShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Design ice load height h must be provided once in metres."
+    ] ;
+
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Spacing s must be provided once in metres."
+    ] ;
+
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The longitudinal plating factor f2 must be provided once as a unitless decimal quantity."
+    ] ;
+
+    sh:sparql [
+        sh:message "The reported f2 must satisfy the applicable piecewise formula for h/s within the defined range, using the required numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?hQuantity ;
+                      nltl:spacing ?sQuantity ;
+                      nltl:longitudinalPlatingFactorF2 ?f2Quantity .
+                ?hQuantity qudt:numericValue ?h .
+                ?sQuantity qudt:numericValue ?s .
+                ?f2Quantity qudt:numericValue ?reported .
+                BIND(
+                    IF(
+                        ?s = "0"^^xsd:decimal,
+                        "0"^^xsd:decimal,
+                        ?h / ?s
+                    ) AS ?ratio
+                )
+                BIND(
+                    IF(
+                        ?ratio <= "1"^^xsd:decimal,
+                        ("0.4"^^xsd:decimal / ?ratio) + "0.6"^^xsd:decimal,
+                        "1.4"^^xsd:decimal - ("0.4"^^xsd:decimal * ?ratio)
+                    ) AS ?expected
+                )
+                BIND(
+                    IF(
+                        ("0.000001"^^xsd:decimal * ABS(?expected)) >
+                        "0.000000000001"^^xsd:decimal,
+                        "0.000001"^^xsd:decimal * ABS(?expected),
+                        "0.000000000001"^^xsd:decimal
+                    ) AS ?tolerance
+                )
+                FILTER(
+                    ?s = "0"^^xsd:decimal ||
+                    ?ratio > "1.8"^^xsd:decimal ||
+                    ABS(?reported - ?expected) > ?tolerance
+                )
+            }
+        """
+    ] ;
+
+    sh:property [
+        sh:path nltl:hullStructuralSteelGrade ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:steelGradeValue ;
+        sh:message "Exactly one hull structural steel grade selector must be provided."
+    ] ;
+
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Yield strength must be provided once in MPa."
+    ] ;
+
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hullStructuralSteelGrade ;
+                sh:hasValue nltl:normalStrengthHullStructuralSteel
+            ] ;
+            sh:property [
+                sh:path nltl:yieldStrength ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:minInclusive "235"^^xsd:decimal ;
+                        sh:maxInclusive "235"^^xsd:decimal
+                    ]
+                ]
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:hullStructuralSteelGrade ;
+                sh:hasValue nltl:highStrengthHullStructuralSteel
+            ] ;
+            sh:property [
+                sh:path nltl:yieldStrength ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:minInclusive "315"^^xsd:decimal
+                    ]
+                ]
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:materialApprovalStatus ;
+                sh:class nltl:evidenceState ;
+                sh:hasValue nltl:evidenceStateApproved ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:sparql [
+                sh:message "The approved actual-yield alternative applies only to a steel grade distinct from the normal-strength and high-strength selectors." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:hullStructuralSteelGrade ?grade .
+                        FILTER(
+                            ?grade IN (
+                                nltl:normalStrengthHullStructuralSteel,
+                                nltl:highStrengthHullStructuralSteel
+                            )
+                        )
+                    }
+                """
+            ]
+        ]
+    ) ;
+
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MilliM ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The corrosion and abrasion addition must be provided once in millimetres."
+    ] ;
+
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:minInclusive "2"^^xsd:decimal ;
+                        sh:maxInclusive "2"^^xsd:decimal
+                    ]
+                ]
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:maxExclusive "2"^^xsd:decimal
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:specialSurfaceCoatingMaintained ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:materialApprovalStatus ;
+                sh:class nltl:evidenceState ;
+                sh:hasValue nltl:evidenceStateApproved ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) .
+<END_SHACL>

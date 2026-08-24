@@ -1,0 +1,95 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO124Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:operatingArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Operating area is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:antarcticArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Antarctic area information is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:marpolAnnexVRegulation6Point1DischargeOccurs ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "The MARPOL Annex V regulation 6.1 discharge state is required to determine applicability."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a regulation 6.1 discharge in the Antarctic area, the nearest-fast-ice distance must be at least 12 nautical miles, the required ice and distance information must be recorded, and food waste must not be discharged onto ice." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:operatingArea ?operatingArea ;
+                      nltl:antarcticArea ?antarcticArea ;
+                      nltl:marpolAnnexVRegulation6Point1DischargeOccurs ?dischargeState .
+
+                FILTER(
+                    ?operatingArea = ?antarcticArea &&
+                    ?dischargeState = true
+                )
+
+                FILTER NOT EXISTS {
+                    $this nltl:distanceToNearestFastIce ?fastIceDistance ;
+                          nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?concentrationAreaDistance ;
+                          nltl:iceConcentration ?iceConcentration ;
+                          nltl:nearbyIceConcentration ?nearbyIceConcentration ;
+                          nltl:foodWasteDischargeOntoIce ?foodWasteState .
+
+                    ?fastIceDistance
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?fastIceDistanceValue ;
+                        qudt:unit unit:MI_N .
+
+                    ?concentrationAreaDistance
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?concentrationAreaDistanceValue ;
+                        qudt:unit unit:MI_N .
+
+                    ?iceConcentration
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?iceConcentrationValue ;
+                        qudt:unit unit:UNITLESS .
+
+                    ?nearbyIceConcentration
+                        a qudt:QuantityValue ;
+                        qudt:numericValue ?nearbyIceConcentrationValue ;
+                        qudt:unit unit:UNITLESS .
+
+                    FILTER(
+                        datatype(?fastIceDistanceValue) = xsd:decimal &&
+                        ?fastIceDistanceValue >= 12 &&
+                        datatype(?concentrationAreaDistanceValue) = xsd:decimal &&
+                        datatype(?iceConcentrationValue) = xsd:decimal &&
+                        ?iceConcentrationValue > 1 &&
+                        datatype(?nearbyIceConcentrationValue) = xsd:decimal &&
+                        datatype(?foodWasteState) = xsd:boolean &&
+                        ?foodWasteState = false
+                    )
+
+                    FILTER NOT EXISTS {
+                        $this nltl:foodWasteDischargeOntoIce ?prohibitedFoodWasteState .
+                        FILTER(
+                            datatype(?prohibitedFoodWasteState) = xsd:boolean &&
+                            ?prohibitedFoodWasteState = true
+                        )
+                    }
+                }
+            }
+        """
+    ] .

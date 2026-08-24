@@ -1,0 +1,436 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF022ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:bowRakeAtQuarterBreadth ;
+        sh:minCount 1 ;
+        sh:node gen:AngleQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:waterlineAngleAtQuarterBreadth ;
+        sh:minCount 1 ;
+        sh:node gen:AngleQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:flareAngle ;
+        sh:minCount 1 ;
+        sh:node gen:AngleQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipLength ;
+        sh:minCount 1 ;
+        sh:node gen:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassDraught ;
+        sh:minCount 1 ;
+        sh:node gen:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:shipBreadth ;
+        sh:minCount 1 ;
+        sh:node gen:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:clampedHullGeometryTerm ;
+        sh:minCount 1 ;
+        sh:node gen:DimensionlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientC3 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientC3QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientC4 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientC4QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientC5 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientC5QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientF1 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientF1QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientF2 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientF2QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientF3 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientF3QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientF4 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientF4QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientG1 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientG1QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientG2 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientG2QuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:coefficientG3 ;
+        sh:minCount 1 ;
+        sh:node gen:CoefficientG3QuantityShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Flare angle must equal atan(tan(bow rake)/sin(waterline angle)) in degrees; singular angular inputs are invalid. Relative tolerance is 1e-6 with an absolute fallback of 1e-9 degrees." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+SELECT $this
+WHERE {
+    $this nltl:bowRakeAtQuarterBreadth ?bowQuantity ;
+          nltl:waterlineAngleAtQuarterBreadth ?waterlineQuantity ;
+          nltl:flareAngle ?flareQuantity .
+    ?bowQuantity qudt:numericValue ?bowLiteral .
+    ?waterlineQuantity qudt:numericValue ?waterlineLiteral .
+    ?flareQuantity qudt:numericValue ?flareLiteral .
+
+    BIND(xsd:double(?bowLiteral) AS ?bowDegrees)
+    BIND(xsd:double(?waterlineLiteral) AS ?waterlineDegrees)
+    BIND(xsd:double(?flareLiteral) AS ?reportedFlare)
+    BIND(3.141592653589793 AS ?pi)
+    BIND(?bowDegrees * ?pi / 180.0 AS ?bowRadians)
+    BIND(?waterlineDegrees * ?pi / 180.0 AS ?waterlineRadians)
+    BIND(
+        ABS(math:sin(?waterlineRadians)) <= 0.000000000001 ||
+        ABS(math:cos(?bowRadians)) <= 0.000000000001
+        AS ?singular
+    )
+    BIND(
+        IF(
+            ?singular,
+            0.0,
+            math:atan(
+                math:tan(?bowRadians) /
+                math:sin(?waterlineRadians)
+            ) * 180.0 / ?pi
+        )
+        AS ?expectedFlare
+    )
+    BIND(ABS(?expectedFlare) * 0.000001 AS ?relativeTolerance)
+    BIND(
+        IF(
+            ?relativeTolerance > 0.000000001,
+            ?relativeTolerance,
+            0.000000001
+        )
+        AS ?tolerance
+    )
+    FILTER(
+        ?singular ||
+        ABS(?reportedFlare - ?expectedFlare) > ?tolerance
+    )
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Clamped hull geometry term must equal ((ship length * ice-class draught) / ship breadth squared) cubed, clamped inclusively to [5,20]. Zero breadth is invalid. Relative tolerance is 1e-6 with an absolute fallback of 1e-9." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    $this nltl:shipLength ?lengthQuantity ;
+          nltl:iceClassDraught ?draughtQuantity ;
+          nltl:shipBreadth ?breadthQuantity ;
+          nltl:clampedHullGeometryTerm ?geometryQuantity .
+    ?lengthQuantity qudt:numericValue ?lengthLiteral .
+    ?draughtQuantity qudt:numericValue ?draughtLiteral .
+    ?breadthQuantity qudt:numericValue ?breadthLiteral .
+    ?geometryQuantity qudt:numericValue ?geometryLiteral .
+
+    BIND(xsd:double(?lengthLiteral) AS ?length)
+    BIND(xsd:double(?draughtLiteral) AS ?draught)
+    BIND(xsd:double(?breadthLiteral) AS ?breadth)
+    BIND(xsd:double(?geometryLiteral) AS ?reportedGeometry)
+    BIND(ABS(?breadth) <= 0.000000000001 AS ?singular)
+    BIND(
+        IF(
+            ?singular,
+            0.0,
+            (?length * ?draught) / (?breadth * ?breadth)
+        )
+        AS ?ratio
+    )
+    BIND(?ratio * ?ratio * ?ratio AS ?rawGeometry)
+    BIND(
+        IF(
+            ?rawGeometry < 5.0,
+            5.0,
+            IF(?rawGeometry > 20.0, 20.0, ?rawGeometry)
+        )
+        AS ?expectedGeometry
+    )
+    BIND(ABS(?expectedGeometry) * 0.000001 AS ?relativeTolerance)
+    BIND(
+        IF(
+            ?relativeTolerance > 0.000000001,
+            ?relativeTolerance,
+            0.000000001
+        )
+        AS ?tolerance
+    )
+    FILTER(
+        ?singular ||
+        ABS(?reportedGeometry - ?expectedGeometry) > ?tolerance
+    )
+}
+"""
+    ] .
+
+gen:AngleQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:DEG ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientC3QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 845.0 ;
+        sh:maxInclusive 845.0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue nltl:kilogramPerSquareMetreSquareSecondUnit ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientC4QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 42.0 ;
+        sh:maxInclusive 42.0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue nltl:kilogramPerSquareMetreSquareSecondUnit ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientC5QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 825.0 ;
+        sh:maxInclusive 825.0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue nltl:kilogramPerSquareSecondUnit ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientF1QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 23.0 ;
+        sh:maxInclusive 23.0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:N-PER-M2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientF2QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 45.8 ;
+        sh:maxInclusive 45.8
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:N-PER-M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientF3QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 14.7 ;
+        sh:maxInclusive 14.7
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:N-PER-M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientF4QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 29.0 ;
+        sh:maxInclusive 29.0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:N-PER-M2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientG1QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 1530.0 ;
+        sh:maxInclusive 1530.0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:N ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientG2QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 170.0 ;
+        sh:maxInclusive 170.0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:N-PER-M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:CoefficientG3QuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 400.0 ;
+        sh:maxInclusive 400.0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue nltl:newtonPerMetreToPowerOnePointFiveUnit ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

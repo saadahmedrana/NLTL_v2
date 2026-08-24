@@ -1,0 +1,97 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO109Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "Ship category is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Ship type information is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "Construction date is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:cargoTankCarriesOil ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "Cargo-tank oil-carriage status is required to determine applicability."
+    ] ;
+    sh:sparql [
+        sh:message "For an applicable Category A or B non-oil-tanker ship constructed on or after 1 January 2017, each reported cargo-tank outer-shell separation must be at least 0.76 m." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:shipCategory ?category ;
+          nltl:constructionDate ?constructionDate ;
+          nltl:cargoTankCarriesOil ?carriesOil .
+
+    FILTER(?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+    FILTER(
+        YEAR(?constructionDate) > 2017 ||
+        (YEAR(?constructionDate) = 2017 &&
+         (MONTH(?constructionDate) > 1 ||
+          (MONTH(?constructionDate) = 1 && DAY(?constructionDate) >= 1)))
+    )
+    FILTER(?carriesOil = true)
+    FILTER NOT EXISTS {
+        $this a nltl:oilTanker .
+    }
+
+    FILTER(
+        NOT EXISTS {
+            $this nltl:cargoTankOuterShellSeparation ?separation .
+        }
+        ||
+        EXISTS {
+            $this nltl:cargoTankOuterShellSeparation ?invalidSeparation .
+            FILTER NOT EXISTS {
+                ?invalidSeparation
+                    a qudt:QuantityValue ;
+                    qudt:numericValue ?validDistance ;
+                    qudt:unit unit:M .
+                FILTER(
+                    datatype(?validDistance) = xsd:decimal &&
+                    ?validDistance >= "0.76"^^xsd:decimal
+                )
+            }
+        }
+        ||
+        EXISTS {
+            $this nltl:cargoTankOuterShellSeparation ?separationWithInvalidValue .
+            ?separationWithInvalidValue qudt:numericValue ?invalidDistance .
+            FILTER(
+                datatype(?invalidDistance) != xsd:decimal ||
+                ?invalidDistance < "0.76"^^xsd:decimal
+            )
+        }
+        ||
+        EXISTS {
+            $this nltl:cargoTankOuterShellSeparation ?separationWithInvalidUnit .
+            ?separationWithInvalidUnit qudt:unit ?invalidUnit .
+            FILTER(?invalidUnit != unit:M)
+        }
+    )
+}
+"""
+    ] .
+<END_SHACL>

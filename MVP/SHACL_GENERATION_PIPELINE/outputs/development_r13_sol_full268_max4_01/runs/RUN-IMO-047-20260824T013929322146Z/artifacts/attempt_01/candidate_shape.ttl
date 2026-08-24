@@ -1,0 +1,91 @@
+@prefix g: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+g:TemperatureQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "A decimal temperature value is required."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/DEG_C> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The temperature unit must be degrees Celsius."
+    ] .
+
+g:EssentialEngineCombustionAirShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasEssentialEngine ;
+        sh:class nltl:essentialEngine
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hasEssentialEngine ;
+                sh:maxCount 0
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:hasEssentialEngine ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:combustionAirTemperatureControlPresent ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:in ( true ) ;
+                sh:message "Combustion air temperature control must be present for essential engines."
+            ] ;
+            sh:property [
+                sh:path nltl:combustionAirTemperature ;
+                sh:node g:TemperatureQuantityShape ;
+                sh:minCount 1 ;
+                sh:message "Combustion air temperature is required for essential engines."
+            ] ;
+            sh:property [
+                sh:path nltl:manufacturerMinAirTemperature ;
+                sh:node g:TemperatureQuantityShape ;
+                sh:minCount 1 ;
+                sh:message "The manufacturer's minimum air temperature is required."
+            ] ;
+            sh:property [
+                sh:path nltl:manufacturerMaxAirTemperature ;
+                sh:node g:TemperatureQuantityShape ;
+                sh:minCount 1 ;
+                sh:message "The manufacturer's maximum air temperature is required."
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Combustion air temperature must be within the engine manufacturer's minimum and maximum criteria." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasEssentialEngine ?engine ;
+                      nltl:combustionAirTemperature ?airQuantity ;
+                      nltl:manufacturerMinAirTemperature ?minimumQuantity ;
+                      nltl:manufacturerMaxAirTemperature ?maximumQuantity .
+                ?airQuantity qudt:numericValue ?airTemperature .
+                ?minimumQuantity qudt:numericValue ?minimumTemperature .
+                ?maximumQuantity qudt:numericValue ?maximumTemperature .
+                FILTER (
+                    xsd:decimal(?airTemperature) < xsd:decimal(?minimumTemperature) ||
+                    xsd:decimal(?airTemperature) > xsd:decimal(?maximumTemperature)
+                )
+            }
+        """
+    ] .

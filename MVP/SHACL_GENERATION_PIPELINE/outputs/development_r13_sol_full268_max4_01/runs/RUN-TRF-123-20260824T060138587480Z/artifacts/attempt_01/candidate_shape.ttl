@@ -1,0 +1,124 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MegaPascalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity must have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity must use MPa as its sole unit."
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The safety factor must have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The safety factor must use the unitless unit as its sole unit."
+    ] .
+
+gen:MaterialPropertiesShape
+    a sh:NodeShape ;
+    sh:class nltl:materialProperties ;
+    sh:property [
+        sh:path nltl:componentMaterialYieldStrength ;
+        sh:node gen:MegaPascalQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Component material yield strength is required."
+    ] .
+
+gen:OccasionalForceAssessedComponentShape
+    a sh:NodeShape ;
+    sh:class nltl:shipComponent ;
+    sh:property [
+        sh:path nltl:occasionalForceComponentStress ;
+        sh:node gen:MegaPascalQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Externally calculated occasional-force component stress is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasMaterialProperties ;
+        sh:node gen:MaterialPropertiesShape ;
+        sh:minCount 1 ;
+        sh:message "Material properties are required for each assessed component."
+    ] .
+
+gen:OccasionalForceLoadCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:occasionalForceLoadCase ;
+    sh:class nltl:loadCase ;
+    sh:property [
+        sh:path nltl:propellerBladeExcludedFromOccasionalForceScope ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The load case must confirm that propeller blades are excluded from the occasional-force scope."
+    ] ;
+    sh:property [
+        sh:path nltl:componentYieldSafetyFactor ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "The externally determined component yield safety factor is required."
+    ] ;
+    sh:property [
+        sh:path nltl:occasionalForceCaseAssessedComponent ;
+        sh:node gen:OccasionalForceAssessedComponentShape ;
+        sh:minCount 1 ;
+        sh:message "The occasional-force load case must identify its assessed components."
+    ] .
+
+gen:TRF123Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasOccasionalForceLoadCase ;
+        sh:node gen:OccasionalForceLoadCaseShape ;
+        sh:minCount 1 ;
+        sh:message "An occasional-force load case is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The occasional-force component stress multiplied by the yield safety factor must not exceed the component material yield strength." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:hasOccasionalForceLoadCase ?loadCase .
+    ?loadCase nltl:componentYieldSafetyFactor ?factorQuantity ;
+              nltl:occasionalForceCaseAssessedComponent ?component .
+    ?factorQuantity qudt:numericValue ?factor .
+    ?component nltl:occasionalForceComponentStress ?stressQuantity ;
+               nltl:hasMaterialProperties ?materialProperties .
+    ?stressQuantity qudt:numericValue ?stress .
+    ?materialProperties nltl:componentMaterialYieldStrength ?yieldQuantity .
+    ?yieldQuantity qudt:numericValue ?yieldStrength .
+    FILTER ((?stress * ?factor) > ?yieldStrength)
+}
+"""
+    ] .

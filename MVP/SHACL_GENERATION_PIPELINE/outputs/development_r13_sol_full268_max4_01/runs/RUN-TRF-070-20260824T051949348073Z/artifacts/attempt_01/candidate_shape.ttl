@@ -1,0 +1,126 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:KiloNewtonQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "A decimal numeric value is required."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity must have exactly one unit, KiloN."
+    ] .
+
+gen:MegaPascalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "A decimal numeric value is required."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity must have exactly one unit, MegaPA."
+    ] .
+
+gen:DesignConditionReadinessShape
+    a sh:NodeShape ;
+    sh:class nltl:designCondition ;
+    sh:property [
+        sh:path nltl:designConditionLocalStrengthCapacity ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Each design condition requires an externally assessed local-strength capacity."
+    ] .
+
+gen:TRF070ThrusterReadinessShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:thrusterType ;
+        sh:datatype xsd:string ;
+        sh:in ( "azimuthing" "fixed" ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Thruster type must be explicitly identified as azimuthing or fixed."
+    ] ;
+    sh:property [
+        sh:path nltl:mainPropulsionThruster ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Main-propulsion applicability must be explicitly stated."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:mainPropulsionThruster ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:mainPropulsionThruster ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:propellerIceInteractionLoad ;
+                sh:node gen:KiloNewtonQuantityShape ;
+                sh:minCount 1 ;
+                sh:message "A propeller/ice interaction load is required for a main-propulsion thruster."
+            ] ;
+            sh:property [
+                sh:path nltl:thrusterBodyIceInteractionLoad ;
+                sh:node gen:KiloNewtonQuantityShape ;
+                sh:minCount 1 ;
+                sh:message "A thruster-body/ice interaction load is required for a main-propulsion thruster."
+            ] ;
+            sh:property [
+                sh:path nltl:localIcePressure ;
+                sh:node gen:MegaPascalQuantityShape ;
+                sh:minCount 1 ;
+                sh:message "Local ice pressure is required for a main-propulsion thruster."
+            ] ;
+            sh:property [
+                sh:path nltl:hasDesignCondition ;
+                sh:class nltl:designCondition ;
+                sh:node gen:DesignConditionReadinessShape ;
+                sh:minCount 1 ;
+                sh:message "A design condition with an externally assessed local-strength capacity is required."
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "The assessed local-strength capacity must be at least the applicable local ice pressure." ;
+                sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:localIcePressure ?pressureQuantity ;
+          nltl:hasDesignCondition ?designCondition .
+    ?pressureQuantity qudt:numericValue ?pressure .
+    ?designCondition nltl:designConditionLocalStrengthCapacity ?capacityQuantity .
+    ?capacityQuantity qudt:numericValue ?capacity .
+    FILTER(xsd:decimal(?capacity) < xsd:decimal(?pressure))
+}
+"""
+            ]
+        ]
+    ) .

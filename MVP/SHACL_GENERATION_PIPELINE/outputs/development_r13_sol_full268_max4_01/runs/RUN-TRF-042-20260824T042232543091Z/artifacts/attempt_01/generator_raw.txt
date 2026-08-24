@@ -1,0 +1,192 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TwoMillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 2.0 ;
+        sh:maxInclusive 2.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LowerThanTwoMillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:maxExclusive 2.0 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:PlatingThicknessCalculationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:node gen:MetreQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Design ice load height is required in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:node gen:MetreQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Spacing is required in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:node gen:UnitlessQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The longitudinal plating factor f2 is required as a unitless quantity."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:node gen:TwoMillimetreQuantityShape ;
+                sh:minCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:corrosionAbrasionAddition ;
+                sh:node gen:LowerThanTwoMillimetreQuantityShape ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:specialSurfaceCoatingMaintained ;
+                sh:datatype xsd:boolean ;
+                sh:in ( true ) ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:materialApprovalStatus ;
+                sh:class nltl:evidenceState ;
+                sh:in ( nltl:evidenceStateApproved ) ;
+                sh:minCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Design ice load height and spacing must be non-zero for the f2 calculation." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?heightQuantity ;
+                      nltl:spacing ?spacingQuantity .
+                ?heightQuantity qudt:numericValue ?height .
+                ?spacingQuantity qudt:numericValue ?spacing .
+                FILTER (
+                    ?height = "0"^^xsd:decimal ||
+                    ?spacing = "0"^^xsd:decimal
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The longitudinal plating factor f2 must satisfy the applicable formula for h/s not exceeding 1.8, within relative tolerance 1e-6 and absolute fallback 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?heightQuantity ;
+                      nltl:spacing ?spacingQuantity ;
+                      nltl:longitudinalPlatingFactorF2 ?factorQuantity .
+                ?heightQuantity qudt:numericValue ?height .
+                ?spacingQuantity qudt:numericValue ?spacing .
+                ?factorQuantity qudt:numericValue ?reportedFactor .
+
+                FILTER (
+                    ?height != "0"^^xsd:decimal &&
+                    ?spacing != "0"^^xsd:decimal
+                )
+
+                BIND((?height / ?spacing) AS ?ratio)
+                BIND(
+                    IF(
+                        ?ratio <= "1.0"^^xsd:decimal,
+                        ("0.4"^^xsd:decimal / ?ratio) + "0.6"^^xsd:decimal,
+                        "1.4"^^xsd:decimal - ("0.4"^^xsd:decimal * ?ratio)
+                    )
+                    AS ?expectedFactor
+                )
+                BIND(
+                    "0.000001"^^xsd:decimal * ABS(?expectedFactor)
+                    AS ?relativeTolerance
+                )
+                BIND(
+                    IF(
+                        ?relativeTolerance > "0.000000000001"^^xsd:decimal,
+                        ?relativeTolerance,
+                        "0.000000000001"^^xsd:decimal
+                    )
+                    AS ?tolerance
+                )
+
+                FILTER (
+                    ?ratio > "1.8"^^xsd:decimal ||
+                    ABS(?reportedFactor - ?expectedFactor) > ?tolerance
+                )
+            }
+        """
+    ] .
+<END_SHACL>

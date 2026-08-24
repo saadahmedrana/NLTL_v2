@@ -1,0 +1,155 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:MeterQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TransversePenetrationQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 760 ;
+        sh:maxInclusive 760 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:IceDamageExtentShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:damageCenterForwardOfMaxBreadth ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLength ;
+        sh:node gs:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:node gs:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDamageExtent ;
+        sh:node gs:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:transversePenetration ;
+        sh:node gs:TransversePenetrationQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:verticalDamageExtent ;
+        sh:node gs:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:selectedVerticalDamagePosition ;
+        sh:node gs:MeterQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "Ice damage extents or selected vertical damage position do not satisfy the required formulas and inclusive range." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:damageCenterForwardOfMaxBreadth ?forward ;
+                      nltl:upperIceWaterlineLength ?lengthQuantity ;
+                      nltl:upperIceWaterlineDraught ?draughtQuantity ;
+                      nltl:longitudinalDamageExtent ?longitudinalQuantity ;
+                      nltl:verticalDamageExtent ?verticalQuantity ;
+                      nltl:selectedVerticalDamagePosition ?positionQuantity .
+
+                ?lengthQuantity qudt:numericValue ?length .
+                ?draughtQuantity qudt:numericValue ?draught .
+                ?longitudinalQuantity qudt:numericValue ?longitudinal .
+                ?verticalQuantity qudt:numericValue ?vertical .
+                ?positionQuantity qudt:numericValue ?position .
+
+                BIND(
+                    IF(
+                        ?forward,
+                        xsd:decimal("0.045") * ?length,
+                        xsd:decimal("0.015") * ?length
+                    )
+                    AS ?expectedLongitudinal
+                )
+                BIND(
+                    IF(
+                        xsd:decimal("0.20") * ?draught < ?longitudinal,
+                        xsd:decimal("0.20") * ?draught,
+                        ?longitudinal
+                    )
+                    AS ?expectedVertical
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedLongitudinal) * xsd:decimal("0.000001") >
+                            xsd:decimal("0.000000001"),
+                        ABS(?expectedLongitudinal) * xsd:decimal("0.000001"),
+                        xsd:decimal("0.000000001")
+                    )
+                    AS ?longitudinalTolerance
+                )
+                BIND(
+                    IF(
+                        ABS(?expectedVertical) * xsd:decimal("0.000001") >
+                            xsd:decimal("0.000000001"),
+                        ABS(?expectedVertical) * xsd:decimal("0.000001"),
+                        xsd:decimal("0.000000001")
+                    )
+                    AS ?verticalTolerance
+                )
+
+                FILTER (
+                    ABS(?longitudinal - ?expectedLongitudinal) >
+                        ?longitudinalTolerance ||
+                    ABS(?vertical - ?expectedVertical) >
+                        ?verticalTolerance ||
+                    ?position < xsd:decimal("0") ||
+                    ?position > xsd:decimal("1.20") * ?draught
+                )
+            }
+        """
+    ] .
+<END_SHACL>

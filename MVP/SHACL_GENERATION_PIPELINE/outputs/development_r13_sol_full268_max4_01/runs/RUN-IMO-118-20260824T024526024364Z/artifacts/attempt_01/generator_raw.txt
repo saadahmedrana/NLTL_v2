@@ -1,0 +1,99 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO118Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "A construction date is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI
+    ] ;
+    sh:property [
+        sh:path nltl:sewageDischargeToSea ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeSewageParagraph4Point2Point1Point3ComplianceStatus ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Ships constructed on or after 1 January 2017 require ship-category or passenger-ship applicability evidence." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:constructionDate ?date .
+                FILTER (
+                    YEAR(?date) > 2017 ||
+                    (
+                        YEAR(?date) = 2017 &&
+                        (
+                            MONTH(?date) > 1 ||
+                            (MONTH(?date) = 1 && DAY(?date) >= 1)
+                        )
+                    )
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:shipCategory ?category .
+                }
+                FILTER NOT EXISTS {
+                    $this a nltl:passengerShip .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable ship must record either no sewage discharge to sea or compliance with Polar Code paragraph 4.2.1.3." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:constructionDate ?date .
+                FILTER (
+                    YEAR(?date) > 2017 ||
+                    (
+                        YEAR(?date) = 2017 &&
+                        (
+                            MONTH(?date) > 1 ||
+                            (MONTH(?date) = 1 && DAY(?date) >= 1)
+                        )
+                    )
+                )
+                FILTER (
+                    EXISTS {
+                        $this nltl:shipCategory ?category .
+                        FILTER (
+                            ?category IN (
+                                nltl:polarShipCategoryA,
+                                nltl:polarShipCategoryB
+                            )
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this a nltl:passengerShip .
+                    }
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:sewageDischargeToSea false .
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:polarCodeSewageParagraph4Point2Point1Point3ComplianceStatus true .
+                }
+            }
+        """
+    ] .
+<END_SHACL>

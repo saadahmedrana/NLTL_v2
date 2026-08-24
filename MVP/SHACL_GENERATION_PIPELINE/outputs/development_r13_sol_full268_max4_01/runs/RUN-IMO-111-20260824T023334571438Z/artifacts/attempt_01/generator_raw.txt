@@ -1,0 +1,161 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO111Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "Ship category is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:tankType ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:individualTankCapacity ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M3 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Construction date is required for a Category A or B ship." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:shipCategory ?category .
+    FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+    FILTER NOT EXISTS {
+        $this nltl:constructionDate ?constructionDate .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Tank type is required for an applicable Category A or B ship constructed on or after 1 January 2017." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:shipCategory ?category ;
+          nltl:constructionDate ?constructionDate .
+    FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+    FILTER (YEAR(?constructionDate) >= 2017)
+    FILTER NOT EXISTS {
+        $this nltl:tankType ?tankType .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Individual tank capacity is required for an applicable oil residue or oily bilge water holding tank." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:shipCategory ?category ;
+          nltl:constructionDate ?constructionDate ;
+          nltl:tankType ?tankType .
+    FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+    FILTER (YEAR(?constructionDate) >= 2017)
+    FILTER (?tankType IN (
+        "oil_residue_tank"^^xsd:string,
+        "oily_bilge_water_holding_tank"^^xsd:string
+    ))
+    FILTER NOT EXISTS {
+        $this nltl:individualTankCapacity ?capacityNode .
+    }
+}
+"""
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable tank exceeding 30 cubic metres must have an outer-shell separation of at least 0.76 metres." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT DISTINCT $this
+WHERE {
+    $this nltl:shipCategory ?category ;
+          nltl:constructionDate ?constructionDate ;
+          nltl:tankType ?tankType ;
+          nltl:individualTankCapacity ?capacityNode .
+    ?capacityNode a qudt:QuantityValue ;
+                  qudt:numericValue ?capacity ;
+                  qudt:unit unit:M3 .
+    FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+    FILTER (YEAR(?constructionDate) >= 2017)
+    FILTER (?tankType IN (
+        "oil_residue_tank"^^xsd:string,
+        "oily_bilge_water_holding_tank"^^xsd:string
+    ))
+    FILTER (
+        datatype(?capacity) = xsd:decimal &&
+        ?capacity > "30"^^xsd:decimal
+    )
+    FILTER (
+        NOT EXISTS {
+            $this nltl:tankOuterShellSeparation ?representedSeparation .
+        }
+        ||
+        EXISTS {
+            $this nltl:tankOuterShellSeparation ?separationNode .
+            FILTER NOT EXISTS {
+                ?separationNode a qudt:QuantityValue ;
+                                qudt:numericValue ?separation ;
+                                qudt:unit unit:M .
+                FILTER (
+                    datatype(?separation) = xsd:decimal &&
+                    ?separation >= "0.76"^^xsd:decimal
+                )
+                FILTER NOT EXISTS {
+                    ?separationNode qudt:unit ?otherUnit .
+                    FILTER (?otherUnit != unit:M)
+                }
+                FILTER NOT EXISTS {
+                    ?separationNode qudt:numericValue ?nonDecimalSeparation .
+                    FILTER (datatype(?nonDecimalSeparation) != xsd:decimal)
+                }
+                FILTER NOT EXISTS {
+                    ?separationNode qudt:numericValue ?lowSeparation .
+                    FILTER (
+                        datatype(?lowSeparation) = xsd:decimal &&
+                        ?lowSeparation < "0.76"^^xsd:decimal
+                    )
+                }
+            }
+        }
+    )
+}
+"""
+    ] .
+<END_SHACL>

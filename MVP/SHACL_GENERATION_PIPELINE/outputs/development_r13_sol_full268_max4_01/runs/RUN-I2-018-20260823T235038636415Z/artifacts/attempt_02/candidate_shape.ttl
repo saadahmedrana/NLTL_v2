@@ -1,0 +1,324 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_018_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:PressureQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:ForceQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchLength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:peakPressureFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessDecimalQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasIceLoadPatch ;
+        sh:minCount 1 ;
+        sh:class nltl:iceLoadPatch
+    ] ;
+    sh:property [
+        sh:path nltl:hasPeakPressureFactorLookupCase ;
+        sh:minCount 1 ;
+        sh:class nltl:peakPressureFactorLookupCase ;
+        sh:node gen:PeakPressureFactorLookupCaseShape ;
+        sh:equals nltl:hasTableLookupCase
+    ] ;
+    sh:property [
+        sh:path nltl:hasTableLookupCase ;
+        sh:minCount 1 ;
+        sh:class nltl:tableLookupCase ;
+        sh:node gen:PeakPressureFactorLookupCaseShape ;
+        sh:equals nltl:hasPeakPressureFactorLookupCase
+    ] ;
+    sh:sparql [
+        sh:message "Average ice pressure must equal ice force divided by load-patch height and length, with kN converted to MPa." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:averageIcePressure ?pressureQuantity ;
+                      nltl:iceForce ?forceQuantity ;
+                      nltl:loadPatchHeight ?heightQuantity ;
+                      nltl:loadPatchLength ?lengthQuantity .
+                ?pressureQuantity qudt:numericValue ?pressure .
+                ?forceQuantity qudt:numericValue ?force .
+                ?heightQuantity qudt:numericValue ?height .
+                ?lengthQuantity qudt:numericValue ?length .
+                BIND ((xsd:decimal("1000") * ?height * ?length) AS ?denominator)
+                BIND (IF(
+                    ?denominator = xsd:decimal("0"),
+                    xsd:decimal("0"),
+                    ?force / ?denominator
+                ) AS ?expected)
+                BIND (IF(
+                    ABS(?expected) * xsd:decimal("0.000001") > xsd:decimal("0.000000000001"),
+                    ABS(?expected) * xsd:decimal("0.000001"),
+                    xsd:decimal("0.000000000001")
+                ) AS ?tolerance)
+                FILTER (
+                    ?denominator = xsd:decimal("0") ||
+                    ABS(?pressure - ?expected) > ?tolerance
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The reported peak pressure factor must match the Table 3 factor selected for the localized structural-member category." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:peakPressureFactor ?reportedQuantity ;
+                      nltl:hasPeakPressureFactorLookupCase ?lookupCase .
+                ?reportedQuantity qudt:numericValue ?reported .
+                ?lookupCase nltl:selectedPeakPressureFactor ?selectedQuantity .
+                ?selectedQuantity qudt:numericValue ?selected .
+                BIND (IF(
+                    ABS(?selected) * xsd:decimal("0.000001") > xsd:decimal("0.000000000001"),
+                    ABS(?selected) * xsd:decimal("0.000001"),
+                    xsd:decimal("0.000000000001")
+                ) AS ?tolerance)
+                FILTER (ABS(?reported - ?selected) > ?tolerance)
+            }
+        """
+    ] .
+
+gen:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UnitlessDecimalQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:PeakPressureFactorLookupCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:peakPressureFactorLookupCase ;
+    sh:class nltl:tableLookupCase ;
+    sh:property [
+        sh:path nltl:localizedStructuralMemberCategory ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:transverselyFramedPlatingCategory
+            nltl:longitudinallyFramedPlatingCategory
+            nltl:transverseFrameWithoutLoadDistributingStringersCategory
+            nltl:transverseFrameWithLoadDistributingStringersCategory
+            nltl:stringerSideLongitudinalOrWebFrameCategory
+            nltl:bottomStructureFrameCategory
+        )
+    ] ;
+    sh:property [
+        sh:path nltl:selectedPeakPressureFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessDecimalQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:hasValue nltl:iacsUrI2Table3 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:lookupSelectionEvidence ;
+        sh:minCount 1 ;
+        sh:class nltl:evidenceArtifact
+    ] ;
+    sh:or (
+        gen:TransverselyFramedPlatingLookupShape
+        gen:LongitudinallyFramedPlatingLookupShape
+        gen:TransverseFrameWithoutStringersLookupShape
+        gen:TransverseFrameWithStringersLookupShape
+        gen:StringerSideLongitudinalOrWebFrameLookupShape
+        gen:BottomStructureFrameLookupShape
+    ) .
+
+gen:TransverselyFramedPlatingLookupShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:localizedStructuralMemberCategory ;
+        sh:hasValue nltl:transverselyFramedPlatingCategory
+    ] ;
+    sh:property [
+        sh:path nltl:selectedPeakPressureFactor ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "1.7"^^xsd:decimal ;
+                sh:maxInclusive "1.7"^^xsd:decimal
+            ]
+        ]
+    ] .
+
+gen:LongitudinallyFramedPlatingLookupShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:localizedStructuralMemberCategory ;
+        sh:hasValue nltl:longitudinallyFramedPlatingCategory
+    ] ;
+    sh:property [
+        sh:path nltl:selectedPeakPressureFactor ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "2.0"^^xsd:decimal ;
+                sh:maxInclusive "2.0"^^xsd:decimal
+            ]
+        ]
+    ] .
+
+gen:TransverseFrameWithoutStringersLookupShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:localizedStructuralMemberCategory ;
+        sh:hasValue nltl:transverseFrameWithoutLoadDistributingStringersCategory
+    ] ;
+    sh:property [
+        sh:path nltl:selectedPeakPressureFactor ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "1.6"^^xsd:decimal ;
+                sh:maxInclusive "1.6"^^xsd:decimal
+            ]
+        ]
+    ] .
+
+gen:TransverseFrameWithStringersLookupShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:localizedStructuralMemberCategory ;
+        sh:hasValue nltl:transverseFrameWithLoadDistributingStringersCategory
+    ] ;
+    sh:property [
+        sh:path nltl:selectedPeakPressureFactor ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "1.2"^^xsd:decimal ;
+                sh:maxInclusive "1.2"^^xsd:decimal
+            ]
+        ]
+    ] .
+
+gen:StringerSideLongitudinalOrWebFrameLookupShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:localizedStructuralMemberCategory ;
+        sh:hasValue nltl:stringerSideLongitudinalOrWebFrameCategory
+    ] ;
+    sh:property [
+        sh:path nltl:selectedPeakPressureFactor ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "1.3"^^xsd:decimal ;
+                sh:maxInclusive "1.3"^^xsd:decimal
+            ]
+        ]
+    ] .
+
+gen:BottomStructureFrameLookupShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:localizedStructuralMemberCategory ;
+        sh:hasValue nltl:bottomStructureFrameCategory
+    ] ;
+    sh:property [
+        sh:path nltl:selectedPeakPressureFactor ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minInclusive "1.0"^^xsd:decimal ;
+                sh:maxInclusive "1.0"^^xsd:decimal
+            ]
+        ]
+    ] .

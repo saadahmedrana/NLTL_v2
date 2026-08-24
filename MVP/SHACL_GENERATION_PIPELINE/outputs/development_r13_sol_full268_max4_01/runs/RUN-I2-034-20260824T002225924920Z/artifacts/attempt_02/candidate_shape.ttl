@@ -1,0 +1,154 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:class nltl:structuralMember ;
+        sh:node gs:StructuralMemberSelectorShape
+    ] ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:nodeKind sh:IRI
+    ] .
+
+gs:StructuralMemberSelectorShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalFrameOrientation ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "Each represented structural member must state its longitudinal-frame orientation."
+    ] ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:class nltl:structuralLocationValue ;
+        sh:minCount 1 ;
+        sh:message "Each represented structural member must state its structural location."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberLoadCase ;
+        sh:class nltl:loadCase
+    ] .
+
+gs:ApplicableSideLongitudinalFrameShape
+    a sh:NodeShape ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT DISTINCT ?this
+WHERE {
+    ?ship a nltl:ship ;
+          nltl:hasStructuralMember ?this .
+    ?this nltl:longitudinalFrameOrientation true ;
+          nltl:structuralLocation nltl:sideStructureLocation .
+}
+"""
+    ] ;
+    sh:property [
+        sh:path nltl:plasticStrength ;
+        sh:minCount 1 ;
+        sh:node gs:ForceQuantityValueShape ;
+        sh:message "An applicable side longitudinal frame must state its plastic strength."
+    ] ;
+    sh:property [
+        sh:path nltl:midspanPlasticCollapseLoad ;
+        sh:minCount 1 ;
+        sh:node gs:ForceQuantityValueShape ;
+        sh:message "An applicable side longitudinal frame must state its midspan plastic-collapse load."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberLoadCase ;
+        sh:class nltl:loadCase ;
+        sh:node gs:ApplicableLoadCaseShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Plastic strength must equal the magnitude of the midspan plastic-collapse load within a relative tolerance of 1e-6 and an absolute fallback of 1e-9 kN." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?strengthNode ?collapseNode
+WHERE {
+    $this nltl:plasticStrength ?strengthNode ;
+          nltl:midspanPlasticCollapseLoad ?collapseNode .
+    ?strengthNode qudt:numericValue ?strengthValue .
+    ?collapseNode qudt:numericValue ?collapseValue .
+    BIND(ABS(xsd:decimal(?collapseValue)) AS ?expectedStrength)
+    BIND(
+        IF(
+            ?expectedStrength * 0.000001 > 0.000000001,
+            ?expectedStrength * 0.000001,
+            0.000000001
+        )
+        AS ?tolerance
+    )
+    FILTER(
+        ABS(xsd:decimal(?strengthValue) - ?expectedStrength) > ?tolerance
+    )
+}
+"""
+    ] .
+
+gs:ApplicableLoadCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:minCount 1 ;
+        sh:node gs:DemandQuantityValueShape ;
+        sh:message "Each represented load case for an applicable frame must state its combined shear-and-bending demand."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Combined shear-and-bending demand must not exceed the plastic strength of the applicable member." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this ?member ?demandNode ?strengthNode
+WHERE {
+    ?ship a nltl:ship ;
+          nltl:hasStructuralMember ?member .
+    ?member nltl:longitudinalFrameOrientation true ;
+            nltl:structuralLocation nltl:sideStructureLocation ;
+            nltl:hasStructuralMemberLoadCase $this ;
+            nltl:plasticStrength ?strengthNode .
+    $this nltl:combinedShearAndBendingDemand ?demandNode .
+    ?demandNode qudt:numericValue ?demandValue .
+    ?strengthNode qudt:numericValue ?strengthValue .
+    FILTER(
+        xsd:decimal(?demandValue) > xsd:decimal(?strengthValue)
+    )
+}
+"""
+    ] .
+
+gs:ForceQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:DemandQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] .
