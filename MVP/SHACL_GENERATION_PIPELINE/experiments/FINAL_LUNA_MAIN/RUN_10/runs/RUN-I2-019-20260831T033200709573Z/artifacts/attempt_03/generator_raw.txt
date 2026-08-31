@@ -1,0 +1,120 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+<urn:nltl:generated-shape:I2-019> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node [
+            sh:class nltl:structuralMember ;
+            sh:or (
+                [
+                    sh:property [
+                        sh:path nltl:hasSpannedHullArea ;
+                        sh:maxCount 0
+                    ]
+                ]
+                [
+                    sh:property [
+                        sh:path nltl:hasSpannedHullArea ;
+                        sh:minCount 1 ;
+                        sh:node [
+                            sh:class nltl:hullAreaValue ;
+                            sh:property [
+                                sh:path nltl:hullAreaFactor ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1 ;
+                                sh:node [
+                                    sh:class qudt:QuantityValue ;
+                                    sh:property [
+                                        sh:path qudt:numericValue ;
+                                        sh:minCount 1 ;
+                                        sh:maxCount 1
+                                    ] ;
+                                    sh:property [
+                                        sh:path qudt:unit ;
+                                        sh:hasValue unit:UNITLESS ;
+                                        sh:minCount 1 ;
+                                        sh:maxCount 1
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ] ;
+                    sh:property [
+                        sh:path nltl:selectedHullAreaFactor ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:node [
+                            sh:class qudt:QuantityValue ;
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ] ;
+                            sh:property [
+                                sh:path qudt:unit ;
+                                sh:hasValue unit:UNITLESS ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ]
+                        ]
+                    ] ;
+                    sh:sparql [
+                        sh:message "For a structural member spanning hull-area boundaries, selectedHullAreaFactor must equal the maximum hullAreaFactor, within a 1e-6 relative tolerance and a 1e-6 absolute fallback near zero." ;
+                        sh:select """
+                            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                            PREFIX qudt: <http://qudt.org/schema/qudt/>
+                            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                            SELECT $this
+                            WHERE {
+                                {
+                                    SELECT ?member (MAX(?factor) AS ?expected)
+                                    WHERE {
+                                        ?member nltl:hasSpannedHullArea ?area .
+                                        ?area nltl:hullAreaFactor ?factorNode .
+                                        ?factorNode qudt:numericValue ?factor .
+                                    }
+                                    GROUP BY ?member
+                                }
+
+                                FILTER (?member = $this)
+
+                                $this nltl:selectedHullAreaFactor ?selectedNode .
+                                ?selectedNode qudt:numericValue ?reported .
+
+                                BIND(
+                                    IF(
+                                        ?expected >= "0"^^xsd:decimal,
+                                        ?expected,
+                                        -?expected
+                                    ) AS ?magnitude
+                                )
+                                BIND(
+                                    "0.000001"^^xsd:decimal * ?magnitude
+                                    AS ?relativeTolerance
+                                )
+                                BIND(
+                                    IF(
+                                        ?relativeTolerance > "0.000001"^^xsd:decimal,
+                                        ?relativeTolerance,
+                                        "0.000001"^^xsd:decimal
+                                    ) AS ?tolerance
+                                )
+
+                                FILTER (
+                                    ?reported < (?expected - ?tolerance) ||
+                                    ?reported > (?expected + ?tolerance)
+                                )
+                            }
+                        """
+                    ]
+                ]
+            )
+        ]
+    ] .
+<END_SHACL>

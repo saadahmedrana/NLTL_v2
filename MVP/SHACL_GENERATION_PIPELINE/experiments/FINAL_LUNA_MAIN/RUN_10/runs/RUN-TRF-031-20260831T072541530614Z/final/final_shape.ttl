@@ -1,0 +1,120 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MPaQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF031Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldPoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MPaQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:combinedBendingShearStress ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MPaQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:yieldShearStress ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MPaQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:vonMisesYieldCriterion ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue "von Mises"
+    ] ;
+    sh:or (
+        [ sh:node gen:BeamTheoryTrueShape ]
+        [ sh:node gen:BeamTheoryFalseShape ]
+    ) ;
+    sh:sparql [
+        sh:message "Combined bending and shear stress must be lower than the yield point, and yield shear stress must equal yield point divided by square root of three within the permitted tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:yieldPoint ?yieldPointNode ;
+                      nltl:combinedBendingShearStress ?combinedNode ;
+                      nltl:yieldShearStress ?yieldShearNode .
+                ?yieldPointNode qudt:numericValue ?yieldPoint .
+                ?combinedNode qudt:numericValue ?combined .
+                ?yieldShearNode qudt:numericValue ?yieldShear .
+                BIND ((?yieldPoint / 1.7320508075688772) AS ?expected)
+                BIND (((?expected * 0.000001) + 0.000000000001) AS ?tolerance)
+                FILTER (
+                    (?combined >= ?yieldPoint) ||
+                    (?yieldShear < (?expected - ?tolerance)) ||
+                    (?yieldShear > (?expected + ?tolerance))
+                )
+            }
+        """
+    ] .
+
+gen:BeamTheoryTrueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:beamTheoryUsed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:allowableShearStress ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:MPaQuantityShape
+    ] ;
+    sh:sparql [
+        sh:message "For beam-theory calculations, allowable shear stress must not exceed 0.9 times the yield shear stress." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:allowableShearStress ?allowableNode ;
+                      nltl:yieldPoint ?yieldPointNode .
+                ?allowableNode qudt:numericValue ?allowable .
+                ?yieldPointNode qudt:numericValue ?yieldPoint .
+                BIND ((0.9 * (?yieldPoint / 1.7320508075688772)) AS ?maximum)
+                FILTER (?allowable > ?maximum)
+            }
+        """
+    ] .
+
+gen:BeamTheoryFalseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:beamTheoryUsed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue false
+    ] .

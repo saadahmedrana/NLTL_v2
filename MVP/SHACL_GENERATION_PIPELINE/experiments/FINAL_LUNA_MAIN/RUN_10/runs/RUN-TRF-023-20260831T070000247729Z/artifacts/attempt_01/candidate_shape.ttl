@@ -1,0 +1,109 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PowerQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:KiloW ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:MaximumPowerShape
+    a sh:PropertyShape ;
+    sh:path nltl:maximumContinuousRatingPower ;
+    sh:node gen:PowerQuantityShape ;
+    sh:minCount 1 ;
+    sh:maxCount 1 .
+
+gen:RequiredPowerShape
+    a sh:PropertyShape ;
+    sh:path nltl:requiredPowerUnder1985Rules ;
+    sh:node gen:PowerQuantityShape ;
+    sh:minCount 1 ;
+    sh:maxCount 1 .
+
+gen:ApplicableIceClassBranch
+    a sh:NodeShape ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:hasValue nltl:iceClassIb ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:applicableIceClassRegulationEdition ;
+                sh:hasValue nltl:iceClassRegulationEdition2002 ;
+                sh:minCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:hasValue nltl:iceClassIc ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:applicableIceClassRegulationEdition ;
+                sh:hasValue nltl:iceClassRegulationEdition2002 ;
+                sh:minCount 1
+            ]
+        ]
+    ) ;
+    sh:property gen:MaximumPowerShape ;
+    sh:property gen:RequiredPowerShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For ice class IB or IC under the 1985 rules, maximum continuous rating power must be at least the required power." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:maximumContinuousRatingPower ?maximumQuantity .
+                ?maximumQuantity qudt:numericValue ?maximumValue .
+                $this nltl:requiredPowerUnder1985Rules ?requiredQuantity .
+                ?requiredQuantity qudt:numericValue ?requiredValue .
+                FILTER (
+                    datatype(?maximumValue) = xsd:decimal &&
+                    datatype(?requiredValue) = xsd:decimal &&
+                    ?maximumValue < ?requiredValue
+                )
+            }
+        """
+    ] .
+
+gen:NonApplicableIceClassBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:in (
+            nltl:iceClassIa
+            nltl:iceClassIaSuper
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:minCount 1
+    ] .
+
+gen:TRF023ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        gen:ApplicableIceClassBranch
+        gen:NonApplicableIceClassBranch
+    ) .

@@ -1,0 +1,102 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gen:StructuralMemberShape
+    ] .
+
+gen:StructuralMemberShape a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:hasSpannedHullArea ;
+        sh:minCount 1 ;
+        sh:node gen:HullAreaValueShape ;
+        sh:message "A structural member subject to the spanning rule must identify at least one spanned hull area."
+    ] ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The structural member must have exactly one selected hull area factor with a dimensionless unit."
+    ] .
+
+gen:HullAreaValueShape a sh:NodeShape ;
+    sh:class nltl:hullAreaValue ;
+    sh:property [
+        sh:path nltl:hullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Each spanned hull area must have exactly one dimensionless hull area factor."
+    ] .
+
+gen:SelectedHullAreaFactorCalculationShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "The selected hull area factor must equal the largest spanned hull area factor within a relative tolerance of 1e-6 and an absolute tolerance of 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:selectedHullAreaFactor ?selectedNode .
+                ?selectedNode <http://qudt.org/schema/qudt/numericValue> ?selected .
+                ?member nltl:hasSpannedHullArea ?maxArea .
+                ?maxArea nltl:hullAreaFactor ?maxFactorNode .
+                ?maxFactorNode <http://qudt.org/schema/qudt/numericValue> ?maxFactor .
+
+                FILTER NOT EXISTS {
+                    ?member nltl:hasSpannedHullArea ?higherArea .
+                    ?higherArea nltl:hullAreaFactor ?higherFactorNode .
+                    ?higherFactorNode <http://qudt.org/schema/qudt/numericValue> ?higherFactor .
+                    FILTER (
+                        ?higherFactor >
+                        (?maxFactor + (ABS(?maxFactor) * 0.000001) + 0.000000000001)
+                    )
+                }
+
+                FILTER (
+                    ABS(?selected - ?maxFactor) >
+                    (ABS(?maxFactor) * 0.000001) + 0.000000000001
+                )
+            }
+        """
+    ] .

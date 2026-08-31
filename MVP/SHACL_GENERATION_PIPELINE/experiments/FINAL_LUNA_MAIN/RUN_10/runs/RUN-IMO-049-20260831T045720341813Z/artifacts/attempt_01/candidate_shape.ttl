@@ -1,0 +1,143 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-049-ship>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        ) ;
+        sh:message "A ship category of A, B, or C is required."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For category C, shipIceStrengthened must be explicitly recorded as a boolean." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory nltl:polarShipCategoryC .
+                FILTER NOT EXISTS {
+                    $this nltl:shipIceStrengthened ?strengthened .
+                    FILTER (
+                        DATATYPE(?strengthened) = xsd:boolean &&
+                        (?strengthened = true || ?strengthened = false)
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each applicable machinery component must have an approved scantling approval record with an authorized authority and the required standard; category C approval records must also contain operating ice type and concentration." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:hasComponent ?component .
+                ?component nltl:machineryComponentType ?componentType .
+
+                FILTER (
+                    ?componentType IN (
+                        "propeller blade",
+                        "propulsion line",
+                        "steering equipment",
+                        "appendage",
+                        "other appendage",
+                        "other appendages"
+                    )
+                )
+
+                {
+                    FILTER (
+                        ?category = nltl:polarShipCategoryA ||
+                        ?category = nltl:polarShipCategoryB ||
+                        (
+                            ?category = nltl:polarShipCategoryC &&
+                            EXISTS {
+                                $this nltl:shipIceStrengthened true
+                            }
+                        )
+                    )
+                    FILTER NOT EXISTS {
+                        ?component nltl:hasApprovalRecord ?missingRecord .
+                    }
+                }
+                UNION
+                {
+                    ?component nltl:hasApprovalRecord ?approvalRecord .
+                    FILTER (
+                        (
+                            (
+                                ?category = nltl:polarShipCategoryA ||
+                                ?category = nltl:polarShipCategoryB
+                            )
+                            &&
+                            NOT EXISTS {
+                                ?approvalRecord nltl:scantlingApprovalStatus nltl:evidenceStateApproved ;
+                                                nltl:approvingAuthority ?authority ;
+                                                nltl:approvalStandard ?standard .
+                                FILTER (
+                                    ?authority IN (
+                                        "Administration",
+                                        "recognized organization accepted by the Administration"
+                                    )
+                                    &&
+                                    ?standard IN (
+                                        "standard acceptable to the Organization",
+                                        "another standard offering an equivalent level of safety"
+                                    )
+                                )
+                            }
+                        )
+                        ||
+                        (
+                            ?category = nltl:polarShipCategoryC &&
+                            EXISTS {
+                                $this nltl:shipIceStrengthened true
+                            }
+                            &&
+                            NOT EXISTS {
+                                ?approvalRecord nltl:scantlingApprovalStatus nltl:evidenceStateApproved ;
+                                                nltl:approvingAuthority ?authorityC ;
+                                                nltl:approvalStandard ?standardC ;
+                                                nltl:operatingIceType ?iceType ;
+                                                nltl:operatingIceConcentration ?concentration .
+                                ?concentration qudt:numericValue ?numericValue ;
+                                               qudt:unit qudt:UNITLESS .
+                                FILTER (
+                                    ?authorityC IN (
+                                        "Administration",
+                                        "recognized organization accepted by the Administration"
+                                    )
+                                    &&
+                                    ?standardC =
+                                        "acceptable standard adequate for operating ice type and concentration"
+                                    &&
+                                    DATATYPE(?iceType) = xsd:string
+                                    &&
+                                    DATATYPE(?numericValue) = xsd:decimal
+                                )
+                            }
+                        )
+                    )
+                }
+            }
+        """
+    ] .

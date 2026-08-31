@@ -1,0 +1,258 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qv: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-049-FrameAttachmentRecordShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:effectiveAttachmentConfirmed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "Each frame attachment must be effectively attached."
+    ] ;
+    sh:property [
+        sh:path nltl:hasAttachedSupportingStructure ;
+        sh:class nltl:supportingStructure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each frame attachment must identify its corresponding supporting structure."
+    ] .
+
+<urn:nltl:generated-shape:TRF-049-QuantityValueMilliMShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qv:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qv:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:TRF-049-FrameShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:hasFrameAttachment ;
+                sh:node <urn:nltl:generated-shape:TRF-049-FrameAttachmentRecordShape> ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:frameWebThickness ;
+                sh:node <urn:nltl:generated-shape:TRF-049-QuantityValueMilliMShape> ;
+                sh:maxCount 1
+            ] ;
+            sh:sparql [
+                sh:message "Within the ice-strengthened area, every supporting structure must have a corresponding effective frame attachment, and every frame attachment must identify the corresponding support and be linked back from it." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX sh: <http://www.w3.org/ns/shacl#>
+                    SELECT $this
+                    WHERE {
+                        {
+                            $this nltl:hasFrameAttachment ?attachment .
+                            FILTER NOT EXISTS {
+                                ?attachment nltl:effectiveAttachmentConfirmed true ;
+                                            nltl:hasAttachedSupportingStructure ?support .
+                                ?support nltl:hasSupportingStructureAttachment ?attachment .
+                            }
+                        }
+                        UNION
+                        {
+                            $this ?supportLink ?support .
+                            FILTER (?supportLink IN (
+                                nltl:hasSupportingBulkhead,
+                                nltl:hasSupportingWebFrame
+                            ))
+                            FILTER NOT EXISTS {
+                                ?support nltl:hasSupportingStructureAttachment ?attachment .
+                                ?attachment nltl:hasAttachedSupportingStructure ?support ;
+                                            nltl:effectiveAttachmentConfirmed true .
+                            }
+                        }
+                    }
+                """
+            ] ;
+            sh:sparql [
+                sh:message "A bracket thickness must be at least the frame web thickness, and both quantities must be reported as millimetres." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qv: <http://qudt.org/schema/qudt/>
+                    PREFIX sh: <http://www.w3.org/ns/shacl#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:hasFrameAttachment ?attachment .
+                        ?attachment nltl:hasConnectionBracket ?bracket .
+                        FILTER NOT EXISTS {
+                            ?bracket nltl:bracketThickness ?bracketThickness .
+                            ?bracketThickness qv:numericValue ?bracketValue ;
+                                               qv:unit <http://qudt.org/vocab/unit/MilliM> .
+                            $this nltl:frameWebThickness ?webThickness .
+                            ?webThickness qv:numericValue ?webValue ;
+                                           qv:unit <http://qudt.org/vocab/unit/MilliM> .
+                            FILTER (?bracketValue >= ?webValue)
+                        }
+                    }
+                """
+            ] ;
+            sh:or (
+                [
+                    sh:property [
+                        sh:path nltl:passesThroughSupportingStructure ;
+                        sh:datatype xsd:boolean ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:hasValue true
+                    ] ;
+                    sh:property [
+                        sh:path nltl:webPlateConnectionSideCount ;
+                        sh:datatype xsd:integer ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:minInclusive 2 ;
+                        sh:maxInclusive 2
+                    ]
+                ]
+                [
+                    sh:property [
+                        sh:path nltl:passesThroughSupportingStructure ;
+                        sh:datatype xsd:boolean ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:hasValue false
+                    ]
+                ]
+            ) ;
+            sh:sparql [
+                sh:message "Every installed connection bracket must have the required thickness and both edge-stiffening checks set to true." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX sh: <http://www.w3.org/ns/shacl#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:hasFrameAttachment ?attachment .
+                        ?attachment nltl:hasConnectionBracket ?bracket .
+                        FILTER NOT EXISTS {
+                            ?bracket nltl:bracketThickness ?thickness ;
+                                     nltl:bracketEdgeStiffened true ;
+                                     nltl:bucklingStiffening true .
+                        }
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+    ) .
+
+<urn:nltl:generated-shape:TRF-049-LongitudinalFrameConstraint>
+    a sh:NodeShape ;
+    sh:targetClass nltl:longitudinalFrame ;
+    sh:sparql [
+        sh:message "A longitudinal frame must be attached by a connection bracket to every supporting web frame and bulkhead." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            SELECT $this
+            WHERE {
+                $this nltl:withinIceStrengthenedArea true .
+                $this ?supportLink ?support .
+                FILTER (?supportLink IN (
+                    nltl:hasSupportingBulkhead,
+                    nltl:hasSupportingWebFrame
+                ))
+                FILTER NOT EXISTS {
+                    ?support nltl:hasSupportingStructureAttachment ?attachment .
+                    ?attachment nltl:hasAttachedSupportingStructure ?support ;
+                                nltl:effectiveAttachmentConfirmed true ;
+                                nltl:hasConnectionBracket ?bracket .
+                }
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:TRF-049-TransverseFrameConstraint>
+    a sh:NodeShape ;
+    sh:targetClass nltl:transverseFrame ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:terminatesAtDeckOrIceStringer ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:terminatesAtDeckOrIceStringer ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:sparql [
+                sh:message "A transverse frame terminating at a deck or ice stringer must have a connection bracket or similar attachment construction." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX sh: <http://www.w3.org/ns/shacl#>
+                    SELECT $this
+                    WHERE {
+                        FILTER NOT EXISTS {
+                            $this nltl:hasFrameAttachment ?attachment .
+                            {
+                                ?attachment nltl:hasConnectionBracket ?bracket .
+                            }
+                            UNION
+                            {
+                                ?attachment nltl:similarAttachmentConstructionPresent true .
+                            }
+                        }
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:withinIceStrengthenedArea ;
+                sh:hasValue false
+            ]
+        ]
+    ) .
+<END_SHACL>

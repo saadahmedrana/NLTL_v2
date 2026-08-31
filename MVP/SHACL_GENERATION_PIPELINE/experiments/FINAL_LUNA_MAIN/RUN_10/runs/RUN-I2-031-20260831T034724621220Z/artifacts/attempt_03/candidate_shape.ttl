@@ -1,0 +1,170 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:I2-031-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:class nltl:frameProfileTypeValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship shall provide one canonical frame profile type."
+    ] ;
+    sh:property [
+        sh:path nltl:patchLoad ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The ship shall provide the patch load as a single kilonewton quantity."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every applicable bottom or transverse side local frame shall have the required load-case quantities and relationships; combined shear and bending demand shall not exceed plastic strength, and plastic strength shall correspond to the midspan plastic-collapse load." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralLocation ?location .
+
+                FILTER (
+                    ?location = nltl:bottomStructureLocation ||
+                    (
+                        ?location = nltl:sideStructureLocation &&
+                        EXISTS {
+                            ?member nltl:transverseFrameOrientation ?orientation .
+                            FILTER(?orientation = true)
+                        }
+                    )
+                )
+
+                FILTER (
+                    EXISTS {
+                        ?member nltl:hasStructuralMemberLoadCase ?missingCase .
+                        FILTER (
+                            NOT EXISTS {
+                                ?missingCase nltl:combinedShearAndBendingDemand ?missingDemandNode .
+                                ?missingDemandNode qudt:numericValue ?missingDemandValue ;
+                                                    qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                                FILTER(datatype(?missingDemandValue) = xsd:decimal)
+                            } ||
+                            NOT EXISTS {
+                                ?missingMemberLoad nltl:midspanPlasticCollapseLoad ?missingMidspanNode .
+                                ?missingMidspanNode qudt:numericValue ?missingMidspanValue ;
+                                                     qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                                FILTER(datatype(?missingMidspanValue) = xsd:decimal)
+                            } ||
+                            NOT EXISTS {
+                                ?member nltl:plasticStrength ?missingStrengthNode .
+                                ?missingStrengthNode qudt:numericValue ?missingStrengthValue ;
+                                                      qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                                FILTER(datatype(?missingStrengthValue) = xsd:decimal)
+                            } ||
+                            (
+                                ?location = nltl:bottomStructureLocation &&
+                                NOT EXISTS {
+                                    ?missingCase nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame
+                                }
+                            ) ||
+                            (
+                                ?location = nltl:bottomStructureLocation &&
+                                EXISTS {
+                                    ?missingCase nltl:loadPatchOrientation ?wrongOrientation .
+                                    FILTER(?wrongOrientation != nltl:loadPatchHeightParallelToFrame)
+                                }
+                            )
+                        )
+                    } ||
+                    EXISTS {
+                        ?member nltl:hasStructuralMemberLoadCase ?comparisonCase .
+                        ?comparisonCase nltl:combinedShearAndBendingDemand ?demandNode .
+                        ?demandNode qudt:numericValue ?demandValue ;
+                                    qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                        ?member nltl:plasticStrength ?strengthNode .
+                        ?strengthNode qudt:numericValue ?strengthValue ;
+                                      qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                        FILTER(datatype(?demandValue) = xsd:decimal)
+                        FILTER(datatype(?strengthValue) = xsd:decimal)
+                        FILTER(?demandValue > ?strengthValue)
+                    } ||
+                    EXISTS {
+                        ?member nltl:midspanPlasticCollapseLoad ?midspanNode .
+                        ?midspanNode qudt:numericValue ?midspanValue ;
+                                     qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                        ?member nltl:plasticStrength ?expectedStrengthNode .
+                        ?expectedStrengthNode qudt:numericValue ?expectedStrengthValue ;
+                                               qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                        FILTER(datatype(?midspanValue) = xsd:decimal)
+                        FILTER(datatype(?expectedStrengthValue) = xsd:decimal)
+                        FILTER(
+                            ABS(?expectedStrengthValue - ?midspanValue) >
+                            IF(
+                                ABS(?midspanValue) * 0.000001 > 0.000001,
+                                ABS(?midspanValue) * 0.000001,
+                                0.000001
+                            )
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:I2-031-StructuralMemberShape>
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasStructuralMember ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:class nltl:structuralLocationValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:bottomStructureLocation
+            nltl:sideStructureLocation
+        ) ;
+        sh:message "Each structural member shall identify whether it is in a bottom or side structure."
+    ] .
+
+<urn:nltl:generated-shape:I2-031-LoadCaseShape>
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasStructuralMemberLoadCase ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] .

@@ -1,0 +1,204 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:class nltl:frameProfileTypeValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must specify one frame profile type."
+    ] ;
+
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node [
+            a sh:NodeShape ;
+
+            sh:property [
+                sh:path nltl:longitudinalFrameOrientation ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Each represented structural member must state whether it is longitudinal."
+            ] ;
+
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:class nltl:structuralLocationValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Each represented structural member must specify its structural location."
+            ] ;
+
+            sh:or (
+                [
+                    sh:not [
+                        a sh:NodeShape ;
+                        sh:and (
+                            [
+                                sh:property [
+                                    sh:path nltl:longitudinalFrameOrientation ;
+                                    sh:hasValue true ;
+                                ]
+                            ]
+                            [
+                                sh:property [
+                                    sh:path nltl:structuralLocation ;
+                                    sh:hasValue nltl:sideStructureLocation ;
+                                ]
+                            ]
+                        )
+                    ]
+                ]
+                [
+                    sh:property [
+                        sh:path nltl:longitudinalFrameOrientation ;
+                        sh:hasValue true ;
+                    ] ;
+                    sh:property [
+                        sh:path nltl:structuralLocation ;
+                        sh:hasValue nltl:sideStructureLocation ;
+                    ] ;
+                    sh:property [
+                        sh:path nltl:plasticStrength ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:node [
+                            sh:class qudt:QuantityValue ;
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1 ;
+                            ] ;
+                            sh:property [
+                                sh:path qudt:unit ;
+                                sh:hasValue unit:KiloN ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1 ;
+                            ]
+                        ]
+                    ] ;
+                    sh:property [
+                        sh:path nltl:midspanPlasticCollapseLoad ;
+                        sh:maxCount 0 ;
+                    ]
+                ]
+                [
+                    sh:property [
+                        sh:path nltl:longitudinalFrameOrientation ;
+                        sh:hasValue true ;
+                    ] ;
+                    sh:property [
+                        sh:path nltl:structuralLocation ;
+                        sh:hasValue nltl:sideStructureLocation ;
+                    ] ;
+                    sh:property [
+                        sh:path nltl:midspanPlasticCollapseLoad ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:node [
+                            sh:class qudt:QuantityValue ;
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1 ;
+                            ] ;
+                            sh:property [
+                                sh:path qudt:unit ;
+                                sh:hasValue unit:KiloN ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1 ;
+                            ]
+                        ]
+                    ] ;
+                    sh:property [
+                        sh:path nltl:plasticStrength ;
+                        sh:maxCount 0 ;
+                    ]
+                ]
+            ) ;
+
+            sh:property [
+                sh:path nltl:hasStructuralMemberLoadCase ;
+                sh:node [
+                    a sh:NodeShape ;
+                    sh:property [
+                        sh:path nltl:combinedShearAndBendingDemand ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:node [
+                            sh:class qudt:QuantityValue ;
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1 ;
+                            ]
+                        ]
+                    ]
+                ]
+            ] ;
+
+            sh:sparql [
+                sh:message "A represented load-case demand must not exceed the selected plastic strength." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX sh: <http://www.w3.org/ns/shacl#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:longitudinalFrameOrientation true ;
+                              nltl:structuralLocation nltl:sideStructureLocation ;
+                              nltl:plasticStrength ?capacity ;
+                              nltl:hasStructuralMemberLoadCase ?loadCase .
+                        ?capacity qudt:numericValue ?capacityValue .
+                        ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+                        ?demand qudt:numericValue ?demandValue .
+                        FILTER NOT EXISTS {
+                            $this nltl:midspanPlasticCollapseLoad ?otherCapacity .
+                        }
+                        FILTER (?demandValue > ?capacityValue)
+                    }
+                """
+            ] ;
+
+            sh:sparql [
+                sh:message "A represented load-case demand must not exceed the selected midspan plastic-collapse load." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX sh: <http://www.w3.org/ns/shacl#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:longitudinalFrameOrientation true ;
+                              nltl:structuralLocation nltl:sideStructureLocation ;
+                              nltl:midspanPlasticCollapseLoad ?capacity ;
+                              nltl:hasStructuralMemberLoadCase ?loadCase .
+                        ?capacity qudt:numericValue ?capacityValue .
+                        ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+                        ?demand qudt:numericValue ?demandValue .
+                        FILTER NOT EXISTS {
+                            $this nltl:plasticStrength ?otherCapacity .
+                        }
+                        FILTER (?demandValue > ?capacityValue)
+                    }
+                """
+            ]
+        ]
+    ]
+] .
+<END_SHACL>

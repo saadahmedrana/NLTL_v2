@@ -1,0 +1,152 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:QuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:ForceQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:OutsideIceBeltCalculationShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceLoadForce ;
+        sh:node gen:ForceQuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An ice load force is required when the supported stringer is outside the ice belt."
+    ] ;
+    sh:property [
+        sh:path nltl:stringerOutsideIceBeltHeight ;
+        sh:node gen:LengthQuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The stringer height outside the ice belt is required when the supported stringer is outside the ice belt."
+    ] ;
+    sh:property [
+        sh:path nltl:stringerSpan ;
+        sh:node gen:LengthQuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The stringer span is required when the supported stringer is outside the ice belt."
+    ] ;
+    sh:property [
+        sh:path nltl:adjustedIceLoadForce ;
+        sh:node gen:ForceQuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The adjusted ice load force is required when the supported stringer is outside the ice belt."
+    ] ;
+    sh:sparql [
+        sh:message "Stringer span must not be zero when calculating the adjusted ice load force." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:stringerSpan ?spanQuantity .
+                ?spanQuantity qudt:numericValue ?span .
+                FILTER (?span = 0)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Adjusted ice load force must equal ice load force multiplied by (1 - stringer outside ice belt height divided by stringer span), within a relative tolerance of 1e-6 and an absolute tolerance of 1e-6." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceLoadForce ?forceQuantity ;
+                      nltl:stringerOutsideIceBeltHeight ?heightQuantity ;
+                      nltl:stringerSpan ?spanQuantity ;
+                      nltl:adjustedIceLoadForce ?adjustedQuantity .
+                ?forceQuantity qudt:numericValue ?force .
+                ?heightQuantity qudt:numericValue ?height .
+                ?spanQuantity qudt:numericValue ?span .
+                ?adjustedQuantity qudt:numericValue ?adjusted .
+                FILTER (?span != 0)
+                BIND (?force * (1 - (?height / ?span)) AS ?expected)
+                BIND (IF(?expected >= 0, ?expected, 0 - ?expected) AS ?expectedMagnitude)
+                BIND (IF((?expectedMagnitude * 0.000001) >= 0.000001, (?expectedMagnitude * 0.000001), 0.000001) AS ?tolerance)
+                BIND (IF(?adjusted >= ?expected, ?adjusted - ?expected, ?expected - ?adjusted) AS ?difference)
+                FILTER (?difference > ?tolerance)
+            }
+        """
+    ] .
+
+gen:TRF058WebFrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:property [
+        sh:path nltl:supportedStringerOutsideIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The supported-stringer location must be provided to determine whether the ice-load adjustment applies."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:node gen:OutsideIceBeltCalculationShape
+        ]
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) .

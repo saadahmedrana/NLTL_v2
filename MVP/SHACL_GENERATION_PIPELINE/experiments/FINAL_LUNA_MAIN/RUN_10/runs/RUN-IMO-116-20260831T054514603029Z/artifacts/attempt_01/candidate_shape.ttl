@@ -1,0 +1,92 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-116-Static> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:sewageDischargeType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:notComminutedOrDisinfected ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:nearbyIceConcentration ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "When sewage discharge is not comminuted or disinfected, MARPOL Annex IV regulation 11.1.1 compliance and a distance greater than 12 nautical miles from ice shelf or fast ice must be recorded." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:sewageDischargeType "not_comminuted_or_disinfected" ;
+                      nltl:notComminutedOrDisinfected true .
+
+                FILTER NOT EXISTS {
+                    $this nltl:marpolAnnexIvRegulation11Point1Point1ComplianceStatus true
+                }
+
+                FILTER NOT EXISTS {
+                    $this nltl:distanceToNearestIceShelfOrFastIce ?distance .
+                    ?distance qudt:numericValue ?value ;
+                              qudt:unit unit:MI_N .
+                    FILTER(datatype(?value) = xsd:decimal)
+                    FILTER(?value > 12)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For areas with ice concentration exceeding 1/10, the distance from that area must be recorded in nautical miles." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:nearbyIceConcentration ?concentration .
+                ?concentration qudt:numericValue ?iceValue ;
+                               qudt:unit unit:UNITLESS .
+                FILTER(datatype(?iceValue) = xsd:decimal)
+                FILTER(?iceValue > 1)
+
+                FILTER NOT EXISTS {
+                    $this nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?distance .
+                    ?distance qudt:numericValue ?distanceValue ;
+                              qudt:unit unit:MI_N .
+                    FILTER(datatype(?distanceValue) = xsd:decimal)
+                }
+            }
+        """
+    ] .

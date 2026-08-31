@@ -1,0 +1,201 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:IMO102ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceFreeIceCondition
+            nltl:openWaterIceCondition
+            nltl:otherWatersIceCondition
+        ) ;
+        sh:message "Each ship must have exactly one controlled 12.3.1 ice condition."
+    ] ;
+    sh:property [
+        sh:path nltl:polarTrainingShipTypeClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:tankerPolarTrainingShipType
+            nltl:passengerShipPolarTrainingShipType
+            nltl:otherShipPolarTrainingType
+        ) ;
+        sh:message "Each ship must have exactly one controlled 12.3.1 ship type."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCrewMemberInventory ;
+        sh:class nltl:crewMember
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every represented crew member must have exactly one controlled polar-training role." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasCrewMemberInventory ?crew .
+                FILTER NOT EXISTS {
+                    ?crew nltl:polarTrainingCrewRoleClassification ?role .
+                    FILTER (?role IN (
+                        nltl:masterPolarTrainingRole,
+                        nltl:chiefMatePolarTrainingRole,
+                        nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                    ))
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A crew member must not have more than one distinct controlled polar-training role." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasCrewMemberInventory ?crew .
+                ?crew nltl:polarTrainingCrewRoleClassification ?role1 .
+                ?crew nltl:polarTrainingCrewRoleClassification ?role2 .
+                FILTER (?role1 != ?role2)
+                FILTER (?role1 IN (
+                    nltl:masterPolarTrainingRole,
+                    nltl:chiefMatePolarTrainingRole,
+                    nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                ))
+                FILTER (?role2 IN (
+                    nltl:masterPolarTrainingRole,
+                    nltl:chiefMatePolarTrainingRole,
+                    nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                ))
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable master, chief mate, or OICNW must have a matching training record with the required level and a valid STCW qualification." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceConditionClassification ?ice ;
+                      nltl:polarTrainingShipTypeClassification ?shipType ;
+                      nltl:hasCrewMemberInventory ?crew .
+                ?crew nltl:polarTrainingCrewRoleClassification ?role .
+
+                {
+                    FILTER (
+                        ?ice = nltl:openWaterIceCondition &&
+                        (?shipType = nltl:tankerPolarTrainingShipType ||
+                         ?shipType = nltl:passengerShipPolarTrainingShipType) &&
+                        (?role = nltl:masterPolarTrainingRole ||
+                         ?role = nltl:chiefMatePolarTrainingRole ||
+                         ?role = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole)
+                    )
+                    BIND(nltl:basicPolarTrainingLevel AS ?expected)
+                }
+                UNION
+                {
+                    FILTER (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        (?role = nltl:masterPolarTrainingRole ||
+                         ?role = nltl:chiefMatePolarTrainingRole)
+                    )
+                    BIND(nltl:advancedPolarTrainingLevel AS ?expected)
+                }
+                UNION
+                {
+                    FILTER (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        ?role = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                    )
+                    BIND(nltl:basicPolarTrainingLevel AS ?expected)
+                }
+
+                FILTER NOT EXISTS {
+                    ?crew nltl:hasCrewTrainingRecord ?record .
+                    ?record nltl:requiredTrainingLevel ?expected ;
+                            nltl:trainingRecordLevel ?expected ;
+                            nltl:stcwQualificationValid true .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each represented training record must carry the matrix-required level, an equal training-record level, and true STCW validity for applicable training; non-applicable records must carry the not-applicable level." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceConditionClassification ?ice ;
+                      nltl:polarTrainingShipTypeClassification ?shipType ;
+                      nltl:hasCrewMemberInventory ?crew .
+                ?crew nltl:polarTrainingCrewRoleClassification ?role ;
+                      nltl:hasCrewTrainingRecord ?record .
+
+                {
+                    FILTER (?ice = nltl:iceFreeIceCondition)
+                    BIND(nltl:polarTrainingNotApplicable AS ?expected)
+                    BIND(false AS ?stcwRequired)
+                }
+                UNION
+                {
+                    FILTER (
+                        ?ice = nltl:openWaterIceCondition &&
+                        ?shipType = nltl:otherShipPolarTrainingType
+                    )
+                    BIND(nltl:polarTrainingNotApplicable AS ?expected)
+                    BIND(false AS ?stcwRequired)
+                }
+                UNION
+                {
+                    FILTER (
+                        ?ice = nltl:openWaterIceCondition &&
+                        (?shipType = nltl:tankerPolarTrainingShipType ||
+                         ?shipType = nltl:passengerShipPolarTrainingShipType) &&
+                        (?role = nltl:masterPolarTrainingRole ||
+                         ?role = nltl:chiefMatePolarTrainingRole ||
+                         ?role = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole)
+                    )
+                    BIND(nltl:basicPolarTrainingLevel AS ?expected)
+                    BIND(true AS ?stcwRequired)
+                }
+                UNION
+                {
+                    FILTER (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        (?role = nltl:masterPolarTrainingRole ||
+                         ?role = nltl:chiefMatePolarTrainingRole)
+                    )
+                    BIND(nltl:advancedPolarTrainingLevel AS ?expected)
+                    BIND(true AS ?stcwRequired)
+                }
+                UNION
+                {
+                    FILTER (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        ?role = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                    )
+                    BIND(nltl:basicPolarTrainingLevel AS ?expected)
+                    BIND(true AS ?stcwRequired)
+                }
+
+                FILTER NOT EXISTS {
+                    ?record nltl:requiredTrainingLevel ?expected ;
+                            nltl:trainingRecordLevel ?expected .
+                    FILTER (
+                        ?stcwRequired = false ||
+                        EXISTS {
+                            ?record nltl:stcwQualificationValid true
+                        }
+                    )
+                }
+            }
+        """
+    ] .
+<END_SHACL>

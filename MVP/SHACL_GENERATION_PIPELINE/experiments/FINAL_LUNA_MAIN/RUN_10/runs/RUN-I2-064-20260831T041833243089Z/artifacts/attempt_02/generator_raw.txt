@@ -1,0 +1,147 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_064_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class nltl:calculationCase ;
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue nltl:linearCalculationMethodValue ;
+                sh:class nltl:calculationMethodValue ;
+                sh:message "A calculation case must explicitly identify the linear calculation method."
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue qudt:MegaPA
+            ]
+        ] ;
+        sh:message "The ship must provide one decimal yield-strength value in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node [
+            sh:class nltl:structuralMember ;
+            sh:class nltl:hullStructure ;
+            sh:property [
+                sh:path nltl:bucklingCriteriaSatisfied ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true ;
+                sh:message "Each represented structural member must confirm that the applicable buckling criteria are satisfied."
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberWeb ;
+                sh:node [
+                    sh:class nltl:structuralMemberWeb ;
+                    sh:property [
+                        sh:path nltl:nominalShearStress ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:node [
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ] ;
+                            sh:property [
+                                sh:path qudt:unit ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1 ;
+                                sh:hasValue qudt:MegaPA
+                            ]
+                        ] ;
+                        sh:message "Each represented member web must provide one decimal nominal shear stress in MPa."
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberFlange ;
+                sh:node [
+                    sh:class nltl:structuralMemberFlange ;
+                    sh:property [
+                        sh:path nltl:nominalFlangeVonMisesStress ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:node [
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ] ;
+                            sh:property [
+                                sh:path qudt:unit ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1 ;
+                                sh:hasValue qudt:MegaPA
+                            ]
+                        ] ;
+                        sh:message "Each represented member flange must provide one decimal nominal von Mises stress in MPa."
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "For the linear calculation method, every represented web nominal shear stress must be less than yield strength divided by sqrt(3), and every represented flange von Mises stress must be less than 1.15 times yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case nltl:calculationMethod nltl:linearCalculationMethodValue .
+                $this nltl:yieldStrength ?yieldQuantity .
+                ?yieldQuantity qudt:numericValue ?yieldValue .
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasStructuralMember ?member .
+                    ?member nltl:hasStructuralMemberWeb ?web .
+                    ?web nltl:nominalShearStress ?shearQuantity .
+                    ?shearQuantity qudt:numericValue ?shearValue .
+                    FILTER (?shearValue >= (?yieldValue / 1.7320508075688772))
+                }
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasStructuralMember ?member2 .
+                    ?member2 nltl:hasStructuralMemberFlange ?flange .
+                    ?flange nltl:nominalFlangeVonMisesStress ?flangeQuantity .
+                    ?flangeQuantity qudt:numericValue ?flangeValue .
+                    FILTER (?flangeValue >= (1.15 * ?yieldValue))
+                }
+            }
+        """
+    ] .
+
+</END_SHACL>

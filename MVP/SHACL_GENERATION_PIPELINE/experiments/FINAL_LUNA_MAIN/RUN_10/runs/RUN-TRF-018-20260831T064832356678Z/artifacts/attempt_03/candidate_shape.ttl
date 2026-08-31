@@ -1,0 +1,83 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-018> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "For applicable ice classes, calculatedRequiredPower and maximumContinuousRatingPower must be supplied as decimal kW quantities, and maximumContinuousRatingPower must meet the calculated power and applicable minimum floor." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?ice .
+                FILTER (
+                    ?ice IN (
+                        nltl:iceClassIaSuper,
+                        nltl:iceClassIa,
+                        nltl:iceClassIb,
+                        nltl:iceClassIc
+                    )
+                )
+                FILTER (
+                    !EXISTS {
+                        $this nltl:calculatedRequiredPower ?calcNode .
+                        ?calcNode qudt:numericValue ?calcValue ;
+                                  qudt:unit unit:KiloW .
+                        FILTER (datatype(?calcValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:calculatedRequiredPower ?badCalcNode .
+                        FILTER NOT EXISTS {
+                            ?badCalcNode qudt:numericValue ?badCalcValue ;
+                                         qudt:unit unit:KiloW .
+                            FILTER (datatype(?badCalcValue) = xsd:decimal)
+                        }
+                    }
+                    ||
+                    !EXISTS {
+                        $this nltl:maximumContinuousRatingPower ?mcrNode .
+                        ?mcrNode qudt:numericValue ?mcrValue ;
+                                 qudt:unit unit:KiloW .
+                        FILTER (datatype(?mcrValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:maximumContinuousRatingPower ?badMcrNode .
+                        FILTER NOT EXISTS {
+                            ?badMcrNode qudt:numericValue ?badMcrValue ;
+                                        qudt:unit unit:KiloW .
+                            FILTER (datatype(?badMcrValue) = xsd:decimal)
+                        }
+                    }
+                    ||
+                    !EXISTS {
+                        $this nltl:calculatedRequiredPower ?requiredNode .
+                        ?requiredNode qudt:numericValue ?requiredValue ;
+                                      qudt:unit unit:KiloW .
+                        $this nltl:maximumContinuousRatingPower ?ratingNode .
+                        ?ratingNode qudt:numericValue ?ratingValue ;
+                                   qudt:unit unit:KiloW .
+                        FILTER (
+                            datatype(?requiredValue) = xsd:decimal &&
+                            datatype(?ratingValue) = xsd:decimal &&
+                            ?ratingValue >= ?requiredValue &&
+                            ?ratingValue >=
+                                IF(
+                                    ?ice = nltl:iceClassIaSuper,
+                                    2800.0,
+                                    1000.0
+                                )
+                        )
+                    }
+                )
+            }
+        """
+    ] .

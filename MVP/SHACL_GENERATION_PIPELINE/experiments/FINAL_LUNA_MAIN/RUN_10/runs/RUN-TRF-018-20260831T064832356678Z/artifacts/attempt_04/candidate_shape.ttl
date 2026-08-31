@@ -1,0 +1,139 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-018-ship> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "An applicable ice-class ship must provide calculatedRequiredPower and maximumContinuousRatingPower as decimal kW quantities." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (
+                    ?iceClass IN (
+                        nltl:iceClassIaSuper,
+                        nltl:iceClassIa,
+                        nltl:iceClassIb,
+                        nltl:iceClassIc
+                    )
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:calculatedRequiredPower ?calculatedQuantity .
+                        ?calculatedQuantity qudt:numericValue ?calculatedValue ;
+                                             qudt:unit qudt:KiloW .
+                        FILTER (datatype(?calculatedValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:maximumContinuousRatingPower ?mcrQuantity .
+                        ?mcrQuantity qudt:numericValue ?mcrValue ;
+                                     qudt:unit qudt:KiloW .
+                        FILTER (datatype(?mcrValue) = xsd:decimal)
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Applicable power quantities must use decimal numeric values and the kW unit." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (
+                    ?iceClass IN (
+                        nltl:iceClassIaSuper,
+                        nltl:iceClassIa,
+                        nltl:iceClassIb,
+                        nltl:iceClassIc
+                    )
+                )
+                {
+                    $this nltl:calculatedRequiredPower ?quantity .
+                    ?quantity qudt:numericValue ?value .
+                    FILTER (
+                        datatype(?value) != xsd:decimal
+                        ||
+                        NOT EXISTS {
+                            ?quantity qudt:unit qudt:KiloW .
+                        }
+                    )
+                }
+                UNION
+                {
+                    $this nltl:maximumContinuousRatingPower ?quantity .
+                    ?quantity qudt:numericValue ?value .
+                    FILTER (
+                        datatype(?value) != xsd:decimal
+                        ||
+                        NOT EXISTS {
+                            ?quantity qudt:unit qudt:KiloW .
+                        }
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Maximum continuous rating power must be at least the calculated required power and the applicable ice-class floor." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:calculatedRequiredPower ?calculatedQuantity ;
+                      nltl:maximumContinuousRatingPower ?mcrQuantity .
+
+                ?calculatedQuantity qudt:numericValue ?calculatedValue ;
+                                     qudt:unit qudt:KiloW .
+                ?mcrQuantity qudt:numericValue ?mcrValue ;
+                              qudt:unit qudt:KiloW .
+
+                FILTER (
+                    datatype(?calculatedValue) = xsd:decimal
+                    &&
+                    datatype(?mcrValue) = xsd:decimal
+                )
+
+                FILTER (
+                    (
+                        ?iceClass IN (
+                            nltl:iceClassIa,
+                            nltl:iceClassIb,
+                            nltl:iceClassIc
+                        )
+                        &&
+                        (
+                            ?mcrValue < ?calculatedValue
+                            ||
+                            ?mcrValue < 1000
+                        )
+                    )
+                    ||
+                    (
+                        ?iceClass = nltl:iceClassIaSuper
+                        &&
+                        (
+                            ?mcrValue < ?calculatedValue
+                            ||
+                            ?mcrValue < 2800
+                        )
+                    )
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,310 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthMQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthMmQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:AngleQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/DEG> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:StructuralMemberShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthMQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:DimensionlessQuantityShape
+    ] .
+
+gen:NonApplicablePlatingShape
+    a sh:NodeShape ;
+    sh:class nltl:plating ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:AngleQuantityShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The plating is applicable only when framing angle Omega is at most 20 degrees." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:framingAngleOmega ?omegaNode .
+                ?omegaNode qudt:numericValue ?omega .
+                FILTER ( ?omega <= 20 )
+            }
+        """
+    ] .
+
+gen:ApplicableBranchBGreaterEqualSShape
+    a sh:NodeShape ;
+    sh:class nltl:plating ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:AngleQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:platingSupportedByStructuralMember ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:StructuralMemberShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadRequiredNetPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthMmQuantityShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For applicable plating, the b >= s calculation branch requires Omega <= 20 degrees and load patch height b >= frame spacing s." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasPlating $this .
+                $this nltl:framingAngleOmega ?omegaNode ;
+                      nltl:platingSupportedByStructuralMember ?member .
+                ?omegaNode qudt:numericValue ?omega .
+                ?member nltl:frameSpacing ?sNode .
+                ?sNode qudt:numericValue ?s .
+                ?ship nltl:loadPatchHeight ?bNode .
+                ?bNode qudt:numericValue ?b .
+                FILTER ( ?omega > 20 || ?b < ?s )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The applicable b >= s branch is missing one or more required ship-owned formula operands." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasPlating $this .
+                FILTER (
+                    NOT EXISTS {
+                        ?ship nltl:averageIcePressure ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:frameSpan ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/M> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:loadPatchHeight ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/M> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:peakPressureFactor ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:yieldStrength ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                    }
+                )
+            }
+        """
+    ] .
+
+gen:ApplicableBranchBLessThanSShape
+    a sh:NodeShape ;
+    sh:class nltl:plating ;
+    sh:property [
+        sh:path nltl:framingAngleOmega ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:AngleQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:platingSupportedByStructuralMember ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:StructuralMemberShape
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadRequiredNetPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthMmQuantityShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For applicable plating, the b < s calculation branch requires Omega <= 20 degrees and load patch height b < frame spacing s." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasPlating $this .
+                $this nltl:framingAngleOmega ?omegaNode ;
+                      nltl:platingSupportedByStructuralMember ?member .
+                ?omegaNode qudt:numericValue ?omega .
+                ?member nltl:frameSpacing ?sNode .
+                ?sNode qudt:numericValue ?s .
+                ?ship nltl:loadPatchHeight ?bNode .
+                ?bNode qudt:numericValue ?b .
+                FILTER ( ?omega > 20 || ?b >= ?s )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The applicable b < s branch is missing one or more required ship-owned formula operands." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasPlating $this .
+                FILTER (
+                    NOT EXISTS {
+                        ?ship nltl:averageIcePressure ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:frameSpan ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/M> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:loadPatchHeight ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/M> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:peakPressureFactor ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:yieldStrength ?p .
+                        ?p qudt:numericValue ?v .
+                        ?p qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                    }
+                )
+            }
+        """
+    ] .
+
+gen:I2_023_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPlating ;
+        sh:class nltl:plating ;
+        sh:node [
+            sh:or (
+                gen:NonApplicablePlatingShape
+                gen:ApplicableBranchBGreaterEqualSShape
+                gen:ApplicableBranchBLessThanSShape
+            )
+        ]
+    ] .

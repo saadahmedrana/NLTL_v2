@@ -1,0 +1,119 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:I2-064> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class nltl:calculationCase ;
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:minCount 1 ;
+                sh:or [
+                    rdf:first [
+                        sh:hasValue nltl:linearCalculationMethodValue
+                    ] ;
+                    rdf:rest [
+                        rdf:first [
+                            sh:hasValue nltl:nonlinearCalculationMethodValue
+                        ] ;
+                        rdf:rest rdf:nil
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "For a linear calculation case, yield strength, structural-member buckling evidence, web shear stress, and flange von Mises stress must be present with the prescribed units and satisfy the direct checks." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case nltl:calculationMethod nltl:linearCalculationMethodValue .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:yieldStrength ?yield .
+                        ?yield qudt:numericValue ?yieldValue ;
+                               qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                        FILTER (datatype(?yieldValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:yieldStrength ?yield .
+                        ?yield qudt:numericValue ?yieldValue ;
+                               qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                        FILTER (datatype(?yieldValue) = xsd:decimal)
+
+                        FILTER NOT EXISTS {
+                            $this nltl:hasStructuralMember ?member .
+                            ?member nltl:hasStructuralMemberWeb ?web .
+                            ?web nltl:nominalShearStress ?shear .
+                            ?shear qudt:numericValue ?shearValue ;
+                                   qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                            FILTER (
+                                datatype(?shearValue) = xsd:decimal &&
+                                ?shearValue < (?yieldValue / 1.7320508075688772)
+                            )
+                        }
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:yieldStrength ?yield .
+                        ?yield qudt:numericValue ?yieldValue ;
+                               qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                        FILTER (datatype(?yieldValue) = xsd:decimal)
+
+                        FILTER NOT EXISTS {
+                            $this nltl:hasStructuralMember ?member .
+                            ?member nltl:hasStructuralMemberFlange ?flange .
+                            ?flange nltl:nominalFlangeVonMisesStress ?flangeStress .
+                            ?flangeStress qudt:numericValue ?flangeValue ;
+                                          qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                            FILTER (
+                                datatype(?flangeValue) = xsd:decimal &&
+                                ?flangeValue < (1.15 * ?yieldValue)
+                            )
+                        }
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasStructuralMember ?member .
+                        FILTER NOT EXISTS {
+                            ?member nltl:hasStructuralMemberWeb ?web .
+                        }
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasStructuralMember ?member .
+                        FILTER NOT EXISTS {
+                            ?member nltl:hasStructuralMemberFlange ?flange .
+                        }
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasStructuralMember ?member .
+                        FILTER NOT EXISTS {
+                            ?member nltl:bucklingCriteriaSatisfied ?buckling .
+                            FILTER (
+                                datatype(?buckling) = xsd:boolean &&
+                                ?buckling = true
+                            )
+                        }
+                    }
+                )
+            }
+        """
+    ] .
+</urn:nltl:generated-shape:I2-064>
+<END_SHACL>

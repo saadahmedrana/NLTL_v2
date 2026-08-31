@@ -1,0 +1,133 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-031-QuantityValueShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:TRF-031-Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:property [
+        sh:path nltl:yieldPoint ;
+        sh:node <urn:nltl:generated-shape:TRF-031-QuantityValueShape> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    sh:property [
+        sh:path nltl:combinedBendingShearStress ;
+        sh:node <urn:nltl:generated-shape:TRF-031-QuantityValueShape> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    sh:property [
+        sh:path nltl:yieldShearStress ;
+        sh:node <urn:nltl:generated-shape:TRF-031-QuantityValueShape> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    sh:property [
+        sh:path nltl:beamTheoryUsed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:allowableShearStress ;
+                sh:node <urn:nltl:generated-shape:TRF-031-QuantityValueShape> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:sparql [
+                sh:message "When beam theory is used, allowable shear stress must be no larger than 0.9 times yield shear stress." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:beamTheoryUsed true ;
+                              nltl:allowableShearStress ?allowable ;
+                              nltl:yieldShearStress ?yieldShear .
+                        ?allowable qudt:numericValue ?allowableValue .
+                        ?yieldShear qudt:numericValue ?yieldShearValue .
+                        FILTER (?allowableValue > (0.9 * ?yieldShearValue))
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) ;
+
+    sh:sparql [
+        sh:message "Combined bending and shear stress must be lower than the yield point." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:combinedBendingShearStress ?combined ;
+                      nltl:yieldPoint ?yieldPoint .
+                ?combined qudt:numericValue ?combinedValue .
+                ?yieldPoint qudt:numericValue ?yieldPointValue .
+                FILTER (?combinedValue >= ?yieldPointValue)
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        sh:message "Yield shear stress must equal yield point divided by sqrt(3) within a relative tolerance of 1e-6 plus an absolute tolerance of 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:yieldPoint ?yieldPoint ;
+                      nltl:yieldShearStress ?yieldShear .
+                ?yieldPoint qudt:numericValue ?yieldPointValue .
+                ?yieldShear qudt:numericValue ?yieldShearValue .
+                BIND (?yieldPointValue / 1.7320508075688772935 AS ?expectedValue)
+                BIND ((?expectedValue * 0.000001) + 0.000000001 AS ?tolerance)
+                FILTER (
+                    (?yieldShearValue < (?expectedValue - ?tolerance))
+                    ||
+                    (?yieldShearValue > (?expectedValue + ?tolerance))
+                )
+            }
+        """
+    ] .
