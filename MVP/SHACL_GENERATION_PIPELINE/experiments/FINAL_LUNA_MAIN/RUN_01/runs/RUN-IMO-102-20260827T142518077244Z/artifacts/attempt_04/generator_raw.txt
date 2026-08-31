@@ -1,0 +1,148 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gs:IMO102ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceFreeIceCondition
+            nltl:openWaterIceCondition
+            nltl:otherWatersIceCondition
+        ) ;
+        sh:message "The ship must have exactly one controlled 12.3.1 ice condition."
+    ] ;
+    sh:property [
+        sh:path nltl:polarTrainingShipTypeClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:tankerPolarTrainingShipType
+            nltl:passengerShipPolarTrainingShipType
+            nltl:otherShipPolarTrainingType
+        ) ;
+        sh:message "The ship must have exactly one controlled 12.3.1 ship type."
+    ] ;
+    sh:sparql [
+        sh:message "Each role-qualified crew member must have exactly one applicable controlled role and the matrix-required polar training record." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT ?this WHERE {
+                ?this nltl:hasCrewMemberInventory ?crew .
+                ?this nltl:iceConditionClassification ?ice .
+                ?this nltl:polarTrainingShipTypeClassification ?shipType .
+                ?crew nltl:polarTrainingCrewRoleClassification ?role .
+
+                FILTER (
+                    (
+                        ?ice = nltl:iceFreeIceCondition &&
+                        EXISTS {
+                            ?crew nltl:hasPolarTrainingRecord ?notApplicableRecord .
+                        }
+                    )
+                    ||
+                    (
+                        ?ice = nltl:openWaterIceCondition &&
+                        ?shipType = nltl:otherShipPolarTrainingType &&
+                        EXISTS {
+                            ?crew nltl:hasPolarTrainingRecord ?notApplicableOpenWaterRecord .
+                        }
+                    )
+                    ||
+                    (
+                        ?ice = nltl:openWaterIceCondition &&
+                        (
+                            ?shipType = nltl:tankerPolarTrainingShipType ||
+                            ?shipType = nltl:passengerShipPolarTrainingShipType
+                        ) &&
+                        (
+                            NOT EXISTS {
+                                ?crew nltl:hasPolarTrainingRecord ?basicRecord .
+                                ?basicRecord nltl:requiredTrainingLevel nltl:basicPolarTrainingLevel ;
+                                    nltl:trainingRecordLevel nltl:basicPolarTrainingLevel ;
+                                    nltl:stcwQualificationValid true .
+                            }
+                            ||
+                            EXISTS {
+                                ?crew nltl:hasPolarTrainingRecord ?basicRecord1 .
+                                ?crew nltl:hasPolarTrainingRecord ?basicRecord2 .
+                                FILTER (?basicRecord1 != ?basicRecord2)
+                            }
+                        )
+                    )
+                    ||
+                    (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        (
+                            ?role = nltl:masterPolarTrainingRole ||
+                            ?role = nltl:chiefMatePolarTrainingRole
+                        ) &&
+                        (
+                            NOT EXISTS {
+                                ?crew nltl:hasPolarTrainingRecord ?advancedRecord .
+                                ?advancedRecord nltl:requiredTrainingLevel nltl:advancedPolarTrainingLevel ;
+                                    nltl:trainingRecordLevel nltl:advancedPolarTrainingLevel ;
+                                    nltl:stcwQualificationValid true .
+                            }
+                            ||
+                            EXISTS {
+                                ?crew nltl:hasPolarTrainingRecord ?advancedRecord1 .
+                                ?crew nltl:hasPolarTrainingRecord ?advancedRecord2 .
+                                FILTER (?advancedRecord1 != ?advancedRecord2)
+                            }
+                        )
+                    )
+                    ||
+                    (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        ?role = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole &&
+                        (
+                            NOT EXISTS {
+                                ?crew nltl:hasPolarTrainingRecord ?basicOtherWatersRecord .
+                                ?basicOtherWatersRecord nltl:requiredTrainingLevel nltl:basicPolarTrainingLevel ;
+                                    nltl:trainingRecordLevel nltl:basicPolarTrainingLevel ;
+                                    nltl:stcwQualificationValid true .
+                            }
+                            ||
+                            EXISTS {
+                                ?crew nltl:hasPolarTrainingRecord ?basicOtherWatersRecord1 .
+                                ?crew nltl:hasPolarTrainingRecord ?basicOtherWatersRecord2 .
+                                FILTER (?basicOtherWatersRecord1 != ?basicOtherWatersRecord2)
+                            }
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+
+gs:IMO102CrewRoleShape a sh:NodeShape ;
+    sh:targetClass nltl:crewMember ;
+    sh:sparql [
+        sh:message "A role-qualified crew member must have exactly one controlled master, chief mate, or OICNW polar training role." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT ?this WHERE {
+                ?this nltl:polarTrainingCrewRoleClassification ?role1 .
+                FILTER (
+                    ?role1 NOT IN (
+                        nltl:masterPolarTrainingRole,
+                        nltl:chiefMatePolarTrainingRole,
+                        nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                    )
+                    ||
+                    EXISTS {
+                        ?this nltl:polarTrainingCrewRoleClassification ?role2 .
+                        FILTER (?role2 != ?role1)
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

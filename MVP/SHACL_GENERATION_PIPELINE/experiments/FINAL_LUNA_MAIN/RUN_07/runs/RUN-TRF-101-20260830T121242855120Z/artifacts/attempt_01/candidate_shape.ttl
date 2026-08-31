@@ -1,0 +1,319 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF101Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasLoadCase ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101LoadCaseShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeTipOffset ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101BladeTipOffsetValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101PropellerDiameterValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        gen:TRF101ApprovedAnalysisBranch
+        gen:TRF101FormulaBranch
+    ) ;
+    sh:sparql [
+        sh:message "bladeFailureStatus must be true when bladeTipOffset exceeds 10 percent of propellerDiameter and false otherwise" ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:bladeTipOffset ?offsetNode ;
+                      nltl:propellerDiameter ?diameterNode ;
+                      nltl:bladeFailureStatus ?status .
+                ?offsetNode qudt:numericValue ?offset .
+                ?diameterNode qudt:numericValue ?diameter .
+                FILTER (
+                    (?offset > (0.10 * ?diameter) && ?status != true) ||
+                    (?offset <= (0.10 * ?diameter) && ?status != false)
+                )
+            }
+        """
+    ] .
+
+gen:TRF101LoadCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bladeFailureLoadApplicationRadiusRatio ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101RadiusRatioValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureLoadWeakestDirectionConfirmed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] .
+
+gen:TRF101ApprovedAnalysisBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:approvedNonlinearBladeStressAnalysis ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:approvalRecord
+    ] .
+
+gen:TRF101FormulaBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bladeChordLengthAtWeakestSection ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101ChordValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMaximumThicknessAtWeakestSection ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101ThicknessValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeCylindricalRootRadius ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101RootRadiusValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMinimumYieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101YieldStrengthValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeUltimateTensileStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101UltimateStrengthValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeReferenceStrength1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101ReferenceStrengthValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureUltimateLoad ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF101UltimateLoadValueShape
+    ] ;
+    sh:sparql [
+        sh:message "bladeReferenceStrength1 and bladeFailureUltimateLoad must satisfy the prescribed blade failure load formulas within a relative tolerance of 1e-6 plus an absolute tolerance of 1e-12" ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:bladeChordLengthAtWeakestSection ?cNode ;
+                      nltl:bladeMaximumThicknessAtWeakestSection ?tNode ;
+                      nltl:bladeCylindricalRootRadius ?rNode ;
+                      nltl:bladeMinimumYieldStrength ?yieldNode ;
+                      nltl:bladeUltimateTensileStrength ?ultimateNode ;
+                      nltl:bladeReferenceStrength1 ?referenceNode ;
+                      nltl:propellerDiameter ?diameterNode ;
+                      nltl:bladeFailureUltimateLoad ?loadNode .
+                ?cNode qudt:numericValue ?c .
+                ?tNode qudt:numericValue ?t .
+                ?rNode qudt:numericValue ?r .
+                ?yieldNode qudt:numericValue ?yield .
+                ?ultimateNode qudt:numericValue ?ultimate .
+                ?referenceNode qudt:numericValue ?reference .
+                ?diameterNode qudt:numericValue ?diameter .
+                ?loadNode qudt:numericValue ?load .
+                BIND ((0.6 * ?yield) + (0.4 * ?ultimate) AS ?expectedReference)
+                BIND ((300 * ?c * ?t * ?t * ?expectedReference) /
+                      ((0.8 * ?diameter) - (2 * ?r)) AS ?expectedLoad)
+                FILTER (
+                    (?reference - ?expectedReference >
+                        ((1e-6 * ABS(?expectedReference)) + 1e-12)) ||
+                    (?expectedReference - ?reference >
+                        ((1e-6 * ABS(?expectedReference)) + 1e-12)) ||
+                    (?load - ?expectedLoad >
+                        ((1e-6 * ABS(?expectedLoad)) + 1e-12)) ||
+                    (?expectedLoad - ?load >
+                        ((1e-6 * ABS(?expectedLoad)) + 1e-12))
+                )
+            }
+        """
+    ] .
+
+gen:TRF101BladeTipOffsetValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/M>
+    ] .
+
+gen:TRF101PropellerDiameterValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/M>
+    ] .
+
+gen:TRF101RadiusRatioValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 0.8 ;
+        sh:maxInclusive 0.8
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS>
+    ] .
+
+gen:TRF101ChordValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/M>
+    ] .
+
+gen:TRF101ThicknessValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/M>
+    ] .
+
+gen:TRF101RootRadiusValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/M>
+    ] .
+
+gen:TRF101YieldStrengthValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA>
+    ] .
+
+gen:TRF101UltimateStrengthValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA>
+    ] .
+
+gen:TRF101ReferenceStrengthValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA>
+    ] .
+
+gen:TRF101UltimateLoadValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN>
+    ] .

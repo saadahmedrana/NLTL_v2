@@ -1,0 +1,157 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF086ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A propeller type is required to determine applicability of the CP-propeller rule."
+    ] ;
+    sh:or (
+        gen:TRF086CPKnownShape
+        gen:TRF086CPUnknownShape
+        gen:TRF086NonCPShape
+    ) .
+
+gen:TRF086CPKnownShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:hasValue "CP" ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrBollard ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "For a CP propeller with known pitch, the MCR bollard-condition propeller pitch is required in metres."
+    ] .
+
+gen:TRF086CPUnknownShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:hasValue "CP" ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue false ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrBollard ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "For a CP propeller with unknown pitch, the MCR bollard-condition propeller pitch is required in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrFreeRunning ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "For a CP propeller with unknown pitch, the MCR free-running propeller pitch is required in metres."
+    ] ;
+    sh:sparql [
+        sh:message "For a CP propeller with unknown pitch, the bollard-condition pitch must equal 0.7 times the free-running pitch within a relative tolerance of 1e-6, with a 1e-6 absolute fallback near zero." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType "CP" ;
+                      nltl:pitchValueKnown false ;
+                      nltl:propellerPitchAtMcrBollard ?bollardQuantity ;
+                      nltl:propellerPitchAtMcrFreeRunning ?freeRunningQuantity .
+
+                ?bollardQuantity qudt:numericValue ?bollardValue ;
+                                  qudt:unit unit:M .
+                ?freeRunningQuantity qudt:numericValue ?freeRunningValue ;
+                                     qudt:unit unit:M .
+
+                BIND((0.7 * ?freeRunningValue) AS ?expectedValue)
+                BIND(IF(?expectedValue >= 0, ?expectedValue, -?expectedValue) AS ?expectedScale)
+                BIND(IF(?expectedScale > 0, 0.000001 * ?expectedScale, 0.000001) AS ?tolerance)
+
+                FILTER(
+                    ?bollardValue < (?expectedValue - ?tolerance)
+                    ||
+                    ?bollardValue > (?expectedValue + ?tolerance)
+                )
+            }
+        """
+    ] .
+
+gen:TRF086NonCPShape a sh:NodeShape ;
+    sh:not [
+        sh:property [
+            sh:path nltl:propellerType ;
+            sh:hasValue "CP"
+        ]
+    ] .
+<END_SHACL>

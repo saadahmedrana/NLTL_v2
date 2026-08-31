@@ -1,0 +1,133 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:StressQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TRF031Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldPoint ;
+        sh:node gs:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:combinedBendingShearStress ;
+        sh:node gs:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:yieldShearStress ;
+        sh:node gs:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:vonMisesYieldCriterion ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:allowableShearStress ;
+                sh:node gs:StressQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Combined bending and shear stress must be lower than the yield point, and yield shear stress must equal yield point divided by square root of three within tolerance; when beam theory is used, allowable shear stress must not exceed 0.9 times the calculated yield shear stress." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:combinedBendingShearStress ?combinedNode ;
+                      nltl:yieldPoint ?yieldNode ;
+                      nltl:yieldShearStress ?resultNode ;
+                      nltl:beamTheoryUsed ?beam .
+
+                ?combinedNode qudt:numericValue ?combined .
+                ?yieldNode qudt:numericValue ?yield .
+                ?resultNode qudt:numericValue ?reported .
+
+                BIND (?yield / 1.7320508075688772 AS ?expected)
+
+                OPTIONAL {
+                    FILTER (?beam = true)
+                    $this nltl:allowableShearStress ?allowableNode .
+                    ?allowableNode qudt:numericValue ?allowable .
+                }
+
+                FILTER (
+                    (?combined >= ?yield)
+                    ||
+                    (
+                        (?expected >= 0)
+                        &&
+                        (
+                            ?reported < (?expected - ((?expected * 0.000001) + 0.000000000001))
+                            ||
+                            ?reported > (?expected + ((?expected * 0.000001) + 0.000000000001))
+                        )
+                    )
+                    ||
+                    (
+                        (?expected < 0)
+                        &&
+                        (
+                            ?reported < (?expected - (((0 - ?expected) * 0.000001) + 0.000000000001))
+                            ||
+                            ?reported > (?expected + (((0 - ?expected) * 0.000001) + 0.000000000001))
+                        )
+                    )
+                    ||
+                    (
+                        (?beam = true)
+                        &&
+                        (?allowable > (0.9 * ?expected))
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

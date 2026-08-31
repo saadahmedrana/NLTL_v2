@@ -1,0 +1,119 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF120_ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each applicable thruster estimation must represent both longitudinal and transverse calculation cases." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:hasComponent ?tb .
+                        ?tb a nltl:thrusterBody ;
+                            nltl:hasNaturalFrequencyCalculationCase ?case .
+                        ?case a nltl:calculationCase ;
+                            nltl:vibrationDirection nltl:longitudinalDirection .
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:hasComponent ?tb .
+                        ?tb a nltl:thrusterBody ;
+                            nltl:hasNaturalFrequencyCalculationCase ?case .
+                        ?case a nltl:calculationCase ;
+                            nltl:vibrationDirection nltl:transverseDirection .
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each longitudinal or transverse thruster estimation case must have damping, water added mass, ship attachment stiffness, and thruster natural frequency inputs or results in the declared owner nodes." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasComponent ?tb .
+                ?tb a nltl:thrusterBody ;
+                    nltl:hasNaturalFrequencyCalculationCase ?case .
+                ?case a nltl:calculationCase ;
+                    nltl:vibrationDirection ?direction .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:damping ?damping .
+                        FILTER (datatype(?damping) = xsd:string)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:waterAddedMass ?waterMass .
+                        ?waterMass a qudt:QuantityValue ;
+                            qudt:numericValue ?waterNumeric ;
+                            qudt:unit unit:KiloGM .
+                        FILTER (datatype(?waterNumeric) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?tb nltl:shipAttachmentStiffness ?stiffness .
+                        ?stiffness a qudt:QuantityValue ;
+                            qudt:numericValue ?stiffnessNumeric ;
+                            qudt:unit unit:KiloN-PER-M .
+                        FILTER (datatype(?stiffnessNumeric) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:thrusterNaturalFrequency ?frequency .
+                        ?frequency a qudt:QuantityValue ;
+                            qudt:numericValue ?frequencyNumeric ;
+                            qudt:unit unit:HZ .
+                        FILTER (datatype(?frequencyNumeric) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:waterAddedMass ?waterMassValue1 , ?waterMassValue2 .
+                        FILTER (?waterMassValue1 != ?waterMassValue2)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:thrusterNaturalFrequency ?frequencyValue1 , ?frequencyValue2 .
+                        FILTER (?frequencyValue1 != ?frequencyValue2)
+                    }
+                    ||
+                    EXISTS {
+                        ?tb nltl:shipAttachmentStiffness ?stiffnessValue1 , ?stiffnessValue2 .
+                        FILTER (?stiffnessValue1 != ?stiffnessValue2)
+                    }
+                )
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:TRF120_CalculationCaseShape>
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasNaturalFrequencyCalculationCase ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:vibrationDirection ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:longitudinalDirection
+            nltl:transverseDirection
+        ) ;
+        sh:message "A thruster natural-frequency calculation case must identify exactly one permitted vibration direction."
+    ] .
+<END_SHACL>

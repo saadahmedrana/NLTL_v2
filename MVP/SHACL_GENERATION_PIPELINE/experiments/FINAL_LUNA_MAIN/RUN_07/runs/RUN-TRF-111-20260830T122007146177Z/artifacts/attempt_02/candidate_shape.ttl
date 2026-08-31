@@ -1,0 +1,119 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-111-ShipShape> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPropellerShaftLineComponent ;
+        sh:class nltl:propellerShaftLineComponent ;
+        sh:minCount 1 ;
+        sh:message "The ship must identify its propeller shaft line components."
+    ] ;
+    sh:property [
+        sh:path nltl:hasPropulsionLoadCase ;
+        sh:node <urn:nltl:generated-shape:TRF-111-LoadCaseShape> ;
+        sh:message "Each represented propulsion load case must contain a valid applicability type and applicable safety-factor information."
+    ] ;
+    sh:sparql [
+        sh:message "When a fatigue load case is represented, each ship component must have a fatigue safety factor of at least 1.5 with a dimensionless quantity value." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasPropulsionLoadCase ?loadCase .
+                ?loadCase nltl:shaftLineLoadCaseType nltl:fatigueLoadCase .
+                FILTER NOT EXISTS {
+                    $this nltl:hasComponent ?component .
+                    FILTER NOT EXISTS {
+                        ?component nltl:fatigueSafetyFactor ?factor .
+                        ?factor qudt:numericValue ?value ;
+                                qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                        FILTER (datatype(?value) = xsd:decimal && ?value >= 1.5)
+                    }
+                }
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:TRF-111-LoadCaseShape> a sh:NodeShape ;
+    sh:class nltl:loadCase ;
+    sh:property [
+        sh:path nltl:shaftLineLoadCaseType ;
+        sh:class nltl:shaftLineLoadCaseTypeValue ;
+        sh:in (
+            nltl:extremeOperationalLoadCase
+            nltl:fatigueLoadCase
+            nltl:bladeFailureLoadCase
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The load case must identify exactly one permitted shaft-line load-case type."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:shaftLineLoadCaseType ;
+                sh:hasValue nltl:extremeOperationalLoadCase
+            ] ;
+            sh:property [
+                sh:path nltl:componentYieldSafetyFactor ;
+                sh:node <urn:nltl:generated-shape:TRF-111-DimensionlessQuantityShape> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shaftLineLoadCaseType ;
+                sh:hasValue nltl:fatigueLoadCase
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shaftLineLoadCaseType ;
+                sh:hasValue nltl:bladeFailureLoadCase
+            ] ;
+            sh:property [
+                sh:path nltl:componentYieldSafetyFactor ;
+                sh:node <urn:nltl:generated-shape:TRF-111-DimensionlessQuantityShape> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "The component yield safety factor must be at least 1.3 for extreme operational loads and at least 1.0 for blade-failure loads." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shaftLineLoadCaseType ?caseType ;
+                      nltl:componentYieldSafetyFactor ?factor .
+                ?factor qudt:numericValue ?value .
+                FILTER (
+                    (?caseType = nltl:extremeOperationalLoadCase && ?value < 1.3) ||
+                    (?caseType = nltl:bladeFailureLoadCase && ?value < 1.0)
+                )
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:TRF-111-DimensionlessQuantityShape> a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

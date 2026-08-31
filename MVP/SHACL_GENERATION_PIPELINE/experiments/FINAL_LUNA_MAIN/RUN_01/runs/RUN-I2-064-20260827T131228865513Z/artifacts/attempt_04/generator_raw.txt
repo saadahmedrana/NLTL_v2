@@ -1,0 +1,93 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+<urn:nltl:generated-shape:I2-064-ComplexReadiness> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:datatype qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class nltl:calculationCase ;
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:class nltl:calculationMethodValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "For a linear calculation case, each structural member must have applicable hull-structure web and flange nodes with buckling evidence and conforming stress results." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case nltl:calculationMethod nltl:linearCalculationMethodValue .
+                $this nltl:yieldStrength ?yieldQuantity .
+                ?yieldQuantity qudt:numericValue ?yieldValue .
+                FILTER (datatype(?yieldValue) = xsd:decimal)
+
+                $this nltl:hasStructuralMember ?member .
+
+                FILTER (
+                    NOT EXISTS {
+                        ?member nltl:hasStructuralMemberWeb ?web .
+                        ?web a nltl:structuralMemberWeb ;
+                             a nltl:hullStructure ;
+                             nltl:bucklingCriteriaSatisfied true ;
+                             nltl:nominalShearStress ?shearQuantity .
+                        ?shearQuantity qudt:numericValue ?shearValue ;
+                                       qudt:unit unit:MegaPA .
+                        FILTER (
+                            datatype(?shearValue) = xsd:decimal &&
+                            ?shearValue < (?yieldValue / 1.7320508075688772)
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?member nltl:hasStructuralMemberFlange ?flange .
+                        ?flange a nltl:structuralMemberFlange ;
+                                a nltl:hullStructure ;
+                                nltl:bucklingCriteriaSatisfied true ;
+                                nltl:nominalFlangeVonMisesStress ?flangeQuantity .
+                        ?flangeQuantity qudt:numericValue ?flangeValue ;
+                                        qudt:unit unit:MegaPA .
+                        FILTER (
+                            datatype(?flangeValue) = xsd:decimal &&
+                            ?flangeValue < (1.15 * ?yieldValue)
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

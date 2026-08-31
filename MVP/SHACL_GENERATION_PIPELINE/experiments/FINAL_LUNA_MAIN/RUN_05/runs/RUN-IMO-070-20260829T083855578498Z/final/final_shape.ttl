@@ -1,0 +1,93 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-070> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship type is required to determine whether the passenger-ship requirement applies."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a passenger ship, size compatibility must be true and every linked person on board must have exactly one assignment containing exactly one immersion suit or thermal protective aid, but not both." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipType ?shipType .
+                FILTER (?shipType = "passenger_ship"^^xsd:string)
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:sizeCompatibilityStatus ?sizeStatus .
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:sizeCompatibilityStatus ?sizeStatus .
+                        FILTER (?sizeStatus != "true"^^xsd:boolean)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasPersonOnBoardMember ?person .
+                        FILTER (
+                            NOT EXISTS {
+                                ?person nltl:hasPersonalSurvivalEquipmentAssignment ?assignment .
+                            }
+                            ||
+                            EXISTS {
+                                ?person nltl:hasPersonalSurvivalEquipmentAssignment ?assignment1 .
+                                ?person nltl:hasPersonalSurvivalEquipmentAssignment ?assignment2 .
+                                FILTER (?assignment1 != ?assignment2)
+                            }
+                            ||
+                            EXISTS {
+                                ?person nltl:hasPersonalSurvivalEquipmentAssignment ?assignment .
+                                FILTER NOT EXISTS {
+                                    ?assignment nltl:assignedPersonalSurvivalEquipment ?equipment .
+                                }
+                            }
+                            ||
+                            EXISTS {
+                                ?person nltl:hasPersonalSurvivalEquipmentAssignment ?assignment .
+                                ?assignment nltl:assignedPersonalSurvivalEquipment ?equipment1 .
+                                ?assignment nltl:assignedPersonalSurvivalEquipment ?equipment2 .
+                                FILTER (?equipment1 != ?equipment2)
+                            }
+                            ||
+                            EXISTS {
+                                ?person nltl:hasPersonalSurvivalEquipmentAssignment ?assignment .
+                                ?assignment nltl:assignedPersonalSurvivalEquipment ?equipment .
+                                FILTER (
+                                    (
+                                        NOT EXISTS {
+                                            ?equipment a nltl:immersionSuitEquipment .
+                                        }
+                                        &&
+                                        NOT EXISTS {
+                                            ?equipment a nltl:thermalProtectiveAidEquipment .
+                                        }
+                                    )
+                                    ||
+                                    (
+                                        EXISTS {
+                                            ?equipment a nltl:immersionSuitEquipment .
+                                        }
+                                        &&
+                                        EXISTS {
+                                            ?equipment a nltl:thermalProtectiveAidEquipment .
+                                        }
+                                    )
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        """
+    ] .

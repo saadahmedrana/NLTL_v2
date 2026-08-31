@@ -1,0 +1,132 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO102ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceFreeIceCondition
+            nltl:openWaterIceCondition
+            nltl:otherWatersIceCondition
+        ) ;
+        sh:message "The ship shall have exactly one controlled ice condition classification."
+    ] ;
+    sh:property [
+        sh:path nltl:polarTrainingShipTypeClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:tankerPolarTrainingShipType
+            nltl:passengerShipPolarTrainingShipType
+            nltl:otherShipPolarTrainingType
+        ) ;
+        sh:message "The ship shall have exactly one controlled polar training ship type."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCrewMemberInventory ;
+        sh:node gen:IMO102CrewMemberShape
+    ] ;
+    sh:sparql [
+        sh:message "Each applicable crew member shall have a polar training record with a required training level matching the clause 12.3.1 matrix, a matching training record level, and a valid STCW qualification." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceConditionClassification ?ice ;
+                      nltl:polarTrainingShipTypeClassification ?shipType ;
+                      nltl:hasCrewMemberInventory ?crew .
+                ?crew nltl:polarTrainingCrewRoleClassification ?role .
+                BIND(
+                    IF(
+                        ?ice = nltl:iceFreeIceCondition,
+                        nltl:polarTrainingNotApplicable,
+                        IF(
+                            ?ice = nltl:openWaterIceCondition,
+                            IF(
+                                ?shipType = nltl:otherShipPolarTrainingType,
+                                nltl:polarTrainingNotApplicable,
+                                nltl:basicPolarTrainingLevel
+                            ),
+                            IF(
+                                ?role IN (
+                                    nltl:masterPolarTrainingRole,
+                                    nltl:chiefMatePolarTrainingRole
+                                ),
+                                nltl:advancedPolarTrainingLevel,
+                                nltl:basicPolarTrainingLevel
+                            )
+                        )
+                    )
+                    AS ?requiredLevel
+                )
+                FILTER (?requiredLevel != nltl:polarTrainingNotApplicable)
+                FILTER NOT EXISTS {
+                    ?crew nltl:hasPolarTrainingRecord ?record .
+                    ?record nltl:requiredTrainingLevel ?requiredLevel ;
+                            nltl:trainingRecordLevel ?recordLevel ;
+                            nltl:stcwQualificationValid true .
+                    FILTER (?recordLevel = ?requiredLevel)
+                }
+            }
+        """
+    ] .
+
+gen:IMO102CrewMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:polarTrainingCrewRoleClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:masterPolarTrainingRole
+            nltl:chiefMatePolarTrainingRole
+            nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+        ) ;
+        sh:message "Each represented crew member shall have exactly one controlled polar training crew role."
+    ] ;
+    sh:property [
+        sh:path nltl:hasPolarTrainingRecord ;
+        sh:node gen:IMO102TrainingRecordShape
+    ] .
+
+gen:IMO102TrainingRecordShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:requiredTrainingLevel ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:basicPolarTrainingLevel
+            nltl:advancedPolarTrainingLevel
+            nltl:polarTrainingNotApplicable
+        ) ;
+        sh:message "A polar training record shall have exactly one controlled required training level."
+    ] ;
+    sh:property [
+        sh:path nltl:trainingRecordLevel ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:basicPolarTrainingLevel
+            nltl:advancedPolarTrainingLevel
+            nltl:polarTrainingNotApplicable
+        ) ;
+        sh:message "A polar training record shall have exactly one controlled training record level."
+    ] ;
+    sh:property [
+        sh:path nltl:stcwQualificationValid ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "The applicable polar training record shall have a valid STCW qualification."
+    ] .
+<END_SHACL>

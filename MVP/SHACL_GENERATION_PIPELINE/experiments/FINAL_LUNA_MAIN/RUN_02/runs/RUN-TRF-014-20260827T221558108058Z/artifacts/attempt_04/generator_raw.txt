@@ -1,0 +1,238 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF014ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:assessmentDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:firstScheduledDryDockingDate ;
+        sh:datatype xsd:date ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:summerLoadLineFreshWaterDraught ;
+        sh:node gen:TRF014LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:node gen:TRF014LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasClassCertificate ;
+        sh:node gen:TRF014ClassCertificateShape ;
+        sh:class nltl:classCertificate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A class certificate containing the required maximum and minimum ice-class draughts is required."
+    ] ;
+    sh:property [
+        sh:path nltl:hasIceDraughtRestrictionDocument ;
+        sh:class nltl:iceDraughtRestrictionDocument ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An ice-draught restriction document is required."
+    ] ;
+    sh:property [
+        sh:path nltl:retainedOnBoard ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "The ice-draught restriction document must be retained on board."
+    ] ;
+    sh:property [
+        sh:path nltl:readilyAvailableToMaster ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "The ice-draught restriction information must be readily available to the master."
+    ] ;
+    sh:property [
+        sh:path nltl:warningTrianglePresent ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassDraughtMarkPresent ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassDraughtMarkDraughtAmidships ;
+        sh:node gen:TRF014LengthQuantityShape ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "The required ice-class marking is missing or does not match the class-certificate maximum amidships draught for the applicable date and draught conditions." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:constructionDate ?constructionDate ;
+                      nltl:assessmentDate ?assessmentDate ;
+                      nltl:summerLoadLineFreshWaterDraught ?summerQuantity ;
+                      nltl:upperIceWaterlineDraught ?uiwlQuantity .
+
+                ?summerQuantity qudt:numericValue ?summerDraught .
+                ?uiwlQuantity qudt:numericValue ?uiwlDraught .
+
+                FILTER (
+                    (
+                        ?constructionDate >= "2007-07-01"^^xsd:date
+                        &&
+                        ?summerDraught > ?uiwlDraught
+                        &&
+                        NOT EXISTS {
+                            $this nltl:warningTrianglePresent true ;
+                                  nltl:iceClassDraughtMarkPresent true ;
+                                  nltl:iceClassDraughtMarkDraughtAmidships ?markQuantity ;
+                                  nltl:hasClassCertificate ?certificate .
+
+                            ?markQuantity qudt:numericValue ?markDraught .
+                            ?certificate nltl:maximumIceClassDraughtAmidships ?certificateQuantity .
+                            ?certificateQuantity qudt:numericValue ?certificateDraught .
+
+                            FILTER ( ?markDraught = ?certificateDraught )
+                        }
+                    )
+                    ||
+                    (
+                        ?constructionDate < "2007-07-01"^^xsd:date
+                        &&
+                        ?uiwlDraught < ?summerDraught
+                        &&
+                        (
+                            NOT EXISTS {
+                                $this nltl:warningTrianglePresent true ;
+                                      nltl:iceClassDraughtMarkPresent true ;
+                                      nltl:iceClassDraughtMarkDraughtAmidships ?markQuantity ;
+                                      nltl:hasClassCertificate ?certificate .
+
+                                ?markQuantity qudt:numericValue ?markDraught .
+                                ?certificate nltl:maximumIceClassDraughtAmidships ?certificateQuantity .
+                                ?certificateQuantity qudt:numericValue ?certificateDraught .
+
+                                FILTER ( ?markDraught = ?certificateDraught )
+                            }
+                            &&
+                            (
+                                NOT EXISTS {
+                                    $this nltl:firstScheduledDryDockingDate ?dryDockingDate
+                                }
+                                ||
+                                (
+                                    EXISTS {
+                                        $this nltl:firstScheduledDryDockingDate ?dryDockingDate
+                                    }
+                                    &&
+                                    ?dryDockingDate <= ?assessmentDate
+                                    &&
+                                    NOT EXISTS {
+                                        $this nltl:warningTrianglePresent true ;
+                                              nltl:iceClassDraughtMarkPresent true ;
+                                              nltl:iceClassDraughtMarkDraughtAmidships ?markQuantity ;
+                                              nltl:hasClassCertificate ?certificate .
+
+                                        ?markQuantity qudt:numericValue ?markDraught .
+                                        ?certificate nltl:maximumIceClassDraughtAmidships ?certificateQuantity .
+                                        ?certificateQuantity qudt:numericValue ?certificateDraught .
+
+                                        FILTER ( ?markDraught = ?certificateDraught )
+                                    }
+                                )
+                            )
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:TRF014LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF014ClassCertificateShape
+    a sh:NodeShape ;
+    sh:class nltl:classCertificate ;
+    sh:property [
+        sh:path nltl:maximumIceClassDraughtFore ;
+        sh:node gen:TRF014LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:maximumIceClassDraughtAmidships ;
+        sh:node gen:TRF014LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:maximumIceClassDraughtAft ;
+        sh:node gen:TRF014LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:minimumIceClassDraughtFore ;
+        sh:node gen:TRF014LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:minimumIceClassDraughtAmidships ;
+        sh:node gen:TRF014LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:minimumIceClassDraughtAft ;
+        sh:node gen:TRF014LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

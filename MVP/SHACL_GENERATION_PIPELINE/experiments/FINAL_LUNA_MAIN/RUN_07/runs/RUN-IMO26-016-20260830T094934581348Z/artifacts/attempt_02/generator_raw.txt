@@ -1,0 +1,194 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO26-016> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipOperatesInPolarWaters ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeChapter11Dash1Applicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:engagedInTrade ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:lengthOverall ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue qudt:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue qudt:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "When the ship operates in polar waters, ship type and all measurements required by its applicable type branch must be present." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipOperatesInPolarWaters ?operates ;
+                      nltl:shipType ?type .
+                OPTIONAL { $this nltl:lengthOverall ?lengthNode . }
+                OPTIONAL { $this nltl:grossTonnage ?tonnageNode . }
+                OPTIONAL { $this nltl:engagedInTrade ?trade . }
+                FILTER (
+                    ?operates = true &&
+                    (
+                        (STR(?type) = "fishing_vessel" && !BOUND(?lengthNode)) ||
+                        ((STR(?type) = "pleasure_yacht" || STR(?type) = "cargo_ship") && !BOUND(?tonnageNode)) ||
+                        (STR(?type) = "pleasure_yacht" && !BOUND(?trade))
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Chapter 11-1 applicability must be false when the ship does not operate in polar waters." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipOperatesInPolarWaters ?operates ;
+                      nltl:polarCodeChapter11Dash1Applicable ?applicable .
+                FILTER (?operates = false && ?applicable = true)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Chapter 11-1 applicability must match the fishing-vessel length threshold." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipOperatesInPolarWaters true ;
+                      nltl:shipType ?type ;
+                      nltl:polarCodeChapter11Dash1Applicable ?applicable ;
+                      nltl:lengthOverall ?lengthNode .
+                ?lengthNode qudt:numericValue ?length ;
+                            qudt:unit qudt:M .
+                FILTER (
+                    STR(?type) = "fishing_vessel" &&
+                    (
+                        (?length >= 24 && ?applicable != true) ||
+                        (?length < 24 && ?applicable = true)
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Chapter 11-1 applicability must match the pleasure-yacht tonnage and trade conditions." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipOperatesInPolarWaters true ;
+                      nltl:shipType ?type ;
+                      nltl:grossTonnage ?tonnageNode ;
+                      nltl:engagedInTrade ?trade ;
+                      nltl:polarCodeChapter11Dash1Applicable ?applicable .
+                ?tonnageNode qudt:numericValue ?tonnage ;
+                             qudt:unit qudt:UNITLESS .
+                FILTER (
+                    STR(?type) = "pleasure_yacht" &&
+                    (
+                        (?tonnage >= 300 && ?trade = false && ?applicable != true) ||
+                        ((?tonnage < 300 || ?trade != false) && ?applicable = true)
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Chapter 11-1 applicability must match the cargo-ship gross-tonnage interval." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipOperatesInPolarWaters true ;
+                      nltl:shipType ?type ;
+                      nltl:grossTonnage ?tonnageNode ;
+                      nltl:polarCodeChapter11Dash1Applicable ?applicable .
+                ?tonnageNode qudt:numericValue ?tonnage ;
+                             qudt:unit qudt:UNITLESS .
+                FILTER (
+                    STR(?type) = "cargo_ship" &&
+                    (
+                        ((?tonnage >= 300 && ?tonnage < 500) && ?applicable != true) ||
+                        ((?tonnage < 300 || ?tonnage >= 500) && ?applicable = true)
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Chapter 11-1 applicability must be false for ship types outside the stated alternatives." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipOperatesInPolarWaters true ;
+                      nltl:shipType ?type ;
+                      nltl:polarCodeChapter11Dash1Applicable ?applicable .
+                FILTER (
+                    STR(?type) NOT IN ("fishing_vessel", "pleasure_yacht", "cargo_ship") &&
+                    ?applicable = true
+                )
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,163 @@
+@prefix gen: <urn:nltl:generated-shape:TRF-058:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF058Shape a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:or (
+        gen:TRF058OutsideIceBeltBranch
+        gen:TRF058InsideIceBeltBranch
+    ) .
+
+gen:TRF058InsideIceBeltBranch a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:supportedStringerOutsideIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue false ;
+        sh:message "supportedStringerOutsideIceBelt must explicitly indicate that the stringer is not outside the ice belt."
+    ] .
+
+gen:TRF058OutsideIceBeltBranch a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:supportedStringerOutsideIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "supportedStringerOutsideIceBelt must explicitly indicate applicability of the outside-ice-belt calculation."
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN>
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:stringerOutsideIceBeltHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue <http://qudt.org/vocab/unit/M>
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:stringerSpan ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue <http://qudt.org/vocab/unit/M>
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:adjustedIceLoadForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN>
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "stringerSpan must be nonzero before calculating the adjusted ice load force." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:stringerSpan ?spanNode .
+                ?spanNode qudt:numericValue ?span .
+                FILTER (?span = 0)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "adjustedIceLoadForce must equal iceLoadForce multiplied by (1 - stringerOutsideIceBeltHeight / stringerSpan) within the permitted numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceLoadForce ?forceNode ;
+                      nltl:stringerOutsideIceBeltHeight ?heightNode ;
+                      nltl:stringerSpan ?spanNode ;
+                      nltl:adjustedIceLoadForce ?adjustedNode .
+                ?forceNode qudt:numericValue ?force .
+                ?heightNode qudt:numericValue ?height .
+                ?spanNode qudt:numericValue ?span .
+                ?adjustedNode qudt:numericValue ?reported .
+                FILTER (?span != 0)
+                BIND (?force * (1 - (?height / ?span)) AS ?expected)
+                FILTER (
+                    (?expected > 0 &&
+                        (
+                            ((?reported - ?expected) > (?expected * 0.000001)) ||
+                            ((?expected - ?reported) > (?expected * 0.000001))
+                        )
+                    ) ||
+                    (?expected < 0 &&
+                        (
+                            ((?reported - ?expected) > ((-?expected) * 0.000001)) ||
+                            ((?expected - ?reported) > ((-?expected) * 0.000001))
+                        )
+                    ) ||
+                    (?expected = 0 &&
+                        (
+                            (?reported - ?expected) > 0.000001 ||
+                            (?expected - ?reported) > 0.000001
+                        )
+                    )
+                )
+            }
+        """
+    ] .

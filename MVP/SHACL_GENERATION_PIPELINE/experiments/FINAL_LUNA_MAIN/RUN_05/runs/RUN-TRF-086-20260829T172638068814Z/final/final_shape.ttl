@@ -1,0 +1,120 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF086Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:LengthQuantityShape
+            ] ;
+            sh:message "For a CP propeller with a known pitch value, the MCR bollard pitch must be supplied."
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:LengthQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:LengthQuantityShape
+            ] ;
+            sh:sparql [
+                sh:message "For a CP propeller with unknown pitch value, the MCR bollard pitch must equal 0.7 times the MCR free-running pitch within the permitted numerical tolerance." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerPitchAtMcrBollard ?bollardQuantity .
+                        $this nltl:propellerPitchAtMcrFreeRunning ?freeRunningQuantity .
+                        ?bollardQuantity qudt:numericValue ?bollardValue .
+                        ?freeRunningQuantity qudt:numericValue ?freeRunningValue .
+                        BIND(0.7 * ?freeRunningValue AS ?expectedValue)
+                        BIND(
+                            IF(
+                                ?expectedValue >= 0.001,
+                                ?expectedValue * 0.000001,
+                                0.000000001
+                            ) AS ?tolerance
+                        )
+                        FILTER(
+                            ?bollardValue < (?expectedValue - ?tolerance)
+                            ||
+                            ?bollardValue > (?expectedValue + ?tolerance)
+                        )
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:datatype xsd:string ;
+                sh:pattern "^(?!CP$).*$" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) .

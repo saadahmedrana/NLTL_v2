@@ -1,0 +1,166 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_051_ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceShearForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDistributionFactor ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:node [
+            sh:class nltl:calculationCase ;
+            sh:property [
+                sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:shearForceDirection ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue nltl:positiveShearForce
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "For every positive-shear calculation case in the specified longitudinal envelope, the paired longitudinal distribution factor must be 0.0 from aft through 0.6 LUI and 1.0 from 0.9 LUI through LUI, and FI must equal Cf times FIB with MN converted to kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:upperIceWaterlineLengthLUI ?luiNode ;
+                       nltl:designVerticalIceForceAtBow ?fibNode ;
+                       nltl:designVerticalIceShearForce ?fiNode ;
+                       nltl:hasCalculationCase ?case .
+
+                ?luiNode qudt:numericValue ?lui .
+                ?fibNode qudt:numericValue ?fib .
+                ?fiNode qudt:numericValue ?fi .
+
+                ?case nltl:hullGirderLongitudinalPositionFromAft ?positionNode ;
+                      nltl:shearForceDirection nltl:positiveShearForce .
+                ?positionNode qudt:numericValue ?position .
+
+                FILTER (?lui > 0)
+                FILTER (?position >= 0 && ?position <= ?lui)
+                FILTER (?position <= (?lui * 0.6) || ?position >= (?lui * 0.9))
+
+                BIND(IF(?position <= (?lui * 0.6), 0.0, 1.0) AS ?expectedCf)
+                BIND((?expectedCf * ?fib * 1000.0) AS ?expectedFi)
+                BIND((ABS(?expectedFi) * 0.000001) AS ?relativeTolerance)
+                BIND(IF(?relativeTolerance > 0.000001,
+                        ?relativeTolerance,
+                        0.000001) AS ?tolerance)
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:longitudinalDistributionFactor ?cfNode .
+                        ?cfNode qudt:numericValue ?cf .
+                        FILTER (?cf = ?expectedCf)
+                    }
+                    ||
+                    ABS(?fi - ?expectedFi) > ?tolerance
+                )
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,351 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2_048_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasSteelGradeRequirementCase ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeRequirementCase ;
+        sh:node gs:I2_048_CaseShape
+    ] .
+
+gs:I2_048_CaseShape
+    a sh:NodeShape ;
+    sh:class nltl:steelGradeRequirementCase ;
+    sh:property [
+        sh:path nltl:steelGradeRequirementCasePlating ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:plating ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each steel grade requirement case must identify exactly one assessed plating."
+    ] ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:tableReferenceValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue nltl:iacsUrI2Table8 ;
+        sh:message "Each steel grade requirement case must reference IACS UR I2 Table 8."
+    ] ;
+    sh:property [
+        sh:path nltl:asBuiltPlateThickness ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Each case must provide exactly one as-built plate thickness in millimetres."
+    ] ;
+    sh:property [
+        sh:path nltl:steelMaterialClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelMaterialClassValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each case must provide exactly one steel material class."
+    ] ;
+    sh:property [
+        sh:path nltl:steelStrengthCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelStrengthCategoryValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each case must provide exactly one steel strength category."
+    ] ;
+    sh:property [
+        sh:path nltl:actualHullStructuralSteelGrade ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each represented case must provide exactly one actual hull structural steel grade."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredHullStructuralSteelGrade ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeValue ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A case with an applicable Table 8 selection must provide a required hull structural steel grade." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasSteelGradeRequirementCase $this .
+                ?ship nltl:polarClass ?pc .
+                $this nltl:asBuiltPlateThickness ?q .
+                ?q qudt:numericValue ?th .
+                $this nltl:steelMaterialClass ?mat .
+                $this nltl:steelStrengthCategory ?cat .
+                FILTER (
+                    (
+                        ?cat = nltl:normalStrengthSteelCategory &&
+                        !(
+                            ?mat = nltl:steelMaterialClassThree &&
+                            ?th > 35 &&
+                            ?pc IN (
+                                nltl:polarClassPc1,
+                                nltl:polarClassPc2,
+                                nltl:polarClassPc3,
+                                nltl:polarClassPc4,
+                                nltl:polarClassPc5
+                            )
+                        )
+                    )
+                    ||
+                    ?cat = nltl:highTensileSteelCategory
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:requiredHullStructuralSteelGrade ?required .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A not-applicable Table 8 combination must not carry a required grade result." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasSteelGradeRequirementCase $this .
+                ?ship nltl:polarClass ?pc .
+                $this nltl:asBuiltPlateThickness ?q .
+                ?q qudt:numericValue ?th .
+                $this nltl:steelMaterialClass nltl:steelMaterialClassThree .
+                $this nltl:steelStrengthCategory nltl:normalStrengthSteelCategory .
+                FILTER (
+                    ?th > 35 &&
+                    ?pc IN (
+                        nltl:polarClassPc1,
+                        nltl:polarClassPc2,
+                        nltl:polarClassPc3,
+                        nltl:polarClassPc4,
+                        nltl:polarClassPc5
+                    )
+                )
+                $this nltl:requiredHullStructuralSteelGrade ?required .
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The actual hull structural steel grade must meet or exceed the Table 8 grade rank for the same strength category and selectors." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasSteelGradeRequirementCase $this .
+                ?ship nltl:polarClass ?pc .
+                $this nltl:asBuiltPlateThickness ?q .
+                ?q qudt:numericValue ?th .
+                $this nltl:steelMaterialClass ?mat .
+                $this nltl:steelStrengthCategory ?cat .
+                $this nltl:actualHullStructuralSteelGrade ?actual .
+                $this nltl:requiredHullStructuralSteelGrade ?required .
+                ?actual nltl:steelGradeOrderRank ?actualRank .
+                ?required nltl:steelGradeOrderRank ?requiredRank .
+                FILTER (
+                    (
+                        ?cat = nltl:normalStrengthSteelCategory &&
+                        (
+                            (
+                                ?mat = nltl:steelMaterialClassOne &&
+                                ?th <= 10 &&
+                                ?requiredRank = 1
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassOne &&
+                                ?th > 10 && ?th <= 35 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 2) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 1)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassOne &&
+                                ?th > 35 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 3) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 2)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassTwo &&
+                                ?th <= 10 &&
+                                ?requiredRank = 1
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassTwo &&
+                                ?th > 10 && ?th <= 30 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 2) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 1)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassTwo &&
+                                ?th > 30 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 3) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 2)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassThree &&
+                                ?th <= 10 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 3) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 1)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassThree &&
+                                ?th > 10 && ?th <= 35 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 3) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 2)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassThree &&
+                                ?th > 35 &&
+                                ?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) &&
+                                ?requiredRank = 3
+                            )
+                        )
+                    )
+                    ||
+                    (
+                        ?cat = nltl:highTensileSteelCategory &&
+                        (
+                            (
+                                ?mat = nltl:steelMaterialClassOne &&
+                                ?th <= 10 &&
+                                ?requiredRank = 1
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassOne &&
+                                ?th > 10 && ?th <= 35 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 2) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 1)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassOne &&
+                                ?th > 35 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 3) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 2)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassTwo &&
+                                ?th <= 10 &&
+                                ?requiredRank = 1
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassTwo &&
+                                ?th > 10 && ?th <= 30 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 2) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 1)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassTwo &&
+                                ?th > 30 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 3) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 2)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassThree &&
+                                ?th <= 10 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 3) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 1)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassThree &&
+                                ?th > 10 && ?th <= 35 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 3) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 2)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassThree &&
+                                ?th > 35 && ?th <= 45 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3) && ?requiredRank = 4) ||
+                                    (?pc IN (nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 3) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 2)
+                                )
+                            ) ||
+                            (
+                                ?mat = nltl:steelMaterialClassThree &&
+                                ?th > 45 &&
+                                (
+                                    (?pc IN (nltl:polarClassPc1,nltl:polarClassPc2,nltl:polarClassPc3,nltl:polarClassPc4,nltl:polarClassPc5) && ?requiredRank = 4) ||
+                                    (?pc IN (nltl:polarClassPc6,nltl:polarClassPc7) && ?requiredRank = 3)
+                                )
+                            )
+                        )
+                    )
+                )
+                FILTER (?actualRank < ?requiredRank)
+            }
+        """
+    ] .
+
+gs:I2_048_PolarClassReadiness
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every represented steel grade requirement case must have a ship Polar Class selector." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasSteelGradeRequirementCase ?case .
+                FILTER NOT EXISTS {
+                    $this nltl:polarClass ?pc .
+                }
+            }
+        """
+    ] .
+<END_SHACL>

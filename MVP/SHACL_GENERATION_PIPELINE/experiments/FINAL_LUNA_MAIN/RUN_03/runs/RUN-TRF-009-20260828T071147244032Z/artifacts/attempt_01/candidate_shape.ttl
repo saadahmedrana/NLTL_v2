@@ -1,0 +1,123 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF009_ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:message "The ship must specify an ice class for applicability assessment."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "The ship must specify its keel-laying or comparable construction-stage date for applicability assessment."
+    ] ;
+    sh:or (
+        [
+            sh:node <urn:nltl:generated-shape:TRF009_NonApplicableShape>
+        ]
+        [
+            sh:node <urn:nltl:generated-shape:TRF009_ApplicableShape>
+        ]
+    ) .
+
+<urn:nltl:generated-shape:TRF009_NonApplicableShape>
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The ship does not satisfy the non-applicable alternative because it falls within the IA or IA Super pre-1 September 2003 applicability condition." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:constructionStageDate ?constructionStageDate .
+                FILTER (
+                    ?iceClass IN (
+                        nltl:iceClassIa,
+                        nltl:iceClassIaSuper
+                    )
+                    && ?constructionStageDate < "2003-09-01"^^xsd:date
+                )
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:TRF009_ApplicableShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:in (
+            nltl:iceClassIa
+            nltl:iceClassIaSuper
+        ) ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:deliveryDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "An applicable ship must specify its delivery date."
+    ] ;
+    sh:property [
+        sh:path nltl:assessmentDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "An applicable ship must specify the assessment date."
+    ] ;
+    sh:property [
+        sh:path nltl:engineOutputComplianceMethod ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:engineOutputComplianceMethodValue ;
+        sh:minCount 1 ;
+        sh:message "An applicable ship must specify a permitted 2017 Ice Class Regulations compliance method."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The applicable ship must use a permitted 2017 method by 1 January of the year twenty years after delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:constructionStageDate ?constructionStageDate ;
+                      nltl:deliveryDate ?deliveryDate ;
+                      nltl:assessmentDate ?assessmentDate .
+                FILTER (
+                    ?iceClass IN (
+                        nltl:iceClassIa,
+                        nltl:iceClassIaSuper
+                    )
+                    && ?constructionStageDate < "2003-09-01"^^xsd:date
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:engineOutputComplianceMethod ?method .
+                    FILTER (
+                        ?method IN (
+                            nltl:traficom2017Section3Point2Point2Method,
+                            nltl:traficom2017Section3Point2Point4Method
+                        )
+                    )
+                    FILTER (
+                        YEAR(?assessmentDate) < YEAR(?deliveryDate) + 20
+                        ||
+                        (
+                            YEAR(?assessmentDate) = YEAR(?deliveryDate) + 20
+                            && MONTH(?assessmentDate) = 1
+                            && DAY(?assessmentDate) = 1
+                        )
+                    )
+                }
+            }
+        """
+    ] .

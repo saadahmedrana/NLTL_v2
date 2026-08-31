@@ -1,0 +1,121 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF086Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single propeller type is required to determine applicability."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP"^^xsd:string
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:MetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:maxCount 0
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP"^^xsd:string
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:MetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:MetreQuantityShape
+            ] ;
+            sh:sparql [
+                sh:message "For a CP propeller with unknown pitch, the bollard-condition pitch must equal 0.7 times the free-running pitch within the specified tolerance." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX sh: <http://www.w3.org/ns/shacl#>
+                    PREFIX unit: <http://qudt.org/vocab/unit/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT ?this
+                    WHERE {
+                        ?this nltl:propellerPitchAtMcrFreeRunning ?freeQuantity .
+                        ?freeQuantity qudt:numericValue ?freeValue ;
+                                      qudt:unit unit:M .
+                        ?this nltl:propellerPitchAtMcrBollard ?bollardQuantity .
+                        ?bollardQuantity qudt:numericValue ?observed ;
+                                         qudt:unit unit:M .
+                        BIND ((0.7 * ?freeValue) AS ?expected)
+                        BIND (((0.000001 * ?expected) + 0.000000000001) AS ?tolerance)
+                        FILTER (
+                            ?observed < (?expected - ?tolerance) ||
+                            ?observed > (?expected + ?tolerance)
+                        )
+                    }
+                """
+            ]
+        ]
+        [
+            sh:sparql [
+                sh:message "This CP-propeller requirement is not applicable when the propeller type is not CP." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT ?this
+                    WHERE {
+                        ?this nltl:propellerType ?type .
+                        FILTER (?type != "CP")
+                    }
+                """
+            ]
+        ]
+    ) .
+
+gen:MetreQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

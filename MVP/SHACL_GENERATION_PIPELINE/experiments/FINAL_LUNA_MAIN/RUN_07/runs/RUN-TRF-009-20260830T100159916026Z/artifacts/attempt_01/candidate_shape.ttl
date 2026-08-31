@@ -1,0 +1,117 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-009-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "A ship must provide its ice class to determine applicability of TRF-009."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:deliveryDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:assessmentDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:engineOutputComplianceMethod ;
+        sh:nodeKind sh:IRI
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an IA Super or IA ship constructed before 1 September 2003, the ship must provide an allowed 2017-regulation compliance method, delivery date, and assessment date, and the assessment date must not be later than 1 January in the year twenty years after delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                OPTIONAL { $this nltl:constructionStageDate ?constructionDate . }
+                OPTIONAL { $this nltl:deliveryDate ?deliveryDate . }
+                OPTIONAL { $this nltl:assessmentDate ?assessmentDate . }
+
+                FILTER (
+                    ?iceClass IN (
+                        nltl:iceClassIaSuper,
+                        nltl:iceClassIa
+                    )
+                )
+
+                FILTER (
+                    !BOUND(?constructionDate)
+                    ||
+                    (
+                        YEAR(?constructionDate) < 2003
+                        ||
+                        (
+                            YEAR(?constructionDate) = 2003
+                            &&
+                            (
+                                MONTH(?constructionDate) < 9
+                                ||
+                                (
+                                    MONTH(?constructionDate) = 9
+                                    &&
+                                    DAY(?constructionDate) < 1
+                                )
+                            )
+                        )
+                    )
+                )
+
+                FILTER (
+                    !BOUND(?constructionDate)
+                    ||
+                    !BOUND(?deliveryDate)
+                    ||
+                    !BOUND(?assessmentDate)
+                    ||
+                    NOT EXISTS {
+                        $this nltl:engineOutputComplianceMethod ?validMethod .
+                        FILTER (
+                            ?validMethod IN (
+                                nltl:traficom2017Section3Point2Point2Method,
+                                nltl:traficom2017Section3Point2Point4Method
+                            )
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:engineOutputComplianceMethod ?invalidMethod .
+                        FILTER (
+                            ?invalidMethod NOT IN (
+                                nltl:traficom2017Section3Point2Point2Method,
+                                nltl:traficom2017Section3Point2Point4Method
+                            )
+                        )
+                    }
+                    ||
+                    YEAR(?assessmentDate) > YEAR(?deliveryDate) + 20
+                    ||
+                    (
+                        YEAR(?assessmentDate) = YEAR(?deliveryDate) + 20
+                        &&
+                        (
+                            MONTH(?assessmentDate) > 1
+                            ||
+                            (
+                                MONTH(?assessmentDate) = 1
+                                &&
+                                DAY(?assessmentDate) > 1
+                            )
+                        )
+                    )
+                )
+            }
+        """
+    ] .

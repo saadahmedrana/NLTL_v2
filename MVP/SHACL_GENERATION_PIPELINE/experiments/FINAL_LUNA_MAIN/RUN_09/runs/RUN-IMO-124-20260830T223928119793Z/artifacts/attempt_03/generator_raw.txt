@@ -1,0 +1,170 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO124Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:operatingArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An operating area is required." ;
+    ] ;
+    sh:property [
+        sh:path nltl:antarcticArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The Antarctic-area reference is required to determine applicability." ;
+    ] ;
+    sh:property [
+        sh:path nltl:marpolAnnexVRegulation6Point1DischargeOccurs ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The MARPOL Annex V regulation 6.1 discharge status is required." ;
+    ] ;
+    sh:or (
+        gen:IMO124ApplicableCase
+        gen:IMO124NonApplicableCase
+    ) .
+
+gen:IMO124ApplicableCase a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:distanceToNearestFastIce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:minInclusive "12"^^xsd:decimal ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MI_N ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+            ] ;
+        ] ;
+        sh:message "In the applicable Antarctic discharge case, the nearest-fast-ice distance must be at least 12 nautical miles." ;
+    ] ;
+    sh:property [
+        sh:path nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MI_N ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+            ] ;
+        ] ;
+        sh:message "In the applicable Antarctic discharge case, the distance from areas exceeding one-tenth ice concentration must be recorded." ;
+    ] ;
+    sh:property [
+        sh:path nltl:nearbyIceConcentration ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:minExclusive "0.1"^^xsd:decimal ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+            ] ;
+        ] ;
+        sh:message "In the applicable Antarctic discharge case, the qualifying nearby ice concentration must exceed 0.1." ;
+    ] ;
+    sh:property [
+        sh:path nltl:foodWasteDischargeOntoIce ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue false ;
+        sh:message "Food waste must not be discharged onto ice in the applicable Antarctic discharge case." ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "This branch applies only when the operating area equals the Antarctic area and a MARPOL Annex V regulation 6.1 discharge occurs." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:operatingArea ?operatingArea ;
+                      nltl:antarcticArea ?antarcticArea ;
+                      nltl:marpolAnnexVRegulation6Point1DischargeOccurs ?discharge .
+                FILTER (
+                    STR(?operatingArea) != STR(?antarcticArea)
+                    || ?discharge != true
+                )
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The recorded distance from the qualifying ice area must be distinct from the nearest-fast-ice distance quantity." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:operatingArea ?operatingArea ;
+                      nltl:antarcticArea ?antarcticArea ;
+                      nltl:marpolAnnexVRegulation6Point1DischargeOccurs ?discharge ;
+                      nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?areaDistance ;
+                      nltl:distanceToNearestFastIce ?nearestDistance .
+                FILTER (
+                    STR(?operatingArea) = STR(?antarcticArea)
+                    && ?discharge = true
+                    && ?areaDistance = ?nearestDistance
+                )
+            }
+        """ ;
+    ] .
+
+gen:IMO124NonApplicableCase a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The non-applicable branch cannot be used for an Antarctic-area MARPOL Annex V regulation 6.1 discharge." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:operatingArea ?operatingArea ;
+                      nltl:antarcticArea ?antarcticArea ;
+                      nltl:marpolAnnexVRegulation6Point1DischargeOccurs ?discharge .
+                FILTER (
+                    STR(?operatingArea) = STR(?antarcticArea)
+                    && ?discharge = true
+                )
+            }
+        """ ;
+    ] .
+<END_SHACL>

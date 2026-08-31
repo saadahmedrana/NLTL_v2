@@ -1,0 +1,121 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF120ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path ( nltl:hasComponent nltl:hasNaturalFrequencyCalculationCase ) ;
+        sh:node <urn:nltl:generated-shape:TRF120CalculationCaseShape>
+    ] ;
+    sh:sparql [
+        sh:message "When a thruster natural-frequency estimation case is present, both longitudinal and transverse cases must be represented." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasComponent ?body .
+                ?body nltl:hasNaturalFrequencyCalculationCase ?case .
+                FILTER NOT EXISTS {
+                    $this nltl:hasComponent ?longBody .
+                    ?longBody nltl:hasNaturalFrequencyCalculationCase ?longCase .
+                    ?longCase nltl:vibrationDirection nltl:longitudinalDirection .
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:hasComponent ?transBody .
+                    ?transBody nltl:hasNaturalFrequencyCalculationCase ?transCase .
+                    ?transCase nltl:vibrationDirection nltl:transverseDirection .
+                }
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:TRF120CalculationCaseShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:vibrationDirection ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:longitudinalDirection
+            nltl:transverseDirection
+        )
+    ] ;
+    sh:sparql [
+        sh:message "Each natural-frequency calculation case must be linked to a thruster body and must account for damping, water added mass, ship attachment stiffness, and the case-related natural-frequency value with the canonical quantity units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasComponent ?body .
+                ?body nltl:hasNaturalFrequencyCalculationCase $this .
+
+                FILTER (
+                    NOT EXISTS {
+                        ?ship nltl:damping ?damping .
+                        FILTER ( datatype(?damping) = xsd:string )
+                        FILTER NOT EXISTS {
+                            ?ship nltl:damping ?otherDamping .
+                            FILTER ( ?otherDamping != ?damping )
+                        }
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:waterAddedMass ?waterMass .
+                        ?waterMass a qudt:QuantityValue ;
+                            qudt:numericValue ?waterNumeric ;
+                            qudt:unit unit:KiloGM .
+                        FILTER ( datatype(?waterNumeric) = xsd:decimal )
+                        FILTER NOT EXISTS {
+                            ?waterMass qudt:numericValue ?otherWaterNumeric .
+                            FILTER ( ?otherWaterNumeric != ?waterNumeric )
+                        }
+                        FILTER NOT EXISTS {
+                            ?waterMass qudt:unit ?otherWaterUnit .
+                            FILTER ( ?otherWaterUnit != unit:KiloGM )
+                        }
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?body nltl:shipAttachmentStiffness ?attachmentStiffness .
+                        ?attachmentStiffness a qudt:QuantityValue ;
+                            qudt:numericValue ?stiffnessNumeric ;
+                            qudt:unit unit:KiloN-PER-M .
+                        FILTER ( datatype(?stiffnessNumeric) = xsd:decimal )
+                        FILTER NOT EXISTS {
+                            ?attachmentStiffness qudt:numericValue ?otherStiffnessNumeric .
+                            FILTER ( ?otherStiffnessNumeric != ?stiffnessNumeric )
+                        }
+                        FILTER NOT EXISTS {
+                            ?attachmentStiffness qudt:unit ?otherStiffnessUnit .
+                            FILTER ( ?otherStiffnessUnit != unit:KiloN-PER-M )
+                        }
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?ship nltl:thrusterNaturalFrequency ?naturalFrequency .
+                        ?naturalFrequency a qudt:QuantityValue ;
+                            qudt:numericValue ?frequencyNumeric ;
+                            qudt:unit unit:HZ .
+                        FILTER ( datatype(?frequencyNumeric) = xsd:decimal )
+                        FILTER NOT EXISTS {
+                            ?naturalFrequency qudt:numericValue ?otherFrequencyNumeric .
+                            FILTER ( ?otherFrequencyNumeric != ?frequencyNumeric )
+                        }
+                        FILTER NOT EXISTS {
+                            ?naturalFrequency qudt:unit ?otherFrequencyUnit .
+                            FILTER ( ?otherFrequencyUnit != unit:HZ )
+                        }
+                    }
+                )
+            }
+        """
+    ] .

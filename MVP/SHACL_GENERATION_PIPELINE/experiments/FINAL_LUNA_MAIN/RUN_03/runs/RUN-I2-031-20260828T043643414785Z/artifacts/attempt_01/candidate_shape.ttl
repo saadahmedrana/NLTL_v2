@@ -1,0 +1,144 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:I2-031-QuantityValue> a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A quantity value must contain one decimal numeric value."
+    ] .
+
+<urn:nltl:generated-shape:I2-031-KiloNewtonQuantity> a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A force quantity must contain one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue qudt:KiloN ;
+        sh:message "A force quantity must use kN."
+    ] .
+
+<urn:nltl:generated-shape:I2-031-LoadCaseShape> a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:node <urn:nltl:generated-shape:I2-031-QuantityValue> ;
+        sh:minCount 1 ;
+        sh:message "Each structural-member load case must provide the combined shear and bending demand."
+    ] .
+
+<urn:nltl:generated-shape:I2-031-StructuralMemberShape> a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:minCount 1 ;
+        sh:in (
+            nltl:bottomStructureLocation
+            nltl:sideStructureLocation
+        ) ;
+        sh:message "Each structural member must identify a bottom or side structure location."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberLoadCase ;
+        sh:node <urn:nltl:generated-shape:I2-031-LoadCaseShape> ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must provide its load case."
+    ] ;
+    sh:property [
+        sh:path nltl:plasticStrength ;
+        sh:node <urn:nltl:generated-shape:I2-031-KiloNewtonQuantity> ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must provide its plastic strength in kN."
+    ] ;
+    sh:property [
+        sh:path nltl:midspanPlasticCollapseLoad ;
+        sh:node <urn:nltl:generated-shape:I2-031-KiloNewtonQuantity> ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must provide the midspan load producing plastic collapse in kN."
+    ] ;
+    sh:sparql [
+        sh:message "For a bottom structural member, the patch-load dimension b must be parallel with the frame direction." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:structuralLocation nltl:bottomStructureLocation .
+                $this nltl:hasStructuralMemberLoadCase ?loadCase .
+                FILTER NOT EXISTS {
+                    ?loadCase nltl:loadPatchOrientation
+                        nltl:loadPatchHeightParallelToFrame .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The combined shear and bending demand must not exceed the member plastic strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMemberLoadCase ?loadCase .
+                ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+                ?demand qudt:numericValue ?demandValue .
+                $this nltl:plasticStrength ?strength .
+                ?strength qudt:numericValue ?strengthValue .
+                FILTER (?demandValue > ?strengthValue)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The plastic strength must equal the midspan load that produces the plastic collapse mechanism." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:midspanPlasticCollapseLoad ?midspanLoad .
+                ?midspanLoad qudt:numericValue ?midspanValue .
+                $this nltl:plasticStrength ?strength .
+                ?strength qudt:numericValue ?strengthValue .
+                FILTER (?midspanValue != ?strengthValue)
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:I2-031-ShipShape> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:minCount 1 ;
+        sh:message "The ship must provide the applicable frame profile type."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node <urn:nltl:generated-shape:I2-031-StructuralMemberShape> ;
+        sh:message "Each linked structural member must satisfy the local-frame strength requirement."
+    ] ;
+    sh:property [
+        sh:path nltl:patchLoad ;
+        sh:node <urn:nltl:generated-shape:I2-031-KiloNewtonQuantity> ;
+        sh:minCount 1 ;
+        sh:message "The patch load must be provided in kN."
+    ] ;
+    sh:property [
+        sh:path nltl:plasticCollapseMechanism ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "The plastic collapse mechanism must be recorded."
+    ] .

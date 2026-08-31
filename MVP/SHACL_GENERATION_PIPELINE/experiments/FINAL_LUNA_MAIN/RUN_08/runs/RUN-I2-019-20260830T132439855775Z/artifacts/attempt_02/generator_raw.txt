@@ -1,0 +1,116 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_019_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gen:I2_019_StructuralMemberShape
+    ] .
+
+gen:I2_019_StructuralMemberShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:hasSpannedHullArea ;
+        sh:node gen:I2_019_HullAreaValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_019_SelectedFactorShape
+    ] ;
+    sh:sparql [
+        sh:message "A structural member spanning a hull area must have a selected hull area factor." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasSpannedHullArea ?hullAreaValue .
+                FILTER NOT EXISTS {
+                    $this nltl:selectedHullAreaFactor ?selectedFactor .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "selectedHullAreaFactor must equal the maximum spanned hull area factor within a relative tolerance of 1e-6, with an absolute fallback of 1e-12 near zero." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:selectedHullAreaFactor ?selectedFactorNode .
+                ?selectedFactorNode qudt:numericValue ?selected .
+
+                {
+                    SELECT $this (MAX(?factor) AS ?expectedMaximum)
+                    WHERE {
+                        $this nltl:hasSpannedHullArea ?hullAreaValue .
+                        ?hullAreaValue nltl:hullAreaFactor ?factorNode .
+                        ?factorNode qudt:numericValue ?factor .
+                        FILTER (datatype(?factor) = xsd:decimal)
+                    }
+                    GROUP BY $this
+                }
+
+                FILTER (datatype(?selected) = xsd:decimal)
+                FILTER (
+                    ABS(?selected - ?expectedMaximum)
+                    >
+                    (0.000001 * ABS(?expectedMaximum) + 0.000000000001)
+                )
+            }
+        """
+    ] .
+
+gen:I2_019_HullAreaValueShape
+    a sh:NodeShape ;
+    sh:class nltl:hullAreaValue ;
+    sh:property [
+        sh:path nltl:hullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:I2_019_HullAreaFactorShape
+    ] .
+
+gen:I2_019_HullAreaFactorShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:I2_019_SelectedFactorShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

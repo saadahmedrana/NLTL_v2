@@ -1,0 +1,151 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-109-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        ) ;
+        sh:message "Any supplied ship category must be a canonical polar ship category value."
+    ] ;
+
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:message "Any supplied ship type must be an xsd:string."
+    ] ;
+
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:message "Any supplied construction date must be an xsd:date."
+    ] ;
+
+    sh:property [
+        sh:path nltl:cargoTankCarriesOil ;
+        sh:datatype xsd:boolean ;
+        sh:message "Any supplied cargo-tank oil-use indicator must be an xsd:boolean."
+    ] ;
+
+    sh:property [
+        sh:path nltl:cargoTankOuterShellSeparation ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Each supplied cargo-tank separation must be a metre QuantityValue with one decimal numeric value."
+    ] ;
+
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable ship, at least one cargo-tank outer-shell separation value is required." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category .
+                $this nltl:shipType ?shipType .
+                $this nltl:constructionDate ?constructionDate .
+                $this nltl:cargoTankCarriesOil ?carriesOil .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER ( ?constructionDate >= "2017-01-01"^^xsd:date )
+                FILTER ( ?carriesOil = true )
+                FILTER NOT EXISTS {
+                    $this nltl:shipType ?excludedShipType .
+                    FILTER ( STR(?excludedShipType) = "oil_tanker" )
+                }
+                FILTER NOT EXISTS {
+                    $this a nltl:oilTanker .
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:cargoTankOuterShellSeparation ?separation
+                }
+            }
+        """
+    ] ;
+
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each cargo-tank outer-shell separation for an applicable ship must be a QuantityValue in metres with a decimal value of at least 0.76." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category .
+                $this nltl:shipType ?shipType .
+                $this nltl:constructionDate ?constructionDate .
+                $this nltl:cargoTankCarriesOil ?carriesOil .
+                $this nltl:cargoTankOuterShellSeparation ?separation .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER ( ?constructionDate >= "2017-01-01"^^xsd:date )
+                FILTER ( ?carriesOil = true )
+                FILTER NOT EXISTS {
+                    $this nltl:shipType ?excludedShipType .
+                    FILTER ( STR(?excludedShipType) = "oil_tanker" )
+                }
+                FILTER NOT EXISTS {
+                    $this a nltl:oilTanker .
+                }
+
+                FILTER (
+                    NOT EXISTS {
+                        ?separation a qudt:QuantityValue
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?separation qudt:numericValue ?numericValue .
+                        FILTER ( datatype(?numericValue) = xsd:decimal )
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?separation qudt:unit unit:M
+                    }
+                    ||
+                    EXISTS {
+                        ?separation qudt:numericValue ?numericValue2 .
+                        FILTER (
+                            datatype(?numericValue2) = xsd:decimal &&
+                            ?numericValue2 < "0.76"^^xsd:decimal
+                        )
+                    }
+                )
+            }
+        """
+    ] .

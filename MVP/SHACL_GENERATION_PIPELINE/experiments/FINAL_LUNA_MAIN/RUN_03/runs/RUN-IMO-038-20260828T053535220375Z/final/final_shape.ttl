@@ -1,0 +1,162 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO_038_LengthMQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:IMO_038_TransversePenetrationQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 760 ;
+        sh:maxInclusive 760
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:IMO_038_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:damageCenterForwardOfMaxBreadth ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:damageCenterForwardOfMaxBreadth ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+    ) ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLength ;
+        sh:node gs:IMO_038_LengthMQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:node gs:IMO_038_LengthMQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDamageExtent ;
+        sh:node gs:IMO_038_LengthMQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:transversePenetration ;
+        sh:node gs:IMO_038_TransversePenetrationQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:verticalDamageExtent ;
+        sh:node gs:IMO_038_LengthMQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:selectedVerticalDamagePosition ;
+        sh:node gs:IMO_038_LengthMQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "Damage extents and selected vertical damage position do not satisfy the required formulas or inclusive range." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:damageCenterForwardOfMaxBreadth ?forward ;
+                      nltl:upperIceWaterlineLength ?lengthNode ;
+                      nltl:upperIceWaterlineDraught ?draughtNode ;
+                      nltl:longitudinalDamageExtent ?longNode ;
+                      nltl:transversePenetration ?penetrationNode ;
+                      nltl:verticalDamageExtent ?verticalNode ;
+                      nltl:selectedVerticalDamagePosition ?selectedNode .
+
+                ?lengthNode qudt:numericValue ?length .
+                ?draughtNode qudt:numericValue ?draught .
+                ?longNode qudt:numericValue ?longitudinal .
+                ?penetrationNode qudt:numericValue ?penetration .
+                ?verticalNode qudt:numericValue ?vertical .
+                ?selectedNode qudt:numericValue ?selected .
+
+                BIND(
+                    IF(
+                        ?forward = true,
+                        0.045 * ?length,
+                        0.015 * ?length
+                    )
+                    AS ?expectedLongitudinal
+                )
+                BIND(
+                    ?expectedLongitudinal * 0.000001 + 0.000000001
+                    AS ?longitudinalTolerance
+                )
+                BIND(
+                    0.20 * ?draught
+                    AS ?twentyPercentDraught
+                )
+                BIND(
+                    IF(
+                        ?twentyPercentDraught < ?expectedLongitudinal,
+                        ?twentyPercentDraught,
+                        ?expectedLongitudinal
+                    )
+                    AS ?expectedVertical
+                )
+                BIND(
+                    ?expectedVertical * 0.000001 + 0.000000001
+                    AS ?verticalTolerance
+                )
+
+                FILTER(
+                    ?penetration < 760 ||
+                    ?penetration > 760 ||
+                    ?longitudinal < (?expectedLongitudinal - ?longitudinalTolerance) ||
+                    ?longitudinal > (?expectedLongitudinal + ?longitudinalTolerance) ||
+                    ?vertical < (?expectedVertical - ?verticalTolerance) ||
+                    ?vertical > (?expectedVertical + ?verticalTolerance) ||
+                    ?selected < 0 ||
+                    ?selected > (1.20 * ?draught)
+                )
+            }
+        """
+    ] .

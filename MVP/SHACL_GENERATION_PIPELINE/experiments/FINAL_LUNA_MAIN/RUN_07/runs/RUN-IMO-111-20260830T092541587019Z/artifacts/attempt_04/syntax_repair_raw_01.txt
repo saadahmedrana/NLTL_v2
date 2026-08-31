@@ -1,0 +1,140 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-111-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship category must be supplied as one canonical polar ship category."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single valid construction date is required."
+    ] ;
+    sh:property [
+        sh:path nltl:tankType ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:oilResidueTank
+            nltl:oilyBilgeWaterHoldingTank
+        ) ;
+        sh:maxCount 1 ;
+        sh:message "Any supplied tank type must be a canonical oil residue tank or oily bilge water holding tank."
+    ] ;
+    sh:property [
+        sh:path nltl:individualTankCapacity ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M3 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:tankOuterShellSeparation ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a Category A or B ship constructed on or after 2017-01-01, an applicable canonical tank type, a complete capacity measurement, and, when capacity is greater than 30 m3, a separation of at least 0.76 m are required." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT ?this
+            WHERE {
+                ?this nltl:shipCategory ?category .
+                ?this nltl:constructionDate ?date .
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                ) .
+                FILTER (?date >= "2017-01-01"^^xsd:date) .
+                FILTER (
+                    NOT EXISTS {
+                        ?this nltl:tankType ?applicableType .
+                        FILTER (
+                            ?applicableType IN (
+                                nltl:oilResidueTank,
+                                nltl:oilyBilgeWaterHoldingTank
+                            )
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?this nltl:individualTankCapacity ?capacity .
+                        ?capacity qudt:numericValue ?capacityValue ;
+                                  qudt:unit unit:M3 .
+                        FILTER (datatype(?capacityValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        ?this nltl:individualTankCapacity ?largeCapacity .
+                        ?largeCapacity qudt:numericValue ?largeCapacityValue ;
+                                       qudt:unit unit:M3 .
+                        FILTER (
+                            datatype(?largeCapacityValue) = xsd:decimal
+                            &&
+                            ?largeCapacityValue > 30
+                        ) .
+                        FILTER NOT EXISTS {
+                            ?this nltl:tankOuterShellSeparation ?separation .
+                            ?separation qudt:numericValue ?separationValue ;
+                                        qudt:unit unit:M .
+                            FILTER (
+                                datatype(?separationValue) = xsd:decimal
+                                &&
+                                ?separationValue >= 0.76
+                            )
+                        }
+                    }
+                )
+            }
+        """
+    ] .
+</END_SHACL>

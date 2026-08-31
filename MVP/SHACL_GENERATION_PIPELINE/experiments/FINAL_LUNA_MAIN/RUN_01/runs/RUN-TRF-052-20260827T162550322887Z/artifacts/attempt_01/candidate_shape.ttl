@@ -1,0 +1,272 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix q: <http://qudt.org/schema/qudt/> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF052FrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:property [
+        sh:path nltl:frameAsymmetrical ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Frame asymmetry status is required and must be a single boolean."
+    ] ;
+    sh:property [
+        sh:path nltl:frameWebAngleToShell ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path q:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path q:unit ;
+                sh:hasValue unit:DEG ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Frame web angle to shell is required as a single degree quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpan ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path q:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path q:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Frame span is required as a single metre quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:message "A single permitted ice-class value is required."
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentSupportStatusByDirectCalculation ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:antitrippingSupportSpacing ;
+        sh:node [
+            sh:property [
+                sh:path q:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path q:unit ;
+                sh:hasValue unit:MilliM ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Antitripping support spacing must be a millimetre quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:hasAntitrippingSupportRegion ;
+        sh:in (
+            nltl:bowRegion
+            nltl:midbodyRegion
+            nltl:sternRegion
+            nltl:otherIceStrengthenedAreaValue
+        )
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the frame is asymmetrical or its web angle is below 90 degrees, antitripping support spacing must not exceed 1300 mm, unless equivalent support is demonstrated by direct calculation." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX q: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameAsymmetrical ?asym ;
+                      nltl:frameWebAngleToShell ?angleNode .
+                ?angleNode q:numericValue ?angle .
+
+                FILTER (
+                    (?asym = true || ?angle < 90.0) &&
+                    NOT EXISTS {
+                        $this nltl:equivalentSupportStatusByDirectCalculation true
+                    } &&
+                    (
+                        NOT EXISTS {
+                            $this nltl:antitrippingSupportSpacing ?spacingNode
+                        }
+                        ||
+                        EXISTS {
+                            $this nltl:antitrippingSupportSpacing ?spacingNode .
+                            ?spacingNode q:numericValue ?spacing .
+                            FILTER (?spacing > 1300.0)
+                        }
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The antitripping support regions must match the frame span and ice-class applicability required by the regulation, unless equivalent support is demonstrated by direct calculation." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX q: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameSpan ?spanNode ;
+                      nltl:iceClass ?ice .
+                ?spanNode q:numericValue ?span .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:equivalentSupportStatusByDirectCalculation true
+                    }
+                    &&
+                    (
+                        (
+                            ?span > 4.0
+                            &&
+                            (
+                                NOT EXISTS {
+                                    $this nltl:hasAntitrippingSupportRegion ?r .
+                                    FILTER (
+                                        ?r IN (
+                                            nltl:bowRegion,
+                                            nltl:midbodyRegion,
+                                            nltl:sternRegion,
+                                            nltl:otherIceStrengthenedAreaValue
+                                        )
+                                    )
+                                }
+                                ||
+                                EXISTS {
+                                    $this nltl:hasAntitrippingSupportRegion ?r .
+                                    FILTER (
+                                        ?r NOT IN (
+                                            nltl:bowRegion,
+                                            nltl:midbodyRegion,
+                                            nltl:sternRegion,
+                                            nltl:otherIceStrengthenedAreaValue
+                                        )
+                                    )
+                                }
+                            )
+                        )
+                        ||
+                        (
+                            ?span <= 4.0
+                            &&
+                            (
+                                (
+                                    ?ice = nltl:iceClassIaSuper
+                                    &&
+                                    (
+                                        NOT EXISTS {
+                                            $this nltl:hasAntitrippingSupportRegion ?r .
+                                            FILTER (
+                                                ?r IN (
+                                                    nltl:bowRegion,
+                                                    nltl:midbodyRegion,
+                                                    nltl:sternRegion,
+                                                    nltl:otherIceStrengthenedAreaValue
+                                                )
+                                            )
+                                        }
+                                        ||
+                                        EXISTS {
+                                            $this nltl:hasAntitrippingSupportRegion ?r .
+                                            FILTER (
+                                                ?r NOT IN (
+                                                    nltl:bowRegion,
+                                                    nltl:midbodyRegion,
+                                                    nltl:sternRegion,
+                                                    nltl:otherIceStrengthenedAreaValue
+                                                )
+                                            )
+                                        }
+                                    )
+                                )
+                                ||
+                                (
+                                    ?ice = nltl:iceClassIa
+                                    &&
+                                    (
+                                        NOT EXISTS {
+                                            $this nltl:hasAntitrippingSupportRegion ?r .
+                                            FILTER (
+                                                ?r IN (
+                                                    nltl:bowRegion,
+                                                    nltl:midbodyRegion
+                                                )
+                                            )
+                                        }
+                                        ||
+                                        EXISTS {
+                                            $this nltl:hasAntitrippingSupportRegion ?r .
+                                            FILTER (
+                                                ?r NOT IN (
+                                                    nltl:bowRegion,
+                                                    nltl:midbodyRegion
+                                                )
+                                            )
+                                        }
+                                    )
+                                )
+                                ||
+                                (
+                                    (
+                                        ?ice = nltl:iceClassIb ||
+                                        ?ice = nltl:iceClassIc
+                                    )
+                                    &&
+                                    (
+                                        NOT EXISTS {
+                                            $this nltl:hasAntitrippingSupportRegion ?r .
+                                            FILTER (?r = nltl:bowRegion)
+                                        }
+                                        ||
+                                        EXISTS {
+                                            $this nltl:hasAntitrippingSupportRegion ?r .
+                                            FILTER (?r != nltl:bowRegion)
+                                        }
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            }
+        """
+    ] .

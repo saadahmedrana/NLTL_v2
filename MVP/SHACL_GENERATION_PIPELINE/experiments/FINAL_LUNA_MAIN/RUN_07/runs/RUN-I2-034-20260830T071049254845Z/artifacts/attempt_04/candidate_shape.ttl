@@ -1,0 +1,121 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_034_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:class nltl:frameProfileTypeValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must specify one frame profile type."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path nltl:longitudinalFrameOrientation ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Each represented structural member must state its longitudinal frame orientation."
+            ] ;
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:class nltl:structuralLocationValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Each represented structural member must specify its structural location."
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each applicable represented load case must provide a decimal combined shear-and-bending demand, and its member must provide decimal KiloN plastic strength and midspan plastic-collapse load." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:longitudinalFrameOrientation true ;
+                        nltl:structuralLocation nltl:sideStructureLocation ;
+                        nltl:hasStructuralMemberLoadCase ?case .
+
+                FILTER (
+                    NOT EXISTS {
+                        ?case nltl:combinedShearAndBendingDemand ?demand .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?member nltl:plasticStrength ?strength .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?member nltl:midspanPlasticCollapseLoad ?collapse .
+                    }
+                    ||
+                    EXISTS {
+                        ?case nltl:combinedShearAndBendingDemand ?demand .
+                        ?demand qudt:numericValue ?demandValue .
+                        FILTER (datatype(?demandValue) != xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        ?member nltl:plasticStrength ?strength .
+                        ?strength qudt:numericValue ?strengthValue ;
+                                 qudt:unit ?strengthUnit .
+                        FILTER (
+                            datatype(?strengthValue) != xsd:decimal
+                            || ?strengthUnit != <http://qudt.org/vocab/unit/KiloN>
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        ?member nltl:midspanPlasticCollapseLoad ?collapse .
+                        ?collapse qudt:numericValue ?collapseValue ;
+                                  qudt:unit ?collapseUnit .
+                        FILTER (
+                            datatype(?collapseValue) != xsd:decimal
+                            || ?collapseUnit != <http://qudt.org/vocab/unit/KiloN>
+                        )
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For each applicable represented load case, the combined shear-and-bending demand must not exceed either member plastic strength or midspan plastic-collapse load." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:longitudinalFrameOrientation true ;
+                        nltl:structuralLocation nltl:sideStructureLocation ;
+                        nltl:hasStructuralMemberLoadCase ?case ;
+                        nltl:plasticStrength ?strength ;
+                        nltl:midspanPlasticCollapseLoad ?collapse .
+                ?case nltl:combinedShearAndBendingDemand ?demand .
+                ?demand qudt:numericValue ?demandValue .
+                ?strength qudt:numericValue ?strengthValue .
+                ?collapse qudt:numericValue ?collapseValue .
+
+                FILTER (
+                    ?demandValue > ?strengthValue
+                    || ?demandValue > ?collapseValue
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,79 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix qudtunit: <http://qudt.org/vocab/unit/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO057ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every fire pump, emergency fire pump, water-mist pump, and water-spray pump must be linked to a compartment whose maintained temperature is a decimal value above 0 deg C." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX qudtunit: <http://qudt.org/vocab/unit/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasComponent ?pump .
+                ?pump rdf:type ?pumpClass .
+                FILTER (
+                    ?pumpClass IN (
+                        nltl:firePump,
+                        nltl:emergencyFirePump,
+                        nltl:waterMistPump,
+                        nltl:waterSprayPump
+                    )
+                )
+                FILTER (
+                    NOT EXISTS {
+                        ?pump nltl:hasContainingCompartment ?compartment
+                    }
+                    ||
+                    EXISTS {
+                        ?pump nltl:hasContainingCompartment ?compartment .
+                        FILTER (
+                            NOT EXISTS {
+                                ?compartment nltl:maintainedTemperature ?temperature .
+                                ?temperature rdf:type qudt:QuantityValue .
+                                ?temperature qudt:numericValue ?value .
+                                ?temperature qudt:unit qudtunit:DEG_C .
+                                FILTER (
+                                    datatype(?value) = xsd:decimal &&
+                                    ?value > 0
+                                )
+                                FILTER NOT EXISTS {
+                                    ?temperature qudt:unit ?otherUnit .
+                                    FILTER (?otherUnit != qudtunit:DEG_C)
+                                }
+                            }
+                            ||
+                            EXISTS {
+                                ?compartment nltl:maintainedTemperature ?invalidTemperature .
+                                FILTER NOT EXISTS {
+                                    ?invalidTemperature rdf:type qudt:QuantityValue .
+                                    ?invalidTemperature qudt:numericValue ?invalidValue .
+                                    ?invalidTemperature qudt:unit qudtunit:DEG_C .
+                                    FILTER (
+                                        datatype(?invalidValue) = xsd:decimal &&
+                                        ?invalidValue > 0
+                                    )
+                                    FILTER NOT EXISTS {
+                                        ?invalidTemperature qudt:unit ?conflictingUnit .
+                                        FILTER (?conflictingUnit != qudtunit:DEG_C)
+                                    }
+                                }
+                            }
+                        )
+                    }
+                )
+            }
+        """ ;
+    ] .
+<END_SHACL>

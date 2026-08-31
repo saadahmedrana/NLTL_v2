@@ -1,0 +1,102 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO_116_Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:sewageDischargeType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:notComminutedOrDisinfected ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:nearbyIceConcentration ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "When sewage discharge is not comminuted or disinfected, the applicability evidence must be true and the ship must be MARPOL compliant, more than 12 nautical miles from ice shelf or fast ice, and record a distance from an area whose ice concentration exceeds 0.1." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:sewageDischargeType ?sewageType .
+                FILTER (
+                    (
+                        STR(?sewageType) = "not comminuted or disinfected"
+                        &&
+                        NOT EXISTS {
+                            $this nltl:notComminutedOrDisinfected true
+                        }
+                    )
+                    ||
+                    (
+                        STR(?sewageType) = "not comminuted or disinfected"
+                        &&
+                        EXISTS {
+                            $this nltl:notComminutedOrDisinfected true
+                        }
+                        &&
+                        NOT EXISTS {
+                            $this nltl:marpolAnnexIvRegulation11Point1Point1ComplianceStatus ?status ;
+                                  nltl:distanceToNearestIceShelfOrFastIce ?nearestDistance ;
+                                  nltl:iceConcentration ?iceConcentration ;
+                                  nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?recordedDistance .
+
+                            ?nearestDistance qudt:numericValue ?nearestValue ;
+                                             qudt:unit unit:MI_N .
+                            ?iceConcentration qudt:numericValue ?iceValue ;
+                                               qudt:unit unit:UNITLESS .
+                            ?recordedDistance qudt:numericValue ?recordedValue ;
+                                              qudt:unit unit:MI_N .
+
+                            FILTER (
+                                ?status = true
+                                &&
+                                DATATYPE(?nearestValue) = xsd:decimal
+                                &&
+                                DATATYPE(?iceValue) = xsd:decimal
+                                &&
+                                DATATYPE(?recordedValue) = xsd:decimal
+                                &&
+                                ?nearestValue > "12"^^xsd:decimal
+                                &&
+                                ?iceValue > "0.1"^^xsd:decimal
+                            )
+                        }
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

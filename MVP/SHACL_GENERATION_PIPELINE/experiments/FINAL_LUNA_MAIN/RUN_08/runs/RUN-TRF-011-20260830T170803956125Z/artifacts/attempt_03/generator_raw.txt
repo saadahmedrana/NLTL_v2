@@ -1,0 +1,153 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-011-QuantityValueShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A waterline coordinate quantity shall have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A waterline coordinate shall use metres as its unit."
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-ProfilePointShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-QuantityValueShape> ;
+        sh:message "Each waterline profile point shall have one longitudinal position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-QuantityValueShape> ;
+        sh:message "Each waterline profile point shall have one vertical coordinate in metres."
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-IceWaterlineShape>
+    a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-ProfilePointShape> ;
+        sh:message "Each represented ice waterline shall contain at least one waterline profile point."
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-IceWaterlineShape> ;
+        sh:message "The ship shall identify its intended ice-operating waterline set."
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-IceWaterlineShape> ;
+        sh:message "The ship shall identify its upper ice waterline."
+    ] ;
+    sh:sparql [
+        sh:message "The upper ice waterline shall contain exactly the intended longitudinal positions, with every upper-waterline vertical coordinate equal, within a scaled tolerance, to the maximum intended vertical coordinate at that position." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                {
+                    SELECT $this ?x
+                           (MAX(?intendedValue) AS ?maximumIntended)
+                           (MIN(?upperValue) AS ?minimumUpper)
+                           (MAX(?upperValue) AS ?maximumUpper)
+                           (COUNT(DISTINCT ?intendedPoint) AS ?intendedCount)
+                           (COUNT(DISTINCT ?upperPoint) AS ?upperCount)
+                    WHERE {
+                        {
+                            $this nltl:hasIntendedIceOperatingWaterline ?candidateIntendedWaterline .
+                            ?candidateIntendedWaterline nltl:hasWaterlineProfilePoint ?candidateIntendedPoint .
+                            ?candidateIntendedPoint nltl:longitudinalPosition ?candidateIntendedPosition .
+                            ?candidateIntendedPosition qudt:numericValue ?candidateIntendedX .
+                            BIND(?candidateIntendedX AS ?x)
+                        }
+                        UNION
+                        {
+                            $this nltl:hasUpperIceWaterline ?candidateUpperWaterline .
+                            ?candidateUpperWaterline nltl:hasWaterlineProfilePoint ?candidateUpperPoint .
+                            ?candidateUpperPoint nltl:longitudinalPosition ?candidateUpperPosition .
+                            ?candidateUpperPosition qudt:numericValue ?candidateUpperX .
+                            BIND(?candidateUpperX AS ?x)
+                        }
+
+                        OPTIONAL {
+                            $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+                            ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+                            ?intendedPoint nltl:longitudinalPosition ?intendedPosition .
+                            ?intendedPosition qudt:numericValue ?intendedX .
+                            FILTER(?intendedX = ?x)
+                            ?intendedPoint nltl:verticalCoordinate ?intendedCoordinate .
+                            ?intendedCoordinate qudt:numericValue ?intendedValue .
+                        }
+
+                        OPTIONAL {
+                            $this nltl:hasUpperIceWaterline ?upperWaterline .
+                            ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+                            ?upperPoint nltl:longitudinalPosition ?upperPosition .
+                            ?upperPosition qudt:numericValue ?upperX .
+                            FILTER(?upperX = ?x)
+                            ?upperPoint nltl:verticalCoordinate ?upperCoordinate .
+                            ?upperCoordinate qudt:numericValue ?upperValue .
+                        }
+                    }
+                    GROUP BY $this ?x
+                }
+
+                FILTER(?intendedCount = 0 || ?upperCount = 0)
+                FILTER(
+                    ?intendedCount > 0 &&
+                    ?upperCount > 0 &&
+                    (
+                        ABS(?minimumUpper - ?maximumIntended) >
+                        (0.000001 * IF(
+                            ABS(?maximumIntended) > 0.000000001,
+                            ABS(?maximumIntended),
+                            0.000000001
+                        ))
+                        ||
+                        ABS(?maximumUpper - ?maximumIntended) >
+                        (0.000001 * IF(
+                            ABS(?maximumIntended) > 0.000000001,
+                            ABS(?maximumIntended),
+                            0.000000001
+                        ))
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

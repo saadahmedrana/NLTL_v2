@@ -1,0 +1,76 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF080PropellerIceLoadCycleShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "For a ship having a propeller ice interaction component, iceLoadCycleCount multiplied by propellerBladeCount must equal effectiveIceLoadCycleCount within a relative tolerance of 1e-6 with a 1e-6 absolute fallback; the result must use unit UNITLESS." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasComponent ?component .
+                ?component a nltl:propellerIceInteractionComponent .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceLoadCycleCount ?nice ;
+                              nltl:propellerBladeCount ?blades ;
+                              nltl:effectiveIceLoadCycleCount ?quantity .
+                        ?quantity a qudt:QuantityValue ;
+                                  qudt:numericValue ?reported ;
+                                  qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+
+                        FILTER (
+                            datatype(?nice) = xsd:integer &&
+                            datatype(?blades) = xsd:integer &&
+                            datatype(?reported) = xsd:decimal
+                        )
+
+                        BIND((?nice * ?blades) AS ?expected)
+                        BIND((?expected * 0.000001 + 0.000001) AS ?tolerance)
+
+                        FILTER (
+                            ?reported >= (?expected - ?tolerance) &&
+                            ?reported <= (?expected + ?tolerance)
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:iceLoadCycleCount ?invalidNice .
+                        FILTER (datatype(?invalidNice) != xsd:integer)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:propellerBladeCount ?invalidBlades .
+                        FILTER (datatype(?invalidBlades) != xsd:integer)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:effectiveIceLoadCycleCount ?invalidQuantity .
+                        FILTER NOT EXISTS {
+                            ?invalidQuantity a qudt:QuantityValue ;
+                                             qudt:numericValue ?invalidReported ;
+                                             qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                            FILTER (datatype(?invalidReported) = xsd:decimal)
+                        }
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:effectiveIceLoadCycleCount ?quantityWithWrongUnit .
+                        ?quantityWithWrongUnit qudt:unit ?unit .
+                        FILTER (?unit != <http://qudt.org/vocab/unit/UNITLESS>)
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

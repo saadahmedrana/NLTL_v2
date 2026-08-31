@@ -1,0 +1,94 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-009-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must have an ice class to evaluate the conditional requirement."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A valid construction stage date is required to evaluate applicability."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an IA or IA Super ship whose construction stage date is before 1 September 2003, delivery date, assessment date, and an allowed engine output compliance method are required; the assessment date must be no earlier than 1 January of the year twenty years after delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this a nltl:ship ;
+                      nltl:iceClass ?iceClass ;
+                      nltl:constructionStageDate ?constructionStageDate .
+
+                FILTER (
+                    ?iceClass = nltl:iceClassIa ||
+                    ?iceClass = nltl:iceClassIaSuper
+                )
+
+                FILTER (
+                    datatype(?constructionStageDate) = xsd:date &&
+                    (
+                        YEAR(?constructionStageDate) < 2003 ||
+                        (
+                            YEAR(?constructionStageDate) = 2003 &&
+                            (
+                                MONTH(?constructionStageDate) < 9 ||
+                                (
+                                    MONTH(?constructionStageDate) = 9 &&
+                                    DAY(?constructionStageDate) < 1
+                                )
+                            )
+                        )
+                    )
+                )
+
+                FILTER NOT EXISTS {
+                    $this nltl:deliveryDate ?deliveryDate ;
+                          nltl:assessmentDate ?assessmentDate ;
+                          nltl:engineOutputComplianceMethod ?method .
+
+                    FILTER (
+                        datatype(?deliveryDate) = xsd:date &&
+                        datatype(?assessmentDate) = xsd:date &&
+                        (
+                            ?method = nltl:traficom2017Section3Point2Point2Method ||
+                            ?method = nltl:traficom2017Section3Point2Point4Method
+                        ) &&
+                        (
+                            YEAR(?assessmentDate) > YEAR(?deliveryDate) + 20 ||
+                            (
+                                YEAR(?assessmentDate) = YEAR(?deliveryDate) + 20 &&
+                                (
+                                    MONTH(?assessmentDate) > 1 ||
+                                    (
+                                        MONTH(?assessmentDate) = 1 &&
+                                        DAY(?assessmentDate) >= 1
+                                    )
+                                )
+                            )
+                        )
+                    )
+                }
+
+                FILTER NOT EXISTS {
+                    $this nltl:engineOutputComplianceMethod ?disallowedMethod .
+                    FILTER (
+                        ?disallowedMethod != nltl:traficom2017Section3Point2Point2Method &&
+                        ?disallowedMethod != nltl:traficom2017Section3Point2Point4Method
+                    )
+                }
+            }
+        """
+    ] .

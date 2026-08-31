@@ -1,0 +1,450 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF027Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:message "iceClass must contain exactly one permitted controlled ice-class value."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:in (
+                    nltl:iceClassIb
+                    nltl:iceClassIc
+                    nltl:iceClassIi
+                    nltl:iceClassIii
+                )
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:in (
+                    nltl:iceClassIaSuper
+                    nltl:iceClassIa
+                )
+            ] ;
+            sh:property [
+                sh:path nltl:constructionStageDate ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:date ;
+                sh:message "constructionStageDate is required to establish applicability for IA Super or IA ships."
+            ] ;
+            sh:sparql [
+                sh:message "The construction stage date must be before 1 September 2003 for the applicable IA Super or IA rule." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:iceClass ?iceClass ;
+                              nltl:constructionStageDate ?date .
+                        FILTER (
+                            ?iceClass IN (nltl:iceClassIaSuper, nltl:iceClassIa)
+                        )
+                        FILTER (
+                            YEAR(?date) > 2003 ||
+                            (YEAR(?date) = 2003 && MONTH(?date) > 9) ||
+                            (YEAR(?date) = 2003 && MONTH(?date) = 9 && DAY(?date) >= 1)
+                        )
+                    }
+                """
+            ] ;
+            sh:property gen:ShipLength ;
+            sh:property gen:IceClassDraught ;
+            sh:property gen:ShipBreadth ;
+            sh:property gen:CoefficientC3 ;
+            sh:property gen:CoefficientC4 ;
+            sh:property gen:CoefficientC5 ;
+            sh:property gen:CoefficientF1 ;
+            sh:property gen:CoefficientF2 ;
+            sh:property gen:CoefficientF3 ;
+            sh:property gen:CoefficientF4 ;
+            sh:property gen:CoefficientG1 ;
+            sh:property gen:CoefficientG2 ;
+            sh:property gen:CoefficientG3 ;
+            sh:property gen:ClampedHullGeometryTerm ;
+            sh:sparql [
+                sh:message "clampedHullGeometryTerm must equal the clamped value of ((shipLength * iceClassDraught) / shipBreadth squared) cubed." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:shipLength ?lengthNode ;
+                              nltl:iceClassDraught ?draughtNode ;
+                              nltl:shipBreadth ?breadthNode ;
+                              nltl:clampedHullGeometryTerm ?resultNode .
+                        ?lengthNode qudt:numericValue ?length .
+                        ?draughtNode qudt:numericValue ?draught .
+                        ?breadthNode qudt:numericValue ?breadth .
+                        ?resultNode qudt:numericValue ?reported .
+                        BIND (((?length * ?draught) / (?breadth * ?breadth)) *
+                              ((?length * ?draught) / (?breadth * ?breadth)) *
+                              ((?length * ?draught) / (?breadth * ?breadth))) AS ?raw)
+                        BIND (IF(?raw < 5, 5, IF(?raw > 20, 20, ?raw)) AS ?expected)
+                        BIND ((ABS(?expected) * 0.000001) + 0.000000001 AS ?tolerance)
+                        FILTER (ABS(?reported - ?expected) > ?tolerance)
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:iceClass ;
+                sh:in (
+                    nltl:iceClassIaSuper
+                    nltl:iceClassIa
+                )
+            ] ;
+            sh:property [
+                sh:path nltl:constructionStageDate ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:date ;
+                sh:message "constructionStageDate is required to establish applicability for IA Super or IA ships."
+            ] ;
+            sh:sparql [
+                sh:message "The Table 3-3 and clamped-geometry constraints must not be selected for a construction stage on or after 1 September 2003." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:iceClass ?iceClass ;
+                              nltl:constructionStageDate ?date .
+                        FILTER (
+                            ?iceClass IN (nltl:iceClassIaSuper, nltl:iceClassIa)
+                        )
+                        FILTER (
+                            YEAR(?date) < 2003 ||
+                            (YEAR(?date) = 2003 && MONTH(?date) < 9) ||
+                            (YEAR(?date) = 2003 && MONTH(?date) = 9 && DAY(?date) < 1)
+                        )
+                    }
+                """
+            ]
+        ]
+    ) .
+
+gen:ShipLength
+    sh:path nltl:shipLength ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue unit:M
+        ]
+    ] .
+
+gen:IceClassDraught
+    sh:path nltl:iceClassDraught ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue unit:M
+        ]
+    ] .
+
+gen:ShipBreadth
+    sh:path nltl:shipBreadth ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue unit:M
+        ]
+    ] .
+
+gen:CoefficientC3
+    sh:path nltl:coefficientC3 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "460"^^xsd:decimal ;
+            sh:maxInclusive "460"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue nltl:kilogramPerSquareMetreSquareSecondUnit
+        ]
+    ] .
+
+gen:CoefficientC4
+    sh:path nltl:coefficientC4 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "18.7"^^xsd:decimal ;
+            sh:maxInclusive "18.7"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue nltl:kilogramPerSquareMetreSquareSecondUnit
+        ]
+    ] .
+
+gen:CoefficientC5
+    sh:path nltl:coefficientC5 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "825"^^xsd:decimal ;
+            sh:maxInclusive "825"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue nltl:kilogramPerSquareSecondUnit
+        ]
+    ] .
+
+gen:CoefficientF1
+    sh:path nltl:coefficientF1 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "10.3"^^xsd:decimal ;
+            sh:maxInclusive "10.3"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue <http://qudt.org/vocab/unit/N-PER-M2>
+        ]
+    ] .
+
+gen:CoefficientF2
+    sh:path nltl:coefficientF2 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "45.8"^^xsd:decimal ;
+            sh:maxInclusive "45.8"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue <http://qudt.org/vocab/unit/N-PER-M>
+        ]
+    ] .
+
+gen:CoefficientF3
+    sh:path nltl:coefficientF3 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "2.94"^^xsd:decimal ;
+            sh:maxInclusive "2.94"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue <http://qudt.org/vocab/unit/N-PER-M>
+        ]
+    ] .
+
+gen:CoefficientF4
+    sh:path nltl:coefficientF4 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "5.8"^^xsd:decimal ;
+            sh:maxInclusive "5.8"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue <http://qudt.org/vocab/unit/N-PER-M2>
+        ]
+    ] .
+
+gen:CoefficientG1
+    sh:path nltl:coefficientG1 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "1530"^^xsd:decimal ;
+            sh:maxInclusive "1530"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue <http://qudt.org/vocab/unit/N>
+        ]
+    ] .
+
+gen:CoefficientG2
+    sh:path nltl:coefficientG2 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "170"^^xsd:decimal ;
+            sh:maxInclusive "170"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue <http://qudt.org/vocab/unit/N-PER-M>
+        ]
+    ] .
+
+gen:CoefficientG3
+    sh:path nltl:coefficientG3 ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal ;
+            sh:minInclusive "400"^^xsd:decimal ;
+            sh:maxInclusive "400"^^xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue nltl:newtonPerMetreToPowerOnePointFiveUnit
+        ]
+    ] .
+
+gen:ClampedHullGeometryTerm
+    sh:path nltl:clampedHullGeometryTerm ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:datatype xsd:decimal
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:hasValue unit:UNITLESS
+        ]
+    ] .
+<END_SHACL>

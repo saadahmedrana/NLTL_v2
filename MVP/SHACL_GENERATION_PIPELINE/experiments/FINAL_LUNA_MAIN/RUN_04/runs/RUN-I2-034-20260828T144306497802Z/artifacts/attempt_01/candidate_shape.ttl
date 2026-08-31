@@ -1,0 +1,105 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2_034_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gs:I2_034_StructuralMemberShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each represented structural member must identify whether it is longitudinal and whether it is located in the side structure." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this ?member
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                FILTER (
+                    NOT EXISTS {
+                        ?member nltl:longitudinalFrameOrientation true
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?member nltl:structuralLocation nltl:sideStructureLocation
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For each longitudinal side-structure member and represented load case, the combined shear-and-bending demand must not exceed the member plastic strength or midspan plastic-collapse load, and the required quantities must be valid." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?member ?loadCase
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:longitudinalFrameOrientation true ;
+                        nltl:structuralLocation nltl:sideStructureLocation ;
+                        nltl:hasStructuralMemberLoadCase ?loadCase .
+
+                FILTER (
+                    NOT EXISTS {
+                        ?member nltl:plasticStrength ?strengthQuantity .
+                        ?strengthQuantity qudt:numericValue ?strength ;
+                                           qudt:unit qudt:KiloN .
+                        FILTER (datatype(?strength) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?member nltl:midspanPlasticCollapseLoad ?collapseQuantity .
+                        ?collapseQuantity qudt:numericValue ?collapse ;
+                                          qudt:unit qudt:KiloN .
+                        FILTER (datatype(?collapse) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?loadCase nltl:combinedShearAndBendingDemand ?demandQuantity .
+                        ?demandQuantity qudt:numericValue ?demand .
+                        FILTER (datatype(?demand) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        ?member nltl:plasticStrength ?strengthQuantity2 .
+                        ?strengthQuantity2 qudt:numericValue ?strength2 ;
+                                            qudt:unit qudt:KiloN .
+                        ?member nltl:midspanPlasticCollapseLoad ?collapseQuantity2 .
+                        ?collapseQuantity2 qudt:numericValue ?collapse2 ;
+                                            qudt:unit qudt:KiloN .
+                        ?loadCase nltl:combinedShearAndBendingDemand ?demandQuantity2 .
+                        ?demandQuantity2 qudt:numericValue ?demand2 .
+                        FILTER (
+                            datatype(?strength2) = xsd:decimal &&
+                            datatype(?collapse2) = xsd:decimal &&
+                            datatype(?demand2) = xsd:decimal &&
+                            (?demand2 > ?strength2 || ?demand2 > ?collapse2)
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+
+gs:I2_034_StructuralMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalFrameOrientation ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:class nltl:structuralLocationValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue nltl:sideStructureLocation
+    ] .

@@ -1,0 +1,151 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF011ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011IntendedWaterlineShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011UpperWaterlineShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline must contain exactly the intended waterline envelope: at every intended longitudinal position its vertical coordinate must equal the maximum intended vertical coordinate within tolerance, and no upper-waterline position may be extra or unmatched." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT ?this ?longPos ?expected
+            WHERE {
+                {
+                    SELECT ?this ?longPos (MAX(?intVertical) AS ?expected)
+                    WHERE {
+                        ?this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+                        ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+                        ?intendedPoint nltl:longitudinalPosition ?intendedLongQuantity ;
+                            nltl:verticalCoordinate ?intendedVerticalQuantity .
+                        ?intendedLongQuantity qudt:numericValue ?longPos ;
+                            qudt:unit unit:M .
+                        ?intendedVerticalQuantity qudt:numericValue ?intVertical ;
+                            qudt:unit unit:M .
+                    }
+                    GROUP BY ?this ?longPos
+                }
+
+                FILTER (
+                    NOT EXISTS {
+                        ?this nltl:hasUpperIceWaterline ?upperWaterline .
+                        ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+                        ?upperPoint nltl:longitudinalPosition ?upperLongQuantity ;
+                            nltl:verticalCoordinate ?upperVerticalQuantity .
+                        ?upperLongQuantity qudt:numericValue ?upperLong ;
+                            qudt:unit unit:M .
+                        ?upperVerticalQuantity qudt:numericValue ?upperVertical ;
+                            qudt:unit unit:M .
+                        FILTER (?upperLong = ?longPos)
+                    }
+                    ||
+                    EXISTS {
+                        ?this nltl:hasUpperIceWaterline ?upperWaterline .
+                        ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+                        ?upperPoint nltl:longitudinalPosition ?upperLongQuantity ;
+                            nltl:verticalCoordinate ?upperVerticalQuantity .
+                        ?upperLongQuantity qudt:numericValue ?upperLong ;
+                            qudt:unit unit:M .
+                        ?upperVerticalQuantity qudt:numericValue ?upperVertical ;
+                            qudt:unit unit:M .
+                        FILTER (
+                            ?upperLong = ?longPos &&
+                            ABS(?upperVertical - ?expected) >
+                            (1e-6 * ABS(?expected) + 1e-9)
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        ?this nltl:hasUpperIceWaterline ?upperWaterline .
+                        ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+                        ?upperPoint nltl:longitudinalPosition ?upperLongQuantity .
+                        ?upperLongQuantity qudt:numericValue ?upperLong ;
+                            qudt:unit unit:M .
+                        FILTER NOT EXISTS {
+                            ?this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline2 .
+                            ?intendedWaterline2 nltl:hasWaterlineProfilePoint ?intendedPoint2 .
+                            ?intendedPoint2 nltl:longitudinalPosition ?intendedLongQuantity2 .
+                            ?intendedLongQuantity2 qudt:numericValue ?intendedLong ;
+                                qudt:unit unit:M .
+                            FILTER (?intendedLong = ?upperLong)
+                        }
+                    }
+                )
+            }
+        """
+    ] .
+
+gen:TRF011IntendedWaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011ProfilePointShape
+    ] .
+
+gen:TRF011UpperWaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011ProfilePointShape
+    ] .
+
+gen:TRF011ProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011MetreQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011MetreQuantityShape
+    ] .
+
+gen:TRF011MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

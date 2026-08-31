@@ -1,0 +1,122 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix q: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path q:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path q:unit ;
+                sh:hasValue q:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path q:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path q:unit ;
+                sh:hasValue q:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] .
+
+gen:IceWaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:WaterlineProfilePointShape
+    ] .
+
+gen:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:IceWaterlineShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline must provide bidirectional pointwise coverage and match the intended-waterline maximum at each longitudinal position." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX q: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this ?x ?expected ?actual
+WHERE {
+  {
+    SELECT $this ?x
+           (MAX(?intendedValue) AS ?expected)
+           (MAX(?upperValue) AS ?actual)
+    WHERE {
+      {
+        $this nltl:hasUpperIceWaterline ?upperWaterline .
+        ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+        ?upperPoint nltl:longitudinalPosition ?upperPosition .
+        ?upperPosition q:numericValue ?x .
+        ?upperPoint nltl:verticalCoordinate ?upperCoordinate .
+        ?upperCoordinate q:numericValue ?upperValue .
+      }
+      UNION
+      {
+        $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+        ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+        ?intendedPoint nltl:longitudinalPosition ?intendedPosition .
+        ?intendedPosition q:numericValue ?x .
+        ?intendedPoint nltl:verticalCoordinate ?intendedCoordinate .
+        ?intendedCoordinate q:numericValue ?intendedValue .
+      }
+    }
+    GROUP BY $this ?x
+  }
+  FILTER(
+    !BOUND(?expected) ||
+    !BOUND(?actual) ||
+    ABS(?actual - ?expected) >
+      IF(
+        ABS(?expected) * 0.000001 > 0.000000001,
+        ABS(?expected) * 0.000001,
+        0.000000001
+      )
+  )
+}
+"""
+    ] .
+</BEGIN_SHACL>

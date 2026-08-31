@@ -1,0 +1,173 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF052FrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:property [
+        sh:path nltl:frameAsymmetrical ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A frame asymmetry indication is required to determine antitripping-support applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:frameWebAngleToShell ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/DEG> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The frame web angle to shell must be supplied as a single decimal angle in degrees."
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpan ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The frame span must be supplied as a single decimal length in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single ice class is required to determine the applicable antitripping-support scope."
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentSupportStatusByDirectCalculation ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:equivalentSupportStatusByDirectCalculation ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true ;
+                sh:message "An alternative support arrangement is acceptable only when equivalent support has been demonstrated by direct calculation."
+            ]
+        ]
+        [
+            sh:sparql [
+                sh:message "The frame must satisfy the applicable antitripping-support spacing and regional-scope requirements."
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:frameAsymmetrical ?asymmetry .
+                        $this nltl:frameWebAngleToShell ?angleQuantity .
+                        ?angleQuantity qudt:numericValue ?angle .
+                        ?angleQuantity qudt:unit <http://qudt.org/vocab/unit/DEG> .
+                        $this nltl:frameSpan ?spanQuantity .
+                        ?spanQuantity qudt:numericValue ?span .
+                        ?spanQuantity qudt:unit <http://qudt.org/vocab/unit/M> .
+                        $this nltl:iceClass ?ice .
+
+                        FILTER (
+                            (
+                                (?asymmetry = true || ?angle < 90)
+                                &&
+                                NOT EXISTS {
+                                    $this nltl:antitrippingSupportSpacing ?spacingQuantity .
+                                    ?spacingQuantity qudt:numericValue ?spacing .
+                                    ?spacingQuantity qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+                                    FILTER (
+                                        datatype(?spacing) = xsd:decimal
+                                        && ?spacing <= 1300
+                                    )
+                                }
+                            )
+                            ||
+                            (
+                                ?span > 4
+                                &&
+                                (
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:bowRegion }
+                                    ||
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:midbodyRegion }
+                                    ||
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:sternRegion }
+                                    ||
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:otherIceStrengthenedAreaValue }
+                                )
+                            )
+                            ||
+                            (
+                                ?span <= 4
+                                &&
+                                ?ice = nltl:iceClassIaSuper
+                                &&
+                                (
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:bowRegion }
+                                    ||
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:midbodyRegion }
+                                    ||
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:sternRegion }
+                                    ||
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:otherIceStrengthenedAreaValue }
+                                )
+                            )
+                            ||
+                            (
+                                ?span <= 4
+                                &&
+                                ?ice = nltl:iceClassIa
+                                &&
+                                (
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:bowRegion }
+                                    ||
+                                    NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:midbodyRegion }
+                                )
+                            )
+                            ||
+                            (
+                                ?span <= 4
+                                &&
+                                (
+                                    ?ice = nltl:iceClassIb
+                                    ||
+                                    ?ice = nltl:iceClassIc
+                                )
+                                &&
+                                NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:bowRegion }
+                            )
+                        )
+                    }
+                """
+            ]
+        )
+    ) .
+</END_SHACL>

@@ -1,0 +1,87 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF031Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldPoint ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF031StressQuantityShape ;
+        sh:message "Each ship must provide exactly one yield point in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:combinedBendingShearStress ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF031StressQuantityShape ;
+        sh:message "Each ship must provide exactly one combined bending shear stress in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldShearStress ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF031StressQuantityShape ;
+        sh:message "Each ship must provide exactly one calculated yield shear stress in MPa."
+    ] ;
+    sh:sparql [
+        sh:message "Combined bending and shear stress must be lower than the yield point." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:yieldPoint ?yieldPointNode ;
+                      nltl:combinedBendingShearStress ?combinedNode .
+                ?yieldPointNode qudt:numericValue ?yieldPoint .
+                ?combinedNode qudt:numericValue ?combined .
+                FILTER (?combined >= ?yieldPoint)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Yield shear stress must equal yield point divided by the square root of three within a relative tolerance of 1e-6 and an absolute fallback of 1e-9 MPa." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:yieldPoint ?yieldPointNode ;
+                      nltl:yieldShearStress ?yieldShearNode .
+                ?yieldPointNode qudt:numericValue ?yieldPoint .
+                ?yieldShearNode qudt:numericValue ?reported .
+                BIND((?yieldPoint / 1.7320508075688772) AS ?expected)
+                BIND(IF(?expected >= 0, ?expected, 0 - ?expected) AS ?scale)
+                BIND((?scale * 0.000001 + 0.000000001) AS ?tolerance)
+                BIND((?expected - ?reported) AS ?difference)
+                FILTER(
+                    (?difference >= 0 && ?difference > ?tolerance) ||
+                    (?difference < 0 && (0 - ?difference) > ?tolerance)
+                )
+            }
+        """
+    ] .
+
+gen:TRF031StressQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

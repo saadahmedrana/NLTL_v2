@@ -1,0 +1,180 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-103> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:alternateQualifiedPersonUsed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "passenger ship" "tanker" "cargo ship other than tanker" )
+    ] ;
+    sh:property [
+        sh:path nltl:iceCondition ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:iceConcentration ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:designatedOfficerBasicTrainingStatus ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:alternateQualifiedPersonUsed ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:alternateQualifiedPersonUsed ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:administrationPermissionStatus ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:stcwConventionRegulationIi2ComplianceStatus ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:stcwCodeSectionAIi2ComplianceStatus ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:advancedPolarTrainingStatus ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:watchCoverageStatus ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:restComplianceStatus ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a passenger ship or tanker using an alternate qualified person, ice condition is required and designated officers must have basic training outside open or bergy waters." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:alternateQualifiedPersonUsed true ;
+                      nltl:shipType ?shipType .
+                FILTER (?shipType IN ("passenger ship", "tanker"))
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceCondition ?iceCondition .
+                    }
+                    ||
+                    (
+                        EXISTS {
+                            $this nltl:iceCondition ?applicableCondition .
+                            FILTER (
+                                ?applicableCondition NOT IN
+                                ("open waters", "bergy waters")
+                            )
+                        }
+                        &&
+                        NOT EXISTS {
+                            $this nltl:designatedOfficerBasicTrainingStatus
+                                "true"^^xsd:boolean .
+                        }
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a cargo ship other than a tanker using an alternate qualified person, ice concentration is required and designated officers must have basic training above 2/10 ice concentration." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:alternateQualifiedPersonUsed true ;
+                      nltl:shipType "cargo ship other than tanker" .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceConcentration ?quantity .
+                        ?quantity qudt:numericValue ?value ;
+                                  qudt:unit unit:UNITLESS .
+                        FILTER (datatype(?value) = xsd:decimal)
+                    }
+                    ||
+                    (
+                        EXISTS {
+                            $this nltl:iceConcentration ?applicableQuantity .
+                            ?applicableQuantity qudt:numericValue ?applicableValue ;
+                                                 qudt:unit unit:UNITLESS .
+                            FILTER (
+                                datatype(?applicableValue) = xsd:decimal
+                                &&
+                                ?applicableValue > "0.2"^^xsd:decimal
+                            )
+                        }
+                        &&
+                        NOT EXISTS {
+                            $this nltl:designatedOfficerBasicTrainingStatus
+                                "true"^^xsd:boolean .
+                        }
+                    )
+                )
+            }
+        """
+    ] .

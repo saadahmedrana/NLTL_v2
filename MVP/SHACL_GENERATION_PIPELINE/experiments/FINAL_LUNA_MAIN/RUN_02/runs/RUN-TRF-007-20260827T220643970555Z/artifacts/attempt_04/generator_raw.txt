@@ -1,0 +1,145 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF007ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship must have exactly one ice class."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship must have one construction stage date to determine applicability."
+    ] ;
+    sh:or (
+        <urn:nltl:generated-shape:TRF007ApplicableShape>
+        <urn:nltl:generated-shape:TRF007NonApplicableShape>
+    ) .
+
+<urn:nltl:generated-shape:TRF007ApplicableShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:deliveryDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An applicable ship must have one delivery date."
+    ] ;
+    sh:property [
+        sh:path nltl:assessmentDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An applicable ship must have one assessment date."
+    ] ;
+    sh:property [
+        sh:path nltl:engineOutputComplianceMethod ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:engineOutputComplianceMethodValue ;
+        sh:in (
+            nltl:traficom2017Section3Point2Point2Method
+            nltl:traficom2017Section3Point2Point4Method
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An applicable ship must identify one permitted 2017 regulation compliance method."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "This branch applies only to a ship of ice class IA or IA Super whose construction stage began before 1 September 2003." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?ice ;
+                      nltl:constructionStageDate ?stage .
+                FILTER (
+                    !(?ice IN (
+                        nltl:iceClassIa,
+                        nltl:iceClassIaSuper
+                    ))
+                    ||
+                    YEAR(?stage) > 2003
+                    ||
+                    (YEAR(?stage) = 2003 && MONTH(?stage) > 9)
+                    ||
+                    (YEAR(?stage) = 2003 && MONTH(?stage) = 9 && DAY(?stage) >= 1)
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The assessment date must be no later than 1 January in the year twenty years after the delivery year." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:deliveryDate ?delivery ;
+                      nltl:assessmentDate ?assessment .
+                FILTER (
+                    YEAR(?assessment) > YEAR(?delivery) + 20
+                    ||
+                    (
+                        YEAR(?assessment) = YEAR(?delivery) + 20
+                        &&
+                        (
+                            MONTH(?assessment) > 1
+                            ||
+                            (
+                                MONTH(?assessment) = 1
+                                && DAY(?assessment) > 1
+                            )
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:TRF007NonApplicableShape>
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The non-applicable branch cannot be used for an IA or IA Super ship constructed before 1 September 2003." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?ice ;
+                      nltl:constructionStageDate ?stage .
+                FILTER (
+                    ?ice IN (
+                        nltl:iceClassIa,
+                        nltl:iceClassIaSuper
+                    )
+                    &&
+                    (
+                        YEAR(?stage) < 2003
+                        ||
+                        (YEAR(?stage) = 2003 && MONTH(?stage) < 9)
+                        ||
+                        (
+                            YEAR(?stage) = 2003
+                            && MONTH(?stage) = 9
+                            && DAY(?stage) < 1
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

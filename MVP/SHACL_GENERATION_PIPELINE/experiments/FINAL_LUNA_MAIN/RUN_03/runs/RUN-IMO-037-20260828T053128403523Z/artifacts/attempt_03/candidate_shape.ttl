@@ -1,0 +1,180 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO_037_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:class nltl:polarShipCategoryValue ;
+        sh:minCount 1 ;
+        sh:message "A ship category is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "A construction date is required to determine applicability."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:hasLoadingConditionCase ;
+                sh:node gen:IMO_037_LoadingConditionCaseShape ;
+                sh:minCount 1 ;
+                sh:message "At least one loading condition case is required for an applicable ship."
+            ] ;
+            sh:sparql [
+                sh:message "The ship must be Category A or B and constructed on or after 2017-01-01 for this branch to apply." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:shipCategory ?category ;
+                              nltl:constructionDate ?date .
+                        FILTER (
+                            ?category IN (
+                                nltl:polarShipCategoryA,
+                                nltl:polarShipCategoryB
+                            )
+                            &&
+                            (
+                                YEAR(?date) > 2017
+                                ||
+                                (
+                                    YEAR(?date) = 2017
+                                    &&
+                                    (
+                                        MONTH(?date) > 1
+                                        ||
+                                        (
+                                            MONTH(?date) = 1
+                                            && DAY(?date) >= 1
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    }
+                """
+            ]
+        ]
+        [
+            sh:sparql [
+                sh:message "This non-applicable branch requires a category other than A or B, or a construction date before 2017-01-01." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:shipCategory ?category ;
+                              nltl:constructionDate ?date .
+                        FILTER (
+                            ?category NOT IN (
+                                nltl:polarShipCategoryA,
+                                nltl:polarShipCategoryB
+                            )
+                            ||
+                            YEAR(?date) < 2017
+                            ||
+                            (
+                                YEAR(?date) = 2017
+                                &&
+                                (
+                                    MONTH(?date) < 1
+                                    ||
+                                    (
+                                        MONTH(?date) = 1
+                                        && DAY(?date) < 1
+                                    )
+                                )
+                            )
+                        )
+                    }
+                """
+            ]
+        ]
+    ) .
+
+gen:IMO_037_LoadingConditionCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:loadingConditionCase ;
+    sh:property [
+        sh:path nltl:loadingConditionIdentifier ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Each loading condition case requires an identifier."
+    ] ;
+    sh:property [
+        sh:path nltl:alternativeInstrumentApplicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:or (
+            [
+                sh:hasValue false ;
+                sh:property [
+                    sh:path nltl:residualStabilityFactorSI ;
+                    sh:node gen:IMO_037_ResidualStabilityQuantityShape ;
+                    sh:minCount 1 ;
+                    sh:maxCount 1 ;
+                    sh:message "When the alternative instrument is not applicable, the residual stability factor is required."
+                ] ;
+                sh:sparql [
+                    sh:message "The residual stability factor must equal 1.0 within the required tolerance." ;
+                    sh:select """
+                        PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                        PREFIX qudt: <http://qudt.org/schema/qudt/>
+                        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                        SELECT $this
+                        WHERE {
+                            $this nltl:residualStabilityFactorSI ?quantity .
+                            ?quantity qudt:numericValue ?value .
+                            FILTER (
+                                ?value < (1.0 - (0.000001 * 1.0))
+                                ||
+                                ?value > (1.0 + (0.000001 * 1.0))
+                            )
+                        }
+                    """
+                ]
+            ]
+            [
+                sh:hasValue true ;
+                sh:property [
+                    sh:path nltl:alternativeInstrumentResidualStabilityStatus ;
+                    sh:datatype xsd:boolean ;
+                    sh:minCount 1 ;
+                    sh:maxCount 1 ;
+                    sh:hasValue true ;
+                    sh:message "When the alternative instrument applies, its residual stability status must be compliant."
+                ]
+            ]
+        )
+    ] ;
+    sh:property [
+        sh:path nltl:hasLoadingConditionResultEvidence ;
+        sh:class nltl:evidenceArtifact ;
+        sh:minCount 1 ;
+        sh:message "Each loading condition case requires its declared result evidence."
+    ] .
+
+gen:IMO_037_ResidualStabilityQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

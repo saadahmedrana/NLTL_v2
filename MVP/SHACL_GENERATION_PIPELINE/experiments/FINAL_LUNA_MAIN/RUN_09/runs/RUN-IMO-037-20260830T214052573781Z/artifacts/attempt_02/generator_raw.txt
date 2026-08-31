@@ -1,0 +1,143 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LoadingConditionCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:loadingConditionCase ;
+    sh:property [
+        sh:path nltl:loadingConditionIdentifier ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each loading condition case must have one identifier."
+    ] ;
+    sh:property [
+        sh:path nltl:alternativeInstrumentApplicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each loading condition case must state whether the alternative instrument applies."
+    ] ;
+    sh:property [
+        sh:path nltl:residualStabilityFactorSI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Each loading condition case must provide one dimensionless residual stability factor."
+    ] ;
+    sh:property [
+        sh:path nltl:alternativeInstrumentResidualStabilityStatus ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasLoadingConditionResultEvidence ;
+        sh:class nltl:evidenceArtifact ;
+        sh:minCount 1 ;
+        sh:message "Each applicable loading condition case must have result evidence."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The residual stability factor must be within a relative tolerance of 1e-6 of 1.0, unless the applicable alternative instrument is confirmed compliant." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:alternativeInstrumentApplicable ?app .
+                $this nltl:residualStabilityFactorSI ?quantity .
+                ?quantity qudt:numericValue ?value .
+                FILTER (
+                    (?value >= 0.999999 && ?value <= 1.000001)
+                    ||
+                    (
+                        ?app = true &&
+                        EXISTS {
+                            $this nltl:alternativeInstrumentResidualStabilityStatus ?status .
+                            FILTER (?status = true)
+                        }
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        ) ;
+        sh:message "The ship must have one permitted polar ship category."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must have one construction date to determine applicability."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:in (
+                    nltl:polarShipCategoryA
+                    nltl:polarShipCategoryB
+                )
+            ] ;
+            sh:property [
+                sh:path nltl:constructionDate ;
+                sh:minInclusive "2017-01-01"^^xsd:date
+            ] ;
+            sh:property [
+                sh:path nltl:hasLoadingConditionCase ;
+                sh:node gen:LoadingConditionCaseShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:hasValue nltl:polarShipCategoryC
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:in (
+                    nltl:polarShipCategoryA
+                    nltl:polarShipCategoryB
+                )
+            ] ;
+            sh:property [
+                sh:path nltl:constructionDate ;
+                sh:maxInclusive "2016-12-31"^^xsd:date
+            ]
+        ]
+    ) .
+<END_SHACL>

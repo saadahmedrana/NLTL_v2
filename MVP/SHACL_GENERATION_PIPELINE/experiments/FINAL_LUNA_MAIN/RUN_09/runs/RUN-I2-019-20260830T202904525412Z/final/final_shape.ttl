@@ -1,0 +1,145 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_019_StaticCalculationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "Each structural member spanning multiple hull areas must have exactly one valid hull area factor for every spanned hull area." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?member ?area
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:hasSpannedHullArea ?area .
+
+                {
+                    SELECT $this ?member (COUNT(DISTINCT ?candidateArea) AS ?areaCount)
+                    WHERE {
+                        $this nltl:hasStructuralMember ?member .
+                        ?member nltl:hasSpannedHullArea ?candidateArea .
+                    }
+                    GROUP BY $this ?member
+                }
+
+                FILTER (?areaCount >= 2)
+
+                FILTER (
+                    NOT EXISTS {
+                        ?area nltl:hullAreaFactor ?factor .
+                        ?factor a qudt:QuantityValue ;
+                                qudt:numericValue ?factorNumeric ;
+                                qudt:unit unit:UNITLESS .
+                        FILTER (datatype(?factorNumeric) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        ?area nltl:hullAreaFactor ?factor1 .
+                        ?area nltl:hullAreaFactor ?factor2 .
+                        FILTER (?factor1 != ?factor2)
+                    }
+                    ||
+                    EXISTS {
+                        ?area nltl:hullAreaFactor ?factor .
+                        ?factor qudt:numericValue ?numeric1 .
+                        ?factor qudt:numericValue ?numeric2 .
+                        FILTER (?numeric1 != ?numeric2)
+                    }
+                    ||
+                    EXISTS {
+                        ?area nltl:hullAreaFactor ?factor .
+                        ?factor qudt:unit ?unit1 .
+                        ?factor qudt:unit ?unit2 .
+                        FILTER (?unit1 != ?unit2)
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For a structural member spanning multiple hull areas, selectedHullAreaFactor must equal the maximum applicable hullAreaFactor within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?member
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+
+                {
+                    SELECT $this ?member (COUNT(DISTINCT ?candidateArea) AS ?areaCount)
+                    WHERE {
+                        $this nltl:hasStructuralMember ?member .
+                        ?member nltl:hasSpannedHullArea ?candidateArea .
+                    }
+                    GROUP BY $this ?member
+                }
+
+                FILTER (?areaCount >= 2)
+
+                {
+                    SELECT $this ?member (MAX(?factorNumeric) AS ?maximum)
+                    WHERE {
+                        $this nltl:hasStructuralMember ?member .
+                        ?member nltl:hasSpannedHullArea ?area .
+                        ?area nltl:hullAreaFactor ?factor .
+                        ?factor a qudt:QuantityValue ;
+                                qudt:numericValue ?factorNumeric ;
+                                qudt:unit unit:UNITLESS .
+                        FILTER (datatype(?factorNumeric) = xsd:decimal)
+                    }
+                    GROUP BY $this ?member
+                }
+
+                ?member nltl:selectedHullAreaFactor ?result .
+                ?result a qudt:QuantityValue ;
+                        qudt:numericValue ?selected ;
+                        qudt:unit unit:UNITLESS .
+                FILTER (datatype(?selected) = xsd:decimal)
+
+                FILTER NOT EXISTS {
+                    ?member nltl:selectedHullAreaFactor ?otherResult .
+                    FILTER (?otherResult != ?result)
+                }
+
+                FILTER NOT EXISTS {
+                    ?result qudt:numericValue ?otherSelected .
+                    FILTER (?otherSelected != ?selected)
+                }
+
+                FILTER NOT EXISTS {
+                    ?result qudt:unit ?otherUnit .
+                    FILTER (?otherUnit != unit:UNITLESS)
+                }
+
+                FILTER (
+                    (?maximum >= 0 &&
+                        (
+                            ?selected < (?maximum - (0.000001 * ?maximum + 0.000000000001)) ||
+                            ?selected > (?maximum + (0.000001 * ?maximum + 0.000000000001))
+                        )
+                    ) ||
+                    (?maximum < 0 &&
+                        (
+                            ?selected < (?maximum - (0.000001 * (0 - ?maximum) + 0.000000000001)) ||
+                            ?selected > (?maximum + (0.000001 * (0 - ?maximum) + 0.000000000001))
+                        )
+                    )
+                )
+            }
+        """
+    ] .

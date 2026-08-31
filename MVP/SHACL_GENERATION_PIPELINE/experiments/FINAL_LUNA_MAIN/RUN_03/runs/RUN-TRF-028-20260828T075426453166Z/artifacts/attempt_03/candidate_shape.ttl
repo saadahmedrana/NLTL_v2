@@ -1,0 +1,126 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+<urn:nltl:generated-shape:TRF-028> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When an alternative calculation or model-test method is selected, the ship must provide the corresponding evidence, approved status, revocation state, and exactly one valid Ke or RCH result." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+
+SELECT $this
+WHERE {
+    FILTER (
+        EXISTS {
+            $this nltl:hasEvidence ?calculationEvidence .
+            ?calculationEvidence a nltl:evidenceArtifact ;
+                a nltl:alternativeCalculationEvidence .
+        }
+        ||
+        EXISTS {
+            $this nltl:hasEvidence ?modelEvidence .
+            ?modelEvidence a nltl:evidenceArtifact ;
+                a nltl:modelTestEvidence .
+        }
+    )
+
+    FILTER NOT EXISTS {
+        $this nltl:hasEvidence ?calculationEvidence .
+        ?calculationEvidence a nltl:evidenceArtifact ;
+            a nltl:alternativeCalculationEvidence .
+    }
+    FILTER NOT EXISTS {
+        $this nltl:hasEvidence ?modelEvidence .
+        ?modelEvidence a nltl:evidenceArtifact ;
+            a nltl:modelTestEvidence .
+    }
+
+    FILTER NOT EXISTS {
+        $this nltl:approvalStatus ?approval .
+        FILTER (
+            datatype(?approval) = xsd:boolean &&
+            ?approval = true
+        )
+    }
+
+    FILTER NOT EXISTS {
+        $this nltl:approvalStatus ?approval .
+        FILTER (
+            datatype(?approval) != xsd:boolean ||
+            ?approval != true
+        )
+    }
+
+    FILTER NOT EXISTS {
+        $this nltl:approvalRevocationStatus nltl:evidenceStateApproved .
+    }
+
+    FILTER NOT EXISTS {
+        $this nltl:approvalRevocationStatus ?state .
+        FILTER (?state != nltl:evidenceStateApproved)
+    }
+
+    {
+        SELECT $this (COUNT(?ke) AS ?keCount) (COUNT(?rch) AS ?rchCount)
+        WHERE {
+            OPTIONAL { $this nltl:engineOutputCoefficientKe ?ke . }
+            OPTIONAL { $this nltl:brashIceChannelResistanceRch ?rch . }
+        }
+        GROUP BY $this
+    }
+
+    FILTER ((?keCount + ?rchCount) != 1)
+
+    OPTIONAL { $this nltl:engineOutputCoefficientKe ?keValue . }
+    OPTIONAL { $this nltl:brashIceChannelResistanceRch ?rchValue . }
+
+    FILTER (
+        (
+            BOUND(?keValue) &&
+            (
+                NOT EXISTS {
+                    ?keValue qudt:numericValue ?numericValue .
+                    ?keValue qudt:unit unit:UNITLESS .
+                    FILTER (datatype(?numericValue) = xsd:decimal)
+                }
+                ||
+                EXISTS {
+                    ?keValue qudt:numericValue ?numericValue .
+                    FILTER (datatype(?numericValue) != xsd:decimal)
+                }
+                ||
+                EXISTS {
+                    ?keValue qudt:unit ?keUnit .
+                    FILTER (?keUnit != unit:UNITLESS)
+                }
+            )
+        )
+        ||
+        (
+            BOUND(?rchValue) &&
+            (
+                NOT EXISTS {
+                    ?rchValue qudt:numericValue ?numericValue .
+                    ?rchValue qudt:unit unit:N .
+                    FILTER (datatype(?numericValue) = xsd:decimal)
+                }
+                ||
+                EXISTS {
+                    ?rchValue qudt:numericValue ?numericValue .
+                    FILTER (datatype(?numericValue) != xsd:decimal)
+                }
+                ||
+                EXISTS {
+                    ?rchValue qudt:unit ?rchUnit .
+                    FILTER (?rchUnit != unit:N)
+                }
+            )
+        )
+    )
+}
+"""
+    ] .

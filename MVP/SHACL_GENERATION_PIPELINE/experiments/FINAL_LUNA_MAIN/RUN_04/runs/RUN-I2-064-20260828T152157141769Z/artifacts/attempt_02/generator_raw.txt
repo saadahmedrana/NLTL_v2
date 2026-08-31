@@ -1,0 +1,87 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_064_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:node [
+            sh:class nltl:calculationCase ;
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:minCount 1 ;
+                sh:in (
+                    nltl:linearCalculationMethodValue
+                    nltl:nonlinearCalculationMethodValue
+                )
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a linear calculation case, every structural member must have buckling criteria evidence, web shear stress, flange von Mises stress, and yield strength values in MegaPA; the strict stress limits must be satisfied." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?member ?web ?flange
+            WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case nltl:calculationMethod nltl:linearCalculationMethodValue .
+                $this nltl:hasStructuralMember ?member .
+
+                OPTIONAL {
+                    ?member nltl:bucklingCriteriaSatisfied ?buckling .
+                }
+                OPTIONAL {
+                    ?member nltl:hasStructuralMemberWeb ?web .
+                    ?web nltl:nominalShearStress ?webStress .
+                    ?webStress qudt:numericValue ?webValue .
+                    ?webStress qudt:unit ?webUnit .
+                }
+                OPTIONAL {
+                    ?member nltl:hasStructuralMemberFlange ?flange .
+                    ?flange nltl:nominalFlangeVonMisesStress ?flangeStress .
+                    ?flangeStress qudt:numericValue ?flangeValue .
+                    ?flangeStress qudt:unit ?flangeUnit .
+                }
+                OPTIONAL {
+                    $this nltl:yieldStrength ?yield .
+                    ?yield qudt:numericValue ?yieldValue .
+                    ?yield qudt:unit ?yieldUnit .
+                }
+
+                FILTER (
+                    !BOUND(?buckling) ||
+                    DATATYPE(?buckling) != xsd:boolean ||
+                    ?buckling != true ||
+                    !BOUND(?web) ||
+                    !BOUND(?webStress) ||
+                    !BOUND(?webValue) ||
+                    DATATYPE(?webValue) != xsd:decimal ||
+                    !BOUND(?webUnit) ||
+                    ?webUnit != qudt:MegaPA ||
+                    !BOUND(?flange) ||
+                    !BOUND(?flangeStress) ||
+                    !BOUND(?flangeValue) ||
+                    DATATYPE(?flangeValue) != xsd:decimal ||
+                    !BOUND(?flangeUnit) ||
+                    ?flangeUnit != qudt:MegaPA ||
+                    !BOUND(?yield) ||
+                    !BOUND(?yieldValue) ||
+                    DATATYPE(?yieldValue) != xsd:decimal ||
+                    !BOUND(?yieldUnit) ||
+                    ?yieldUnit != qudt:MegaPA ||
+                    ?webValue >= (?yieldValue / 1.7320508075688772) ||
+                    ?flangeValue >= (1.15 * ?yieldValue)
+                )
+            }
+        """
+    ] .
+<END_SHACL>

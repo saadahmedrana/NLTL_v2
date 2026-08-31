@@ -1,0 +1,138 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-011-PointShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue qudt:M
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue qudt:M
+            ]
+        ]
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-WaterlineShape>
+    a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node <urn:nltl:generated-shape:TRF-011-PointShape>
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node <urn:nltl:generated-shape:TRF-011-WaterlineShape>
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:node <urn:nltl:generated-shape:TRF-011-WaterlineShape>
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline must provide bidirectional longitudinal coverage and equal the maximum intended vertical coordinate at each covered position." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT ?this
+WHERE {
+    {
+        {
+            SELECT ?this ?ip (MAX(?iv) AS ?maxIv)
+            WHERE {
+                ?this nltl:hasIntendedIceOperatingWaterline ?iw .
+                ?iw nltl:hasWaterlineProfilePoint ?ipp .
+                ?ipp nltl:longitudinalPosition ?ipq .
+                ?ipq qudt:numericValue ?ip .
+                ?ipp nltl:verticalCoordinate ?ivq .
+                ?ivq qudt:numericValue ?iv .
+            }
+            GROUP BY ?this ?ip
+        }
+        FILTER (
+            NOT EXISTS {
+                ?this nltl:hasUpperIceWaterline ?uw1 .
+                ?uw1 nltl:hasWaterlineProfilePoint ?upp1 .
+                ?upp1 nltl:longitudinalPosition ?upq1 .
+                ?upq1 qudt:numericValue ?up1 .
+                FILTER (?up1 = ?ip)
+            }
+            ||
+            EXISTS {
+                ?this nltl:hasUpperIceWaterline ?uw2 .
+                ?uw2 nltl:hasWaterlineProfilePoint ?upp2 .
+                ?upp2 nltl:longitudinalPosition ?upq2 .
+                ?upq2 qudt:numericValue ?up2 .
+                ?upp2 nltl:verticalCoordinate ?uvq2 .
+                ?uvq2 qudt:numericValue ?uv2 .
+                FILTER (?up2 = ?ip)
+                FILTER (ABS(?uv2 - ?maxIv) >
+                    (0.000001 * ABS(?maxIv) + 0.000000001))
+            }
+        )
+    }
+    UNION
+    {
+        ?this a nltl:ship .
+        ?this nltl:hasUpperIceWaterline ?uw3 .
+        ?uw3 nltl:hasWaterlineProfilePoint ?upp3 .
+        ?upp3 nltl:longitudinalPosition ?upq3 .
+        ?upq3 qudt:numericValue ?up3 .
+        FILTER NOT EXISTS {
+            ?this nltl:hasIntendedIceOperatingWaterline ?iw3 .
+            ?iw3 nltl:hasWaterlineProfilePoint ?ipp3 .
+            ?ipp3 nltl:longitudinalPosition ?ipq3 .
+            ?ipq3 qudt:numericValue ?ip3 .
+            FILTER (?ip3 = ?up3)
+        }
+    }
+}
+""" ;
+    ] .

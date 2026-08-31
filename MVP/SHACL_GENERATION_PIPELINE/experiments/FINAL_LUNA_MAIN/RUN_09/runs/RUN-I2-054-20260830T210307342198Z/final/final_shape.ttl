@@ -1,0 +1,271 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:I2_054_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:stemAngle ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/DEG> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MegaN> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node gen:I2_054_CalculationCaseShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasHullGirderBendingMomentCalculationCase ;
+        sh:minCount 1 ;
+        sh:node gen:I2_054_HullGirderCaseShape
+    ] ;
+    sh:sparql [
+        sh:message "Each hull-girder case must link its distribution factor to an interpolation result at its normalized longitudinal position, with the required piecewise-linear interpolation." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:upperIceWaterlineLengthLUI ?lq .
+                ?lq qudt:numericValue ?l .
+                $this nltl:hasHullGirderBendingMomentCalculationCase ?hc .
+                ?hc nltl:caseHullGirderLongitudinalPositionFromAft ?pq .
+                ?pq qudt:numericValue ?p .
+                ?hc nltl:caseBendingMomentDistributionFactor ?fq .
+                ?fq qudt:numericValue ?f .
+                FILTER(?l != 0)
+                FILTER(?p >= 0 && ?p <= ?l)
+                FILTER NOT EXISTS {
+                    $this nltl:hasCalculationCase ?cc .
+                    ?cc nltl:hasInterpolationPoint ?ip .
+                    ?ip nltl:interpolationPointCoordinate ?xq .
+                    ?xq qudt:numericValue ?x .
+                    ?ip nltl:interpolationPointResult ?rq .
+                    ?rq qudt:numericValue ?r .
+                    BIND(?p / ?l AS ?norm)
+                    FILTER(ABS(?x - ?norm) <= 1e-9)
+                    BIND(
+                        IF(?norm <= 0.5,
+                            2.0 * ?norm,
+                            IF(?norm <= 0.7,
+                                1.0,
+                                IF(?norm <= 0.95,
+                                    1.0 - 0.7 * ((?norm - 0.7) / 0.25),
+                                    0.3 * ((1.0 - ?norm) / 0.05)
+                                )
+                            )
+                        ) AS ?expected
+                    )
+                    FILTER(ABS(?r - ?expected) <= (ABS(?expected) * 1e-6 + 1e-9))
+                    FILTER(ABS(?f - ?r) <= (ABS(?expected) * 1e-6 + 1e-9))
+                }
+            }
+        """
+    ] .
+
+gen:I2_054_CalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:minCount 5 ;
+        sh:node gen:I2_054_InterpolationPointShape
+    ] ;
+    sh:sparql [
+        sh:message "The calculation case must contain the five required interpolation anchors: 0 at the aft end, 1.0 at 0.5 and 0.7 of the upper ice waterline length, 0.3 at 0.95, and 0 at the forward end." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS {
+                    $this nltl:hasInterpolationPoint ?p0 .
+                    ?p0 nltl:interpolationPointCoordinate ?q0c ;
+                        nltl:interpolationPointResult ?q0r .
+                    ?q0c qudt:numericValue ?c0 .
+                    ?q0r qudt:numericValue ?r0 .
+                    FILTER(?c0 = 0.0 && ?r0 = 0.0)
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:hasInterpolationPoint ?p05 .
+                    ?p05 nltl:interpolationPointCoordinate ?q05c ;
+                         nltl:interpolationPointResult ?q05r .
+                    ?q05c qudt:numericValue ?c05 .
+                    ?q05r qudt:numericValue ?r05 .
+                    FILTER(?c05 = 0.5 && ?r05 = 1.0)
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:hasInterpolationPoint ?p07 .
+                    ?p07 nltl:interpolationPointCoordinate ?q07c ;
+                         nltl:interpolationPointResult ?q07r .
+                    ?q07c qudt:numericValue ?c07 .
+                    ?q07r qudt:numericValue ?r07 .
+                    FILTER(?c07 = 0.7 && ?r07 = 1.0)
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:hasInterpolationPoint ?p095 .
+                    ?p095 nltl:interpolationPointCoordinate ?q095c ;
+                          nltl:interpolationPointResult ?q095r .
+                    ?q095c qudt:numericValue ?c095 .
+                    ?q095r qudt:numericValue ?r095 .
+                    FILTER(?c095 = 0.95 && ?r095 = 0.3)
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:hasInterpolationPoint ?p1 .
+                    ?p1 nltl:interpolationPointCoordinate ?q1c ;
+                        nltl:interpolationPointResult ?q1r .
+                    ?q1c qudt:numericValue ?c1 .
+                    ?q1r qudt:numericValue ?r1 .
+                    FILTER(?c1 = 1.0 && ?r1 = 0.0)
+                }
+            }
+        """
+    ] .
+
+gen:I2_054_InterpolationPointShape
+    a sh:NodeShape ;
+    sh:class nltl:interpolationPoint ;
+    sh:property [
+        sh:path nltl:interpolationPointCoordinate ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointResult ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ]
+        ]
+    ] .
+
+gen:I2_054_HullGirderCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:hullGirderBendingMomentCalculationCase ;
+    sh:property [
+        sh:path nltl:caseHullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:caseBendingMomentDistributionFactor ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:caseDesignVerticalIceBendingMoment ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MegaN-M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] .

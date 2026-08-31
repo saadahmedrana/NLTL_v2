@@ -1,0 +1,141 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF024Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship must have exactly one construction stage date as applicability evidence."
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship must have exactly one recognized ice class."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an IA Super or IA ship whose construction stage predates 1 September 2003, deliveryDate and assessmentDate must each be exactly one valid xsd:date." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:constructionStageDate ?constructionDate .
+                FILTER (
+                    ?iceClass = nltl:iceClassIaSuper ||
+                    ?iceClass = nltl:iceClassIa
+                )
+                FILTER (
+                    YEAR(?constructionDate) < 2003 ||
+                    (
+                        YEAR(?constructionDate) = 2003 &&
+                        (
+                            MONTH(?constructionDate) < 9 ||
+                            (
+                                MONTH(?constructionDate) = 9 &&
+                                DAY(?constructionDate) < 1
+                            )
+                        )
+                    )
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:deliveryDate ?deliveryValid .
+                        FILTER (datatype(?deliveryValid) = xsd:date)
+                    } ||
+                    NOT EXISTS {
+                        $this nltl:assessmentDate ?assessmentValid .
+                        FILTER (datatype(?assessmentValid) = xsd:date)
+                    } ||
+                    EXISTS {
+                        $this nltl:deliveryDate ?deliveryBad .
+                        FILTER (datatype(?deliveryBad) != xsd:date)
+                    } ||
+                    EXISTS {
+                        $this nltl:assessmentDate ?assessmentBad .
+                        FILTER (datatype(?assessmentBad) != xsd:date)
+                    } ||
+                    EXISTS {
+                        $this nltl:deliveryDate ?deliveryOne .
+                        $this nltl:deliveryDate ?deliveryTwo .
+                        FILTER (?deliveryOne != ?deliveryTwo)
+                    } ||
+                    EXISTS {
+                        $this nltl:assessmentDate ?assessmentOne .
+                        $this nltl:assessmentDate ?assessmentTwo .
+                        FILTER (?assessmentOne != ?assessmentTwo)
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable IA Super or IA ship, assessmentDate must not be later than 1 January twenty years after the delivery year." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:constructionStageDate ?constructionDate ;
+                      nltl:deliveryDate ?deliveryDate ;
+                      nltl:assessmentDate ?assessmentDate .
+                FILTER (
+                    ?iceClass = nltl:iceClassIaSuper ||
+                    ?iceClass = nltl:iceClassIa
+                )
+                FILTER (
+                    YEAR(?constructionDate) < 2003 ||
+                    (
+                        YEAR(?constructionDate) = 2003 &&
+                        (
+                            MONTH(?constructionDate) < 9 ||
+                            (
+                                MONTH(?constructionDate) = 9 &&
+                                DAY(?constructionDate) < 1
+                            )
+                        )
+                    )
+                )
+                FILTER (
+                    datatype(?deliveryDate) = xsd:date &&
+                    datatype(?assessmentDate) = xsd:date
+                )
+                BIND((YEAR(?deliveryDate) + 20) AS ?deadlineYear)
+                FILTER (
+                    YEAR(?assessmentDate) > ?deadlineYear ||
+                    (
+                        YEAR(?assessmentDate) = ?deadlineYear &&
+                        (
+                            MONTH(?assessmentDate) > 1 ||
+                            (
+                                MONTH(?assessmentDate) = 1 &&
+                                DAY(?assessmentDate) > 1
+                            )
+                        )
+                    )
+                )
+            }
+        """
+    ] .

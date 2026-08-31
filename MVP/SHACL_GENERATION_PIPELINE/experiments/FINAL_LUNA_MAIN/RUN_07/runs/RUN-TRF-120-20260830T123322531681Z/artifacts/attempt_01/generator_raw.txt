@@ -1,0 +1,133 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix nltlgen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltlgen:ThrusterBodyShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:thrusterBody ;
+    sh:property [
+        sh:path nltl:hasNaturalFrequencyCalculationCase ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class nltl:calculationCase
+        ] ;
+        sh:message "Each thruster body used for global natural-frequency estimation must have a calculation case."
+    ] ;
+    sh:property [
+        sh:path nltl:shipAttachmentStiffness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:KiloN-PER-M
+            ]
+        ] ;
+        sh:message "The thruster body's ship attachment stiffness must be supplied as a single kN/m quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterNaturalFrequency ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:HZ
+            ]
+        ] ;
+        sh:message "The thruster body's global natural frequency must be supplied as a single Hz quantity."
+    ] .
+
+nltlgen:NaturalFrequencyCalculationCaseShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:vibrationDirection ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:longitudinalDirection
+            nltl:transverseDirection
+        ) ;
+        sh:message "A natural-frequency calculation case must specify longitudinal or transverse direction."
+    ] .
+
+nltlgen:ShipNaturalFrequencyEstimationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For each linked thruster natural-frequency calculation case, ship damping and water added mass must be supplied with the required representation, and the case must identify a permitted direction." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this a nltl:ship ;
+                      nltl:hasComponent ?body .
+                ?body a nltl:thrusterBody ;
+                      nltl:hasNaturalFrequencyCalculationCase ?case .
+
+                FILTER (
+                    NOT EXISTS {
+                        ?case a nltl:calculationCase ;
+                              nltl:vibrationDirection ?direction .
+                        FILTER (
+                            ?direction IN (
+                                nltl:longitudinalDirection,
+                                nltl:transverseDirection
+                            )
+                        )
+                        $this nltl:damping ?damping .
+                        FILTER (datatype(?damping) = xsd:string)
+                        $this nltl:waterAddedMass ?addedMass .
+                        ?addedMass a qudt:QuantityValue ;
+                                   qudt:numericValue ?massValue ;
+                                   qudt:unit unit:KiloGM .
+                        FILTER (datatype(?massValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:damping ?badDamping .
+                        FILTER (datatype(?badDamping) != xsd:string)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:waterAddedMass ?badAddedMass .
+                        FILTER NOT EXISTS {
+                            ?badAddedMass a qudt:QuantityValue ;
+                                          qudt:numericValue ?badMassValue ;
+                                          qudt:unit unit:KiloGM .
+                            FILTER (datatype(?badMassValue) = xsd:decimal)
+                        }
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

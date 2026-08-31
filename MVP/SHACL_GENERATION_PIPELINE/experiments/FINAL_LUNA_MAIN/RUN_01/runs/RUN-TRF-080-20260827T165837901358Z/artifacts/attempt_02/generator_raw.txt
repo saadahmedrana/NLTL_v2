@@ -1,0 +1,72 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF_080_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "For a ship linked to a propeller-ice-interaction component, iceLoadCycleCount, propellerBladeCount, and a unitless effectiveIceLoadCycleCount quantity are required, and the effective count must equal iceLoadCycleCount multiplied by propellerBladeCount within a relative tolerance of 1e-6 with a 1e-9 absolute fallback at zero." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasComponent ?component .
+                ?component rdf:type nltl:propellerIceInteractionComponent .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceLoadCycleCount ?nice ;
+                              nltl:propellerBladeCount ?z ;
+                              nltl:effectiveIceLoadCycleCount ?quantity .
+                        ?quantity qudt:numericValue ?result ;
+                                  qudt:unit qudt:UNITLESS .
+                        FILTER (
+                            datatype(?nice) = xsd:integer &&
+                            datatype(?z) = xsd:integer &&
+                            datatype(?result) = xsd:decimal
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:effectiveIceLoadCycleCount ?quantity .
+                        ?quantity qudt:unit ?unit .
+                        FILTER (?unit != qudt:UNITLESS)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:iceLoadCycleCount ?nice ;
+                              nltl:propellerBladeCount ?z ;
+                              nltl:effectiveIceLoadCycleCount ?quantity .
+                        ?quantity qudt:numericValue ?result ;
+                                  qudt:unit qudt:UNITLESS .
+                        FILTER (
+                            datatype(?nice) = xsd:integer &&
+                            datatype(?z) = xsd:integer &&
+                            datatype(?result) = xsd:decimal
+                        )
+                        BIND((?nice * ?z) AS ?expected)
+                        BIND(
+                            IF(
+                                ?expected = 0,
+                                0.000000001,
+                                ?expected * 0.000001
+                            ) AS ?tolerance
+                        )
+                        FILTER (
+                            ?result < (?expected - ?tolerance) ||
+                            ?result > (?expected + ?tolerance)
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

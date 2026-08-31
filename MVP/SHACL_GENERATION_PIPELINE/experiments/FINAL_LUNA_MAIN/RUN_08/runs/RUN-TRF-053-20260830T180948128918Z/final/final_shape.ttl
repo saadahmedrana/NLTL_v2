@@ -1,0 +1,189 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:QuantityValueShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TRF053IceStringerShape a sh:NodeShape ;
+    sh:targetClass nltl:iceStringer ;
+    sh:property [
+        sh:path nltl:locatedWithinIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "The ice stringer must be explicitly located within the ice belt."
+    ] ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:node gs:IcePressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ice pressure is required in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:node gs:DesignIceLoadHeightQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Design ice load height is required in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:span ;
+        sh:node gs:SpanQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Stringer span is required in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:frameMomentFactorM ;
+        sh:node gs:FrameMomentFactorQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Frame moment factor m is required as a dimensionless quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:node gs:YieldStrengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Yield strength is required in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:designLineLoad ;
+        sh:node gs:DesignLineLoadQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The calculated design line load is required in kN/m."
+    ] ;
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:node gs:SectionModulusQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The calculated section modulus is required in cm^3."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:node gs:RequiredShearAreaQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The calculated required shear area is required in cm^2."
+    ] ;
+    sh:sparql [
+        sh:message "Design line load, section modulus, and required shear area must satisfy the declared ice-stringer formulas within a relative tolerance of 1e-6, with a 1e-15 absolute fallback." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:icePressure ?pNode ;
+                      nltl:designIceLoadHeight ?hNode ;
+                      nltl:span ?lNode ;
+                      nltl:frameMomentFactorM ?mNode ;
+                      nltl:yieldStrength ?yNode ;
+                      nltl:designLineLoad ?lineNode ;
+                      nltl:sectionModulus ?zNode ;
+                      nltl:requiredShearArea ?aNode .
+
+                ?pNode qudt:numericValue ?p .
+                ?hNode qudt:numericValue ?h .
+                ?lNode qudt:numericValue ?l .
+                ?mNode qudt:numericValue ?m .
+                ?yNode qudt:numericValue ?y .
+                ?lineNode qudt:numericValue ?line .
+                ?zNode qudt:numericValue ?z .
+                ?aNode qudt:numericValue ?a .
+
+                BIND(IF((?p * ?h) >= 0.15, (?p * ?h), 0.15) AS ?loadMNPerM)
+                BIND(1000 * ?loadMNPerM AS ?expectedLine)
+                BIND(0.9 * 1.8 * ?loadMNPerM * ?l * ?l / (?m * ?y) * 1000000 AS ?expectedZ)
+                BIND(1.7320508075688772 * 0.9 * 1.8 * 1.2 * ?loadMNPerM * ?l / (2 * ?y) * 10000 AS ?expectedA)
+
+                BIND(0.000001 * IF(?expectedLine >= 0, ?expectedLine, -?expectedLine) + 0.000000000000001 AS ?tolLine)
+                BIND(0.000001 * IF(?expectedZ >= 0, ?expectedZ, -?expectedZ) + 0.000000000000001 AS ?tolZ)
+                BIND(0.000001 * IF(?expectedA >= 0, ?expectedA, -?expectedA) + 0.000000000000001 AS ?tolA)
+
+                FILTER(
+                    (?line < (?expectedLine - ?tolLine)) ||
+                    (?line > (?expectedLine + ?tolLine)) ||
+                    (?z < (?expectedZ - ?tolZ)) ||
+                    (?z > (?expectedZ + ?tolZ)) ||
+                    (?a < (?expectedA - ?tolA)) ||
+                    (?a > (?expectedA + ?tolA))
+                )
+            }
+        """
+    ] .
+
+gs:IcePressureQuantityShape a sh:NodeShape ;
+    sh:node gs:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:MegaPA
+    ] .
+
+gs:DesignIceLoadHeightQuantityShape a sh:NodeShape ;
+    sh:node gs:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:M
+    ] .
+
+gs:SpanQuantityShape a sh:NodeShape ;
+    sh:node gs:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:M
+    ] .
+
+gs:FrameMomentFactorQuantityShape a sh:NodeShape ;
+    sh:node gs:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:UNITLESS
+    ] .
+
+gs:YieldStrengthQuantityShape a sh:NodeShape ;
+    sh:node gs:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:MegaPA
+    ] .
+
+gs:DesignLineLoadQuantityShape a sh:NodeShape ;
+    sh:node gs:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:KiloN-PER-M
+    ] .
+
+gs:SectionModulusQuantityShape a sh:NodeShape ;
+    sh:node gs:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:CentiM3
+    ] .
+
+gs:RequiredShearAreaQuantityShape a sh:NodeShape ;
+    sh:node gs:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:CentiM2
+    ] .

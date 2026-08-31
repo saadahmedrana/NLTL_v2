@@ -1,0 +1,82 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO_004_StaticShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceOriginType ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ice origin type is required to determine applicability of the first-year ice rule."
+    ] ;
+    sh:property [
+        sh:path nltl:winterGrowthCount ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:message "Winter growth count is required and must be an integer."
+    ] ;
+    sh:property [
+        sh:path nltl:iceThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:minInclusive "0.3"^^xsd:decimal ;
+                sh:maxInclusive "2.0"^^xsd:decimal ;
+                sh:message "Ice thickness must be between 0.3 m and 2.0 m, inclusive."
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:M ;
+                sh:message "Ice thickness must use the metre unit."
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the ship has sea ice with no more than one winter growth and thickness from 0.3 m to 2.0 m inclusive, ice type classification must be exactly first-year ice." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceOriginType nltl:seaIceOrigin ;
+                      nltl:winterGrowthCount ?growth ;
+                      nltl:iceThickness ?thicknessNode .
+
+                ?thicknessNode qudt:numericValue ?thicknessValue ;
+                                qudt:unit unit:M .
+
+                FILTER (
+                    ?growth <= 1 &&
+                    ?thicknessValue >= 0.3 &&
+                    ?thicknessValue <= 2.0
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceTypeClassification nltl:firstYearIce
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:iceTypeClassification ?otherClassification .
+                        FILTER (?otherClassification != nltl:firstYearIce)
+                    }
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,58 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF002_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionContractDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship must have exactly one construction contract date to determine the applicable regulation edition."
+    ] ;
+    sh:sparql [
+        sh:message "For ships contracted on or after 2019-01-01 and before 2021-07-05, the applicable ice class regulation edition must be exactly the 2017 edition." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:constructionContractDate ?date .
+                FILTER (datatype(?date) = xsd:date)
+                FILTER (
+                    (YEAR(?date) > 2019 || YEAR(?date) = 2019)
+                    &&
+                    (
+                        YEAR(?date) < 2021
+                        ||
+                        (
+                            YEAR(?date) = 2021
+                            &&
+                            (
+                                MONTH(?date) < 7
+                                ||
+                                (MONTH(?date) = 7 && DAY(?date) < 5)
+                            )
+                        )
+                    )
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:applicableIceClassRegulationEdition
+                            nltl:iceClassRegulationEdition2017
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:applicableIceClassRegulationEdition ?edition .
+                        FILTER (?edition != nltl:iceClassRegulationEdition2017)
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

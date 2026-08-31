@@ -1,0 +1,114 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:Shape_TRF_084 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrBollard ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrFreeRunning ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a CP propeller with known pitch, propellerPitchAtMcrBollard is required." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType ;
+                      nltl:pitchValueKnown ?pitchValueKnown .
+                FILTER (
+                    ?propellerType = "CP"^^xsd:string &&
+                    ?pitchValueKnown = true
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:propellerPitchAtMcrBollard ?bollardPitch .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a CP propeller with unknown pitch, propellerPitchAtMcrBollard must equal 0.7 times propellerPitchAtMcrFreeRunning within the permitted numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType ;
+                      nltl:pitchValueKnown ?pitchValueKnown ;
+                      nltl:propellerPitchAtMcrFreeRunning ?freeRunningPitch ;
+                      nltl:propellerPitchAtMcrBollard ?bollardPitch .
+
+                FILTER (
+                    ?propellerType = "CP"^^xsd:string &&
+                    ?pitchValueKnown = false
+                )
+
+                ?freeRunningPitch qudt:numericValue ?freeRunningValue ;
+                                  qudt:unit unit:M .
+                ?bollardPitch qudt:numericValue ?bollardValue ;
+                              qudt:unit unit:M .
+
+                BIND (0.7 * ?freeRunningValue AS ?expectedValue)
+                FILTER (
+                    ABS(?bollardValue - ?expectedValue) >
+                    (ABS(?expectedValue) * 0.000001 + 0.000001)
+                )
+            }
+        """
+    ] .

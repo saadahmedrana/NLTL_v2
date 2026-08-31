@@ -1,0 +1,184 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:QuantityLengthMillimetresShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:QuantityLengthMetresShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 0
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:QuantityDimensionlessShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:NormalCorrosionAdditionShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:node gen:QuantityLengthMillimetresShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:qualifiedValueShape gen:QuantityLengthMillimetresShape ;
+        sh:qualifiedMinCount 1
+    ] ;
+    sh:sparql [
+        sh:message "The corrosion and abrasion addition shall normally be exactly 2 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:corrosionAbrasionAddition ?additionNode .
+                ?additionNode qudt:numericValue ?addition ;
+                              qudt:unit qudt:MilliM .
+                FILTER (?addition < 2.0 || ?addition > 2.0)
+            }
+        """
+    ] .
+
+gen:ApprovedCoatedLowerCorrosionAdditionShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAddition ;
+        sh:node gen:QuantityLengthMillimetresShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:specialSurfaceCoatingMaintained ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:materialApprovalStatus ;
+        sh:class nltl:evidenceState ;
+        sh:hasValue nltl:evidenceStateApproved ;
+        sh:minCount 1
+    ] ;
+    sh:sparql [
+        sh:message "A lower corrosion and abrasion addition requires an approved maintained special surface coating." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:corrosionAbrasionAddition ?additionNode .
+                ?additionNode qudt:numericValue ?addition ;
+                              qudt:unit qudt:MilliM .
+                FILTER (?addition >= 2.0)
+            }
+        """
+    ] .
+
+gen:TRF042PlatingShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:node gen:QuantityLengthMetresShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:node gen:QuantityLengthMetresShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:qualifiedValueShape [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minExclusive 0
+            ]
+        ] ;
+        sh:qualifiedMinCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:node gen:QuantityDimensionlessShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [ sh:node gen:NormalCorrosionAdditionShape ]
+        [ sh:node gen:ApprovedCoatedLowerCorrosionAdditionShape ]
+    ) ;
+    sh:sparql [
+        sh:message "The longitudinal plating factor f2 shall follow the declared piecewise formula for h/s, with tolerance max(1e-6*ABS(expected),1e-12)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?heightNode ;
+                      nltl:spacing ?spacingNode ;
+                      nltl:longitudinalPlatingFactorF2 ?factorNode .
+                ?heightNode qudt:numericValue ?height ;
+                            qudt:unit qudt:M .
+                ?spacingNode qudt:numericValue ?spacing ;
+                             qudt:unit qudt:M .
+                ?factorNode qudt:numericValue ?observed ;
+                            qudt:unit qudt:UNITLESS .
+                FILTER (?spacing > 0.0)
+                BIND (?height / ?spacing AS ?ratio)
+                BIND (
+                    IF(
+                        ?ratio <= 1.0,
+                        0.4 / ?ratio + 0.6,
+                        1.4 - 0.4 * ?ratio
+                    )
+                    AS ?expected
+                )
+                FILTER (
+                    ?ratio < 0.0 ||
+                    ?ratio > 1.8 ||
+                    ABS(?observed - ?expected) >
+                    IF(1e-6 * ABS(?expected) > 1e-12,
+                       1e-6 * ABS(?expected),
+                       1e-12)
+                )
+            }
+        """
+    ] .

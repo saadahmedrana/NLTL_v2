@@ -1,0 +1,100 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-086>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship must specify its propeller type to determine whether the CP-propeller rule applies."
+    ] ;
+    sh:sparql [
+        sh:message "For a CP propeller, pitchValueKnown must be supplied as a boolean." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?type .
+                FILTER (?type = "CP"^^xsd:string)
+                FILTER NOT EXISTS {
+                    $this nltl:pitchValueKnown ?known .
+                    FILTER (
+                        datatype(?known) = xsd:boolean &&
+                        (?known = true || ?known = false)
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For a CP propeller with a known pitch value, propellerPitchAtMcrBollard must be supplied as a metre quantity." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?type ;
+                      nltl:pitchValueKnown ?known .
+                FILTER (?type = "CP"^^xsd:string)
+                FILTER (?known = true)
+
+                FILTER NOT EXISTS {
+                    $this nltl:propellerPitchAtMcrBollard ?quantity .
+                    ?quantity a qudt:QuantityValue ;
+                              qudt:numericValue ?value ;
+                              qudt:unit unit:M .
+                    FILTER (datatype(?value) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For a CP propeller with an unknown pitch value, propellerPitchAtMcrBollard must equal 0.7 times propellerPitchAtMcrFreeRunning within a relative tolerance of 1e-6 plus an absolute fallback of 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?type ;
+                      nltl:pitchValueKnown ?known .
+                FILTER (?type = "CP"^^xsd:string)
+                FILTER (?known = false)
+
+                FILTER NOT EXISTS {
+                    $this nltl:propellerPitchAtMcrBollard ?bollardQuantity .
+                    ?bollardQuantity a qudt:QuantityValue ;
+                                      qudt:numericValue ?bollardValue ;
+                                      qudt:unit unit:M .
+                    FILTER (datatype(?bollardValue) = xsd:decimal)
+
+                    $this nltl:propellerPitchAtMcrFreeRunning ?freeRunningQuantity .
+                    ?freeRunningQuantity a qudt:QuantityValue ;
+                                          qudt:numericValue ?freeRunningValue ;
+                                          qudt:unit unit:M .
+                    FILTER (datatype(?freeRunningValue) = xsd:decimal)
+
+                    FILTER (
+                        ABS(?bollardValue - (0.7 * ?freeRunningValue))
+                        <=
+                        (0.000001 * ABS(0.7 * ?freeRunningValue) + 0.000000001)
+                    )
+                }
+            }
+        """
+    ] .
+<END_SHACL>

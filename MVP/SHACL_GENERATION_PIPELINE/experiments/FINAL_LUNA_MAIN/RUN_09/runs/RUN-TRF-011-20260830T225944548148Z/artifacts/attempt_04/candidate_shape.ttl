@@ -1,0 +1,121 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF011ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011IceWaterlineShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011IceWaterlineShape
+    ] ;
+    sh:sparql [
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?this ?position ?expected ?actualMin ?actualMax
+WHERE {
+  {
+    SELECT ?this ?position
+           (MAX(IF(?kind = "intended", ?value, ?unboundIntended)) AS ?expected)
+           (MIN(IF(?kind = "uiwl", ?value, ?unboundUIWL)) AS ?actualMin)
+           (MAX(IF(?kind = "uiwl", ?value, ?unboundUIWL)) AS ?actualMax)
+           (SUM(IF(?kind = "intended", 1, 0)) AS ?intendedCount)
+           (SUM(IF(?kind = "uiwl", 1, 0)) AS ?uiwlCount)
+    WHERE {
+      {
+        ?this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+        ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+        ?intendedPoint nltl:longitudinalPosition ?intendedPosition .
+        ?intendedPosition qudt:numericValue ?position .
+        ?intendedPoint nltl:verticalCoordinate ?intendedVertical .
+        ?intendedVertical qudt:numericValue ?value .
+        FILTER(datatype(?position) = xsd:decimal)
+        FILTER(datatype(?value) = xsd:decimal)
+        BIND("intended" AS ?kind)
+      }
+      UNION
+      {
+        ?this nltl:hasUpperIceWaterline ?uiwlWaterline .
+        ?uiwlWaterline nltl:hasWaterlineProfilePoint ?uiwlPoint .
+        ?uiwlPoint nltl:longitudinalPosition ?uiwlPosition .
+        ?uiwlPosition qudt:numericValue ?position .
+        ?uiwlPoint nltl:verticalCoordinate ?uiwlVertical .
+        ?uiwlVertical qudt:numericValue ?value .
+        FILTER(datatype(?position) = xsd:decimal)
+        FILTER(datatype(?value) = xsd:decimal)
+        BIND("uiwl" AS ?kind)
+      }
+    }
+    GROUP BY ?this ?position
+  }
+  FILTER(
+    ?intendedCount = 0 ||
+    ?uiwlCount = 0 ||
+    !BOUND(?expected) ||
+    !BOUND(?actualMin) ||
+    !BOUND(?actualMax) ||
+    ?actualMin < (?expected - (ABS(?expected) * 0.000001 + 0.000000001)) ||
+    ?actualMin > (?expected + (ABS(?expected) * 0.000001 + 0.000000001)) ||
+    ?actualMax < (?expected - (ABS(?expected) * 0.000001 + 0.000000001)) ||
+    ?actualMax > (?expected + (ABS(?expected) * 0.000001 + 0.000000001))
+  )
+}
+""" ;
+        sh:message "The upper ice waterline must contain exactly the maximum intended ice-operating waterline height at every longitudinal position, with no missing or extra positions."
+    ] .
+
+gen:TRF011IceWaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011ProfilePointShape
+    ] .
+
+gen:TRF011ProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011LengthQuantityShape
+    ] .
+
+gen:TRF011LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

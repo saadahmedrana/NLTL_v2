@@ -1,0 +1,70 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qv: <http://qudt.org/schema/qudt/> .
+@prefix qudtunit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:IMO_007_OpenWaterShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:class nltl:iceConditionValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must provide an ice condition classification before the open-water condition can be evaluated."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an open-water ice condition, sea ice concentration must be a decimal less than 1 with unitless units, and ice of land origin must be false." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qv: <http://qudt.org/schema/qudt/>
+PREFIX qudtunit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT ?this
+WHERE {
+    ?this nltl:iceConditionClassification ?condition .
+    FILTER (?condition = nltl:openWaterIceCondition)
+    FILTER (
+        NOT EXISTS {
+            ?this nltl:seaIceConcentration ?quantity .
+            ?quantity qv:numericValue ?concentration ;
+                      qv:unit qudtunit:UNITLESS .
+            ?this nltl:iceOfLandOriginPresent ?landOrigin .
+            FILTER (
+                datatype(?concentration) = xsd:decimal &&
+                ?concentration < 1 &&
+                datatype(?landOrigin) = xsd:boolean &&
+                ?landOrigin = false
+            )
+        }
+        ||
+        EXISTS {
+            ?this nltl:seaIceConcentration ?quantity .
+            FILTER NOT EXISTS {
+                ?quantity qv:numericValue ?concentration .
+                FILTER (
+                    datatype(?concentration) = xsd:decimal &&
+                    ?concentration < 1
+                )
+            }
+        }
+        ||
+        EXISTS {
+            ?this nltl:seaIceConcentration ?quantity .
+            ?quantity qv:unit ?unit .
+            FILTER (?unit != qudtunit:UNITLESS)
+        }
+        ||
+        EXISTS {
+            ?this nltl:iceOfLandOriginPresent ?landOrigin .
+            FILTER (!(
+                datatype(?landOrigin) = xsd:boolean &&
+                ?landOrigin = false
+            ))
+        }
+    )
+}
+""" ;
+    ] .

@@ -1,0 +1,88 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-120> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:operatingArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:foodWasteDischargeToSea ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "When operating area is Arctic waters and food waste is discharged to sea, the required ice-distance threshold and recorded nearby-ice distance information must conform." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:operatingArea ?area ;
+                      nltl:foodWasteDischargeToSea ?discharge .
+                FILTER (
+                    str(?area) = "Arctic_waters" &&
+                    ?discharge = true
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:distanceToNearestLandIceShelfOrFastIce ?distance .
+                        ?distance a qudt:QuantityValue ;
+                                  qudt:numericValue ?distanceValue ;
+                                  qudt:unit unit:MI_N .
+                        FILTER (
+                            datatype(?distanceValue) = xsd:decimal &&
+                            ?distanceValue >= "12"^^xsd:decimal
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:nearbyIceConcentration ?nearby .
+                        ?nearby a qudt:QuantityValue ;
+                                qudt:numericValue ?nearbyValue ;
+                                qudt:unit unit:UNITLESS .
+                        FILTER (
+                            datatype(?nearbyValue) = xsd:decimal &&
+                            ?nearbyValue > "0.1"^^xsd:decimal
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?recordedDistance .
+                        ?recordedDistance a qudt:QuantityValue ;
+                                          qudt:numericValue ?recordedValue ;
+                                          qudt:unit unit:MI_N .
+                        FILTER (datatype(?recordedValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:distanceToNearestLandIceShelfOrFastIce ?distance1 ;
+                              nltl:distanceToNearestLandIceShelfOrFastIce ?distance2 .
+                        FILTER (?distance1 != ?distance2)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:nearbyIceConcentration ?nearby1 ;
+                              nltl:nearbyIceConcentration ?nearby2 .
+                        FILTER (?nearby1 != ?nearby2)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?recorded1 ;
+                              nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?recorded2 .
+                        FILTER (?recorded1 != ?recorded2)
+                    }
+                )
+            }
+        """
+    ] .

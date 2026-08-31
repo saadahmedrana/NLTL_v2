@@ -1,0 +1,144 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix nltlgen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltlgen:TRF011ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node nltlgen:TRF011IceWaterlineShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node nltlgen:TRF011IceWaterlineShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline must match the envelope of the highest intended ice-operating waterline points." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT ?this
+WHERE {
+  {
+    SELECT ?this ?x
+           (MAX(?intVertical) AS ?expected)
+           (MIN(?uiVertical) AS ?uiMinimum)
+           (MAX(?uiVertical) AS ?uiMaximum)
+           (COUNT(?intVertical) AS ?intCount)
+           (COUNT(?uiVertical) AS ?uiCount)
+    WHERE {
+      {
+        ?this nltl:hasIntendedIceOperatingWaterline ?intWaterline .
+        ?intWaterline nltl:hasWaterlineProfilePoint ?intPoint .
+        ?intPoint nltl:longitudinalPosition ?intPosition .
+        ?intPosition qudt:numericValue ?intX .
+        ?intPosition qudt:unit <http://qudt.org/vocab/unit/M> .
+        ?intPoint nltl:verticalCoordinate ?intCoordinate .
+        ?intCoordinate qudt:numericValue ?intVertical .
+        ?intCoordinate qudt:unit <http://qudt.org/vocab/unit/M> .
+        FILTER (
+          DATATYPE(?intX) = xsd:decimal &&
+          DATATYPE(?intVertical) = xsd:decimal
+        )
+        BIND(?intX AS ?x)
+      }
+      UNION
+      {
+        ?this nltl:hasUpperIceWaterline ?uiWaterline .
+        ?uiWaterline nltl:hasWaterlineProfilePoint ?uiPoint .
+        ?uiPoint nltl:longitudinalPosition ?uiPosition .
+        ?uiPosition qudt:numericValue ?uiX .
+        ?uiPosition qudt:unit <http://qudt.org/vocab/unit/M> .
+        ?uiPoint nltl:verticalCoordinate ?uiCoordinate .
+        ?uiCoordinate qudt:numericValue ?uiVertical .
+        ?uiCoordinate qudt:unit <http://qudt.org/vocab/unit/M> .
+        FILTER (
+          DATATYPE(?uiX) = xsd:decimal &&
+          DATATYPE(?uiVertical) = xsd:decimal
+        )
+        BIND(?uiX AS ?x)
+      }
+    }
+    GROUP BY ?this ?x
+  }
+  FILTER (
+    ?intCount = 0 ||
+    ?uiCount = 0 ||
+    !BOUND(?expected) ||
+    !BOUND(?uiMinimum) ||
+    !BOUND(?uiMaximum) ||
+    ABS(?uiMinimum - ?expected) >
+      IF(
+        ABS(?expected) * 0.000001 > 0.000001,
+        ABS(?expected) * 0.000001,
+        0.000001
+      ) ||
+    ABS(?uiMaximum - ?expected) >
+      IF(
+        ABS(?expected) * 0.000001 > 0.000001,
+        ABS(?expected) * 0.000001,
+        0.000001
+      )
+  )
+}
+""" ;
+    ] .
+
+nltlgen:TRF011IceWaterlineShape
+    a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node nltlgen:TRF011ProfilePointShape
+    ] .
+
+nltlgen:TRF011ProfilePointShape
+    a sh:NodeShape ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltlgen:TRF011LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltlgen:TRF011LengthQuantityShape
+    ] .
+
+nltlgen:TRF011LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

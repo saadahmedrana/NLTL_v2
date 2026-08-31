@@ -1,0 +1,85 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:IMO26_012_QuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS>
+    ] .
+
+gen:IMO26_012_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:IMO26_012_QuantityShape ;
+        sh:message "Gross tonnage is required as a single QUDT quantity with a unitless decimal value."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a ship of at least 500 gross tonnage, at least two distinct non-magnetic heading means are required, and every such means must have main-power and emergency-power connections and an independence relation to another distinct means on the same ship." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:grossTonnage ?grossQuantity .
+                ?grossQuantity qudt:numericValue ?grossValue ;
+                                qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                FILTER (?grossValue >= 500)
+
+                {
+                    FILTER NOT EXISTS {
+                        $this nltl:hasNonMagneticHeadingMeans ?means1 .
+                        $this nltl:hasNonMagneticHeadingMeans ?means2 .
+                        FILTER (?means1 != ?means2)
+                    }
+                }
+                UNION
+                {
+                    $this nltl:hasNonMagneticHeadingMeans ?means .
+                    FILTER NOT EXISTS {
+                        ?means nltl:connectedToMainPower ?mainPower .
+                        FILTER (isIRI(?mainPower))
+                        ?mainPower a nltl:benchmarkEntity .
+                    }
+                }
+                UNION
+                {
+                    $this nltl:hasNonMagneticHeadingMeans ?means .
+                    FILTER NOT EXISTS {
+                        ?means nltl:connectedToEmergencyPower ?emergencyPower .
+                        FILTER (isIRI(?emergencyPower))
+                        ?emergencyPower a nltl:benchmarkEntity .
+                    }
+                }
+                UNION
+                {
+                    $this nltl:hasNonMagneticHeadingMeans ?means .
+                    FILTER NOT EXISTS {
+                        ?means nltl:independentFromHeadingMeans ?otherMeans .
+                        FILTER (?otherMeans != ?means)
+                        $this nltl:hasNonMagneticHeadingMeans ?otherMeans .
+                        ?otherMeans a nltl:nonMagneticHeadingMeans .
+                    }
+                }
+            }
+        """
+    ] .
+<END_SHACL>

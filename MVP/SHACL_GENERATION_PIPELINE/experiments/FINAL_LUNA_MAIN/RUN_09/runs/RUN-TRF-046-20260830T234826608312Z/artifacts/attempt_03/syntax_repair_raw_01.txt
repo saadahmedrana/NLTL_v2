@@ -1,0 +1,109 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-046-AttachmentEndShape>
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasAttachedSupportingStructure ;
+        sh:minCount 1 ;
+        sh:or (
+            [ sh:class nltl:deckStructure ]
+            [ sh:class nltl:tankBoundaryPlating ]
+            [ sh:class nltl:iceStringer ]
+        ) ;
+        sh:message "The upper end must be attached to a deck, tank-boundary plating, or ice stringer."
+    ] .
+
+<urn:nltl:generated-shape:TRF-046-MainFrameApplicabilityShape>
+    a sh:NodeShape ;
+    sh:class nltl:mainFrame ;
+    sh:property [
+        sh:path nltl:hasStrengthenedPart ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path nltl:ordinaryFrameScantlingsUsed ;
+                sh:datatype xsd:boolean
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperEnd ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-046-AttachmentEndShape>
+    ] .
+
+<urn:nltl:generated-shape:TRF-046-IntermediateFrameApplicabilityShape>
+    a sh:NodeShape ;
+    sh:class nltl:intermediateIceFrame ;
+    sh:property [
+        sh:path nltl:hasStrengthenedPart ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path nltl:ordinaryFrameScantlingsUsed ;
+                sh:datatype xsd:boolean
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperEnd ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-046-AttachmentEndShape>
+    ] .
+
+<urn:nltl:generated-shape:TRF-046-FrameShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:or (
+        <urn:nltl:generated-shape:TRF-046-MainFrameApplicabilityShape>
+        <urn:nltl:generated-shape:TRF-046-IntermediateFrameApplicabilityShape>
+    ) ;
+    sh:message "The applicable frame must be a main frame or intermediate ice frame with a strengthened part and an attached upper end." ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Ordinary frame scantlings may be used above a deck or ice stringer only when that supporting structure is at or above the ice-belt upper limit." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasStrengthenedPart ?part .
+                ?part nltl:ordinaryFrameScantlingsUsed true .
+                FILTER NOT EXISTS {
+                    $this nltl:hasUpperEnd ?end .
+                    ?end nltl:hasTerminationAboveSupportingStructure ?support .
+                    ?support nltl:supportingStructureAtOrAboveIceBeltUpperLimit true .
+                    ?support a ?supportType .
+                    FILTER (?supportType IN (
+                        nltl:deckStructure,
+                        nltl:iceStringer
+                    ))
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An intermediate frame may use a horizontal member with main-frame scantlings only when it connects to an adjacent main frame." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasUpperEnd ?end .
+                ?end nltl:hasHorizontalConnectionMember ?member .
+                ?member nltl:sameScantlingsAsMainFrame true .
+                FILTER NOT EXISTS {
+                    $this a nltl:intermediateIceFrame .
+                    ?member nltl:connectsToAdjacentMainFrame ?adjacentMainFrame .
+                    ?adjacentMainFrame a nltl:mainFrame .
+                }
+            }
+        """
+    ] .
+<END_SHACL>

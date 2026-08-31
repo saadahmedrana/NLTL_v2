@@ -1,0 +1,124 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF006Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single construction-stage date is required to determine applicability of the ice-class rule." ;
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must identify its ice class." ;
+    ] ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloW ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "The ship must provide maximum continuous rating power as a single kW quantity." ;
+    ] ;
+    sh:sparql [
+        sh:message "For ships constructed from 1 November 1986 through 31 August 2003, the 1985 rule edition and the owner-request selector must be represented; a true selector requires the 2008 engine-output edition." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:constructionStageDate ?d .
+
+                FILTER (
+                    (
+                        YEAR(?d) > 1986 ||
+                        (YEAR(?d) = 1986 && MONTH(?d) > 11) ||
+                        (YEAR(?d) = 1986 && MONTH(?d) = 11 && DAY(?d) >= 1)
+                    )
+                    &&
+                    (
+                        YEAR(?d) < 2003 ||
+                        (YEAR(?d) = 2003 && MONTH(?d) < 9)
+                    )
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:applicableIceClassRegulationEdition
+                            nltl:iceClassRuleEdition1985
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:applicableIceClassRegulationEdition ?applicableEdition .
+                        FILTER (
+                            ?applicableEdition !=
+                            nltl:iceClassRuleEdition1985
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:ownerRequested2008EngineOutputRequirements ?selector .
+                        FILTER (
+                            ?selector = true ||
+                            ?selector = false
+                        )
+                    }
+                    ||
+                    (
+                        EXISTS {
+                            $this nltl:ownerRequested2008EngineOutputRequirements true
+                        }
+                        &&
+                        (
+                            NOT EXISTS {
+                                $this nltl:engineOutputRegulationEdition
+                                    nltl:iceClassRegulationEdition2008
+                            }
+                            ||
+                            EXISTS {
+                                $this nltl:engineOutputRegulationEdition ?engineEdition .
+                                FILTER (
+                                    ?engineEdition !=
+                                    nltl:iceClassRegulationEdition2008
+                                )
+                            }
+                        )
+                    )
+                    ||
+                    (
+                        EXISTS {
+                            $this nltl:ownerRequested2008EngineOutputRequirements false
+                        }
+                        &&
+                        EXISTS {
+                            $this nltl:engineOutputRegulationEdition
+                                nltl:iceClassRegulationEdition2008
+                        }
+                    )
+                )
+            }
+        """
+    ] .

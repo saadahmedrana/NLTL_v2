@@ -1,0 +1,126 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:I2-037> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIceLoadPatch ;
+        sh:class nltl:iceLoadPatch ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "The ship must identify the ice load patch to which the structural design applies."
+    ] ;
+    sh:property [
+        sh:path nltl:hasIceLoadPatchDesignCase ;
+        sh:class nltl:iceLoadPatchDesignCase ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path nltl:memberCapacityMinimizationConfirmed ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true ;
+                sh:message "The ice-load-patch design case must confirm that the selected application location minimises member capacity under combined bending and shear."
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:class nltl:structuralMember ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path nltl:memberCapacity ;
+                sh:class qudt:QuantityValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:KiloN ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberLoadCase ;
+                sh:class nltl:loadCase ;
+                sh:nodeKind sh:IRI ;
+                sh:minCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path nltl:combinedShearBendingEffect ;
+                        sh:datatype xsd:string ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:minLength 1
+                    ] ;
+                    sh:property [
+                        sh:path nltl:loadPatchApplicationLocation ;
+                        sh:datatype xsd:string ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1 ;
+                        sh:minLength 1
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For each structural member, the load-case member capacity at the selected ice-load-patch application location must not exceed the capacity of another linked load case for that member." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasIceLoadPatchDesignCase ?designCase ;
+                       nltl:hasStructuralMember ?member .
+
+                ?designCase nltl:memberCapacityMinimizationConfirmed true .
+
+                ?member nltl:memberCapacity ?capacity ;
+                        nltl:hasStructuralMemberLoadCase ?loadCase .
+
+                ?capacity qudt:numericValue ?selectedValue ;
+                          qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+
+                ?loadCase nltl:combinedShearBendingEffect ?effect ;
+                          nltl:loadPatchApplicationLocation ?location .
+
+                FILTER (STRLEN(STR(?effect)) > 0)
+                FILTER (STRLEN(STR(?location)) > 0)
+
+                FILTER EXISTS {
+                    ?this nltl:hasIceLoadPatch ?patch .
+                    ?patch a nltl:iceLoadPatch .
+                }
+
+                FILTER NOT EXISTS {
+                    ?member nltl:hasStructuralMemberLoadCase ?alternativeCase ;
+                            nltl:memberCapacity ?alternativeCapacity .
+
+                    ?alternativeCapacity qudt:numericValue ?alternativeValue ;
+                                         qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+
+                    FILTER (?alternativeCase != ?loadCase)
+                    FILTER (?alternativeValue < ?selectedValue)
+                }
+            }
+        """
+    ] .

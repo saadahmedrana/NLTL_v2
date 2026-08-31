@@ -1,0 +1,184 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF011ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:message "The ship must identify its intended ice-operating waterline."
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:message "The ship must identify its upper ice waterline."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The UIWL must have a profile point at every intended longitudinal position, every intended position must have a UIWL point, and each UIWL vertical coordinate must equal the maximum intended vertical coordinate within tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                {
+                    SELECT ?posValue
+                           (COUNT(DISTINCT ?intPoint) AS ?intCount)
+                           (COUNT(DISTINCT ?uiPoint) AS ?uiCount)
+                           (MAX(?intVerticalValue) AS ?expectedMaximum)
+                           (MIN(?uiVerticalValue) AS ?minimumUiVertical)
+                           (MAX(?uiVerticalValue) AS ?maximumUiVertical)
+                    WHERE {
+                        $this
+                            (nltl:hasIntendedIceOperatingWaterline|nltl:hasUpperIceWaterline)
+                            ?seedWaterline .
+                        ?seedWaterline
+                            nltl:hasWaterlineProfilePoint
+                            ?seedPoint .
+                        ?seedPoint
+                            nltl:longitudinalPosition
+                            ?seedPositionQuantity .
+                        ?seedPositionQuantity
+                            qudt:numericValue
+                            ?posValue .
+
+                        OPTIONAL {
+                            $this
+                                nltl:hasIntendedIceOperatingWaterline
+                                ?intWaterline .
+                            ?intWaterline
+                                nltl:hasWaterlineProfilePoint
+                                ?intPoint .
+                            ?intPoint
+                                nltl:longitudinalPosition
+                                ?intPositionQuantity .
+                            ?intPositionQuantity
+                                qudt:numericValue
+                                ?intPositionValue .
+                            FILTER(?intPositionValue = ?posValue)
+                            ?intPoint
+                                nltl:verticalCoordinate
+                                ?intVerticalQuantity .
+                            ?intVerticalQuantity
+                                qudt:numericValue
+                                ?intVerticalValue .
+                        }
+
+                        OPTIONAL {
+                            $this
+                                nltl:hasUpperIceWaterline
+                                ?uiWaterline .
+                            ?uiWaterline
+                                nltl:hasWaterlineProfilePoint
+                                ?uiPoint .
+                            ?uiPoint
+                                nltl:longitudinalPosition
+                                ?uiPositionQuantity .
+                            ?uiPositionQuantity
+                                qudt:numericValue
+                                ?uiPositionValue .
+                            FILTER(?uiPositionValue = ?posValue)
+                            ?uiPoint
+                                nltl:verticalCoordinate
+                                ?uiVerticalQuantity .
+                            ?uiVerticalQuantity
+                                qudt:numericValue
+                                ?uiVerticalValue .
+                        }
+                    }
+                    GROUP BY ?posValue
+                }
+
+                BIND(
+                    IF(
+                        ABS(?expectedMaximum) * 0.000001 > 0.000000001,
+                        ABS(?expectedMaximum) * 0.000001,
+                        0.000000001
+                    )
+                    AS ?tolerance
+                )
+
+                FILTER(
+                    ?intCount = 0 ||
+                    ?uiCount = 0 ||
+                    !BOUND(?expectedMaximum) ||
+                    !BOUND(?minimumUiVertical) ||
+                    !BOUND(?maximumUiVertical) ||
+                    ?minimumUiVertical < (?expectedMaximum - ?tolerance) ||
+                    ?minimumUiVertical > (?expectedMaximum + ?tolerance) ||
+                    ?maximumUiVertical < (?expectedMaximum - ?tolerance) ||
+                    ?maximumUiVertical > (?expectedMaximum + ?tolerance)
+                )
+            }
+        """
+    ] .
+
+gen:TRF011IceWaterlineShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:message "Each represented ice waterline must have profile points."
+    ] .
+
+gen:TRF011WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:waterlineProfilePoint ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] .
+<END_SHACL>

@@ -1,0 +1,79 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+<urn:nltl:generated-shape:TRF-112> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPropulsionLoadCase ;
+        sh:node [
+            sh:class nltl:loadCase ;
+            sh:property [
+                sh:path nltl:shaftLineLoadCaseType ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasPropellerShaftLineComponent ;
+        sh:node [
+            sh:class nltl:propellerShaftLineComponent
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "Each applicable blade-failure load case must contain externally calculated ultimate and combined-load inputs, and each linked shaft-line component must report bending and torsional yield safety factors of at least 1.0 with the declared units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasPropulsionLoadCase ?loadCase .
+                ?loadCase nltl:shaftLineLoadCaseType nltl:bladeFailureLoadCase .
+
+                FILTER (
+                    NOT EXISTS {
+                        ?loadCase nltl:bladeFailureUltimateLoad ?ultimateLoad .
+                        ?ultimateLoad qudt:numericValue ?ultimateValue ;
+                                      qudt:unit qudt:KiloN .
+                        FILTER (datatype(?ultimateValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?loadCase nltl:combinedAxialBendingTorsionLoad ?combinedLoad .
+                        ?combinedLoad qudt:numericValue ?combinedValue ;
+                                     qudt:unit qudt:KiloN .
+                        FILTER (datatype(?combinedValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasPropellerShaftLineComponent ?component .
+                        FILTER NOT EXISTS {
+                            ?component nltl:bendingYieldSafetyFactor ?bendingFactor .
+                            ?bendingFactor qudt:numericValue ?bendingValue ;
+                                            qudt:unit qudt:UNITLESS .
+                            FILTER (
+                                datatype(?bendingValue) = xsd:decimal &&
+                                ?bendingValue >= 1.0
+                            )
+                        }
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasPropellerShaftLineComponent ?component .
+                        FILTER NOT EXISTS {
+                            ?component nltl:torsionalYieldSafetyFactor ?torsionalFactor .
+                            ?torsionalFactor qudt:numericValue ?torsionalValue ;
+                                              qudt:unit qudt:UNITLESS .
+                            FILTER (
+                                datatype(?torsionalValue) = xsd:decimal &&
+                                ?torsionalValue >= 1.0
+                            )
+                        }
+                    }
+                )
+            }
+        """
+    ] .

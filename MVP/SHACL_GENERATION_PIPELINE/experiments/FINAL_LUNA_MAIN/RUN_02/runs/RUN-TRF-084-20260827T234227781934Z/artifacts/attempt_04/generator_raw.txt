@@ -1,0 +1,131 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltl:TRF084Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single propeller type is required to determine applicability."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "For a CP propeller, the bollard-condition pitch must be identified as known or the prescribed fallback value must be supplied."
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ] ;
+            sh:sparql [
+                sh:message "For a CP propeller with unknown pitch, the bollard-condition pitch must equal 0.7 times the free-running MCR pitch within the permitted tolerance." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX unit: <http://qudt.org/vocab/unit/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerType "CP" ;
+                              nltl:pitchValueKnown false ;
+                              nltl:propellerPitchAtMcrFreeRunning ?freeQuantity ;
+                              nltl:propellerPitchAtMcrBollard ?bollardQuantity .
+                        ?freeQuantity qudt:numericValue ?freeValue ;
+                                      qudt:unit unit:M .
+                        ?bollardQuantity qudt:numericValue ?bollardValue ;
+                                           qudt:unit unit:M .
+                        BIND((0.7 * ?freeValue) AS ?expectedValue)
+                        BIND(IF(?expectedValue >= 0, ?expectedValue, -?expectedValue) AS ?expectedMagnitude)
+                        BIND(IF((0.000001 * ?expectedMagnitude) >= 0.000001,
+                                (0.000001 * ?expectedMagnitude),
+                                0.000001) AS ?tolerance)
+                        FILTER(
+                            ?bollardValue < (?expectedValue - ?tolerance) ||
+                            ?bollardValue > (?expectedValue + ?tolerance)
+                        )
+                    }
+                """
+            ]
+        ]
+        [
+            sh:sparql [
+                sh:message "The conditional CP-propeller requirement is not applicable to this propeller type." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerType ?type .
+                        FILTER(?type != "CP")
+                    }
+                """
+            ]
+        ]
+    ) .
+<END_SHACL>

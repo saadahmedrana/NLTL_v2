@@ -1,0 +1,131 @@
+@prefix g: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+g:TRF024Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must provide an ice class to determine TRF-024 applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:assessmentDate ;
+        sh:datatype <http://www.w3.org/2001/XMLSchema#date>
+    ] ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype <http://www.w3.org/2001/XMLSchema#date>
+    ] ;
+    sh:property [
+        sh:path nltl:deliveryDate ;
+        sh:datatype <http://www.w3.org/2001/XMLSchema#date>
+    ] ;
+    sh:or (
+        g:TRF024NonApplicableShape
+        g:TRF024ApplicableShape
+    ) .
+
+g:TRF024NonApplicableShape
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "TRF-024 is not non-applicable: an IA or IA Super ship requires a valid construction-stage date, and a construction stage before 1 September 2003 is applicable." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?ice .
+                FILTER (?ice IN (nltl:iceClassIa, nltl:iceClassIaSuper))
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:constructionStageDate ?construction .
+                        FILTER (datatype(?construction) = xsd:date)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:constructionStageDate ?construction .
+                        FILTER (datatype(?construction) = xsd:date)
+                        FILTER (
+                            YEAR(?construction) < 2003
+                            ||
+                            (
+                                YEAR(?construction) = 2003
+                                && MONTH(?construction) < 9
+                            )
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+
+g:TRF024ApplicableShape
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "TRF-024 applies to IA or IA Super ships constructed before 1 September 2003 and requires assessment, construction-stage, and delivery dates with assessment no later than 1 January twenty years after delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceClass ?ice .
+                        FILTER (?ice IN (nltl:iceClassIa, nltl:iceClassIaSuper))
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:constructionStageDate ?construction .
+                        FILTER (datatype(?construction) = xsd:date)
+                        FILTER (
+                            YEAR(?construction) < 2003
+                            ||
+                            (
+                                YEAR(?construction) = 2003
+                                && MONTH(?construction) < 9
+                            )
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:assessmentDate ?assessment .
+                        FILTER (datatype(?assessment) = xsd:date)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:deliveryDate ?delivery .
+                        FILTER (datatype(?delivery) = xsd:date)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:assessmentDate ?assessment ;
+                              nltl:deliveryDate ?delivery .
+                        FILTER (datatype(?assessment) = xsd:date)
+                        FILTER (datatype(?delivery) = xsd:date)
+                        FILTER (
+                            YEAR(?assessment) > YEAR(?delivery) + 20
+                            ||
+                            (
+                                YEAR(?assessment) = YEAR(?delivery) + 20
+                                && MONTH(?assessment) > 1
+                            )
+                            ||
+                            (
+                                YEAR(?assessment) = YEAR(?delivery) + 20
+                                && MONTH(?assessment) = 1
+                                && DAY(?assessment) > 1
+                            )
+                        )
+                    }
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,84 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF_076_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship must specify its propeller type."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerReversingCapability ;
+        sh:datatype xsd:boolean ;
+        sh:message "Propeller reversing capability, when recorded, must be boolean."
+    ] ;
+    sh:property [
+        sh:path nltl:hasPropellerBladeLoadCase ;
+        sh:node [
+            sh:class nltl:propellerBladeLoadCase ;
+            sh:property [
+                sh:path nltl:propellerBladeLoadCaseNumber ;
+                sh:datatype xsd:integer ;
+                sh:minCount 1 ;
+                sh:message "Each propeller blade load case must have an integer case number."
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Applicable ships must provide propeller blade load cases."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "CP and FP propellers must cover load cases 1 through 4; a reversing FP propeller must also cover load case 5." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?pt .
+                FILTER (
+                    ?pt = "CP" ||
+                    ?pt = "FP"
+                )
+                FILTER (
+                    ?pt = "CP" ||
+                    EXISTS {
+                        $this nltl:propellerReversingCapability ?rev .
+                        FILTER (
+                            datatype(?rev) = xsd:boolean &&
+                            (?rev = true || ?rev = false)
+                        )
+                    }
+                )
+                BIND(
+                    EXISTS {
+                        $this nltl:propellerReversingCapability ?rev2 .
+                        FILTER(?rev2 = true)
+                    }
+                    AS ?hasTrueReversingCapability
+                )
+                $this nltl:hasPropellerBladeLoadCase ?case .
+                ?case nltl:propellerBladeLoadCaseNumber ?number .
+            }
+            GROUP BY $this ?pt ?hasTrueReversingCapability
+            HAVING (
+                SUM(IF(?number = 1, 1, 0)) = 0 ||
+                SUM(IF(?number = 2, 1, 0)) = 0 ||
+                SUM(IF(?number = 3, 1, 0)) = 0 ||
+                SUM(IF(?number = 4, 1, 0)) = 0 ||
+                (
+                    ?pt = "FP" &&
+                    ?hasTrueReversingCapability = true &&
+                    SUM(IF(?number = 5, 1, 0)) = 0
+                )
+            )
+        """
+    ] .
+<END_SHACL>

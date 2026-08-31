@@ -1,0 +1,112 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-111-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship category must be provided using a permitted canonical category value."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A valid construction date is required to determine applicability."
+    ] ;
+    sh:sparql [
+        sh:message "For an applicable Category A or B ship, every oil residue tank and oily bilge water holding tank with individual capacity greater than 30 m3 must have an outer-shell separation of at least 0.76 m, with capacity and separation represented as QUDT quantities in the canonical units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?constructionDate ;
+                      nltl:hasComponent ?tank .
+
+                FILTER (
+                    ?category = nltl:polarShipCategoryA ||
+                    ?category = nltl:polarShipCategoryB
+                )
+
+                FILTER (
+                    YEAR(?constructionDate) > 2017 ||
+                    (
+                        YEAR(?constructionDate) = 2017 &&
+                        MONTH(?constructionDate) > 1
+                    ) ||
+                    (
+                        YEAR(?constructionDate) = 2017 &&
+                        MONTH(?constructionDate) = 1 &&
+                        DAY(?constructionDate) >= 1
+                    )
+                )
+
+                ?tank rdf:type ?tankType .
+                FILTER (
+                    ?tankType = nltl:oilResidueTank ||
+                    ?tankType = nltl:oilyBilgeWaterHoldingTank
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        ?tank nltl:individualTankCapacity ?capacityNode .
+                        ?capacityNode qudt:numericValue ?capacityValue ;
+                                      qudt:unit unit:M3 .
+                        FILTER (datatype(?capacityValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        ?tank nltl:individualTankCapacity ?largeCapacityNode .
+                        ?largeCapacityNode qudt:numericValue ?largeCapacityValue ;
+                                            qudt:unit unit:M3 .
+                        FILTER (
+                            datatype(?largeCapacityValue) = xsd:decimal &&
+                            ?largeCapacityValue > 30
+                        )
+
+                        FILTER (
+                            NOT EXISTS {
+                                ?tank nltl:tankOuterShellSeparation ?separationNode .
+                                ?separationNode qudt:numericValue ?separationValue ;
+                                                 qudt:unit unit:M .
+                                FILTER (
+                                    datatype(?separationValue) = xsd:decimal &&
+                                    ?separationValue >= 0.76
+                                )
+                            }
+                            ||
+                            EXISTS {
+                                ?tank nltl:tankOuterShellSeparation ?nonconformingSeparationNode .
+                                ?nonconformingSeparationNode qudt:numericValue ?nonconformingSeparationValue ;
+                                                               qudt:unit ?separationUnit .
+                                FILTER (
+                                    datatype(?nonconformingSeparationValue) != xsd:decimal ||
+                                    ?separationUnit != unit:M ||
+                                    ?nonconformingSeparationValue < 0.76
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,196 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:I2_031_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:minCount 1 ;
+        sh:message "The ship must identify its frame profile type."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gen:I2_031_StructuralMemberShape ;
+        sh:message "Each linked structural member must satisfy the I2.6.1 applicability and strength constraints."
+    ] .
+
+gen:I2_031_StructuralMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:structuralLocationValue
+    ] ;
+    sh:property [
+        sh:path nltl:midspanPlasticCollapseLoad ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue qudt:KiloN
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:plasticStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue qudt:KiloN
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberLoadCase ;
+        sh:minCount 1 ;
+        sh:node gen:I2_031_LoadCaseShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:hasValue nltl:bottomStructureLocation
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberLoadCase ;
+                sh:node gen:I2_031_BottomLoadCaseShape
+            ] ;
+            sh:sparql [
+                sh:message "A bottom structural member must have a ship-owned patch load connected to its load case with load patch orientation parallel to the frame." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX sh: <http://www.w3.org/ns/shacl#>
+
+                    SELECT $this
+                    WHERE {
+                        ?ship nltl:hasStructuralMember $this ;
+                              nltl:patchLoad ?patchLoad .
+                        ?patchLoad qudt:numericValue ?patchNumeric ;
+                                   qudt:unit qudt:KiloN .
+                        $this nltl:hasStructuralMemberLoadCase ?case .
+                        ?case nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame .
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:hasValue nltl:sideStructureLocation
+            ] ;
+            sh:property [
+                sh:path nltl:transverseFrameOrientation ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "The combined shear and bending demand must not exceed plastic strength, and plastic strength must equal the midspan load producing the plastic collapse mechanism within tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                ?ship nltl:hasStructuralMember $this ;
+                      nltl:plasticCollapseMechanism ?mechanism .
+                ?this nltl:midspanPlasticCollapseLoad ?midspanLoad ;
+                      nltl:plasticStrength ?strength ;
+                      nltl:hasStructuralMemberLoadCase ?case .
+                ?case nltl:combinedShearAndBendingDemand ?demand .
+
+                ?midspanLoad qudt:numericValue ?midspanValue ;
+                             qudt:unit qudt:KiloN .
+                ?strength qudt:numericValue ?strengthValue ;
+                          qudt:unit qudt:KiloN .
+                ?demand qudt:numericValue ?demandValue ;
+                        qudt:unit qudt:KiloN .
+
+                FILTER (
+                    ?demandValue > ?strengthValue ||
+                    ABS(?strengthValue - ?midspanValue) >
+                    (ABS(?midspanValue) * "0.000001"^^xsd:decimal + "0.000001"^^xsd:decimal)
+                )
+            }
+        """
+    ] .
+
+gen:I2_031_LoadCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue qudt:KiloN
+            ]
+        ]
+    ] .
+
+gen:I2_031_BottomLoadCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:loadPatchOrientation ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue nltl:loadPatchHeightParallelToFrame
+    ] ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue qudt:KiloN
+            ]
+        ]
+    ] .

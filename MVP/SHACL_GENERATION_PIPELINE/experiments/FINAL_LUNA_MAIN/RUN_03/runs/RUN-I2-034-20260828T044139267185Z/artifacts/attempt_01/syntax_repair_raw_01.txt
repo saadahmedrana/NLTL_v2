@@ -1,0 +1,115 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:frameProfileTypeValue ;
+        sh:message "A ship shall identify the frame profile type for this requirement."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gen:StructuralMemberShape
+    ] .
+
+gen:StructuralMemberShape a sh:NodeShape ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:longitudinalFrameOrientation ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:longitudinalFrameOrientation ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue nltl:sideStructureLocation
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberLoadCase ;
+                sh:node gen:LoadCaseShape
+            ] ;
+            sh:property [
+                sh:path nltl:plasticStrength ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:KiloNewtonQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:midspanPlasticCollapseLoad ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:KiloNewtonQuantityShape
+            ]
+        ]
+    ) ;
+    sh:message "A structural member must either be identified as non-longitudinal or, when it is a longitudinal frame in a side structure, provide its required strength and load-case data." .
+
+gen:LoadCaseShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "Each represented load case for an applicable longitudinal side frame shall provide one combined shear-and-bending demand."
+    ] ;
+    sh:sparql [
+        sh:message "The combined shear-and-bending demand shall not exceed the member plastic strength or its midspan plastic-collapse load, and those two strength values shall agree within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                ?member nltl:hasStructuralMemberLoadCase $this .
+                ?member nltl:plasticStrength ?strengthNode .
+                ?member nltl:midspanPlasticCollapseLoad ?collapseNode .
+                $this nltl:combinedShearAndBendingDemand ?demandNode .
+                ?strengthNode qudt:numericValue ?strength .
+                ?collapseNode qudt:numericValue ?collapse .
+                ?demandNode qudt:numericValue ?demand .
+                FILTER (
+                    ?demand > ?strength ||
+                    ?demand > ?collapse ||
+                    ABS(?strength - ?collapse) >
+                    (0.000001 * IF(ABS(?strength) > ABS(?collapse), ABS(?strength), ABS(?collapse)) + 0.000000001)
+                )
+            }
+        """
+    ] .
+
+gen:KiloNewtonQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN>
+    ] .
+<END_SHACL>

@@ -1,0 +1,121 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-111> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:polarShipCategoryA nltl:polarShipCategoryB ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must have exactly one Polar Ship Category A or B value."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "2017-01-01"^^xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An applicable ship must have a construction date on or after 2017-01-01."
+    ] ;
+    sh:sparql [
+        sh:message "Each linked oil residue or oily bilge water holding tank must identify its tank type using nltl:tankType." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:hasComponent ?tank .
+                ?tank a ?tankClass .
+                FILTER (?tankClass IN (nltl:oilResidueTank, nltl:oilyBilgeWaterHoldingTank))
+                FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+                FILTER (
+                    YEAR(?date) > 2017 ||
+                    (YEAR(?date) = 2017 && MONTH(?date) > 1) ||
+                    (YEAR(?date) = 2017 && MONTH(?date) = 1 && DAY(?date) >= 1)
+                )
+                FILTER NOT EXISTS {
+                    ?tank nltl:tankType ?tankType .
+                    FILTER (
+                        datatype(?tankType) = xsd:string &&
+                        ?tankType IN ("oil_residue_tank"^^xsd:string,
+                                      "oily_bilge_water_holding_tank"^^xsd:string)
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Each applicable tank must have an individual capacity represented as a decimal quantity in m3." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:hasComponent ?tank .
+                ?tank a ?tankClass .
+                FILTER (?tankClass IN (nltl:oilResidueTank, nltl:oilyBilgeWaterHoldingTank))
+                FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+                FILTER (
+                    YEAR(?date) > 2017 ||
+                    (YEAR(?date) = 2017 && MONTH(?date) > 1) ||
+                    (YEAR(?date) = 2017 && MONTH(?date) = 1 && DAY(?date) >= 1)
+                )
+                FILTER NOT EXISTS {
+                    ?tank nltl:individualTankCapacity ?capacity .
+                    ?capacity qudt:numericValue ?value ;
+                              qudt:unit unit:M3 .
+                    FILTER (datatype(?value) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Every applicable tank with capacity greater than 30 m3 must have a corresponding outer-shell separation of at least 0.76 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:hasComponent ?tank .
+                ?tank a ?tankClass ;
+                      nltl:individualTankCapacity ?capacity .
+                ?capacity qudt:numericValue ?capacityValue ;
+                          qudt:unit unit:M3 .
+                FILTER (?tankClass IN (nltl:oilResidueTank, nltl:oilyBilgeWaterHoldingTank))
+                FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+                FILTER (
+                    YEAR(?date) > 2017 ||
+                    (YEAR(?date) = 2017 && MONTH(?date) > 1) ||
+                    (YEAR(?date) = 2017 && MONTH(?date) = 1 && DAY(?date) >= 1)
+                )
+                FILTER (datatype(?capacityValue) = xsd:decimal)
+                FILTER (?capacityValue > 30)
+                FILTER NOT EXISTS {
+                    ?tank nltl:tankOuterShellSeparation ?separation .
+                    ?separation qudt:numericValue ?separationValue ;
+                                qudt:unit unit:M .
+                    FILTER (
+                        datatype(?separationValue) = xsd:decimal &&
+                        ?separationValue >= 0.76
+                    )
+                }
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,130 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:MetreQuantityShape a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A metre quantity must have exactly one numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A propeller pitch quantity must have exactly one metre unit."
+    ] .
+
+gen:CPKnownShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:hasValue "CP" ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrBollard ;
+        sh:node gen:MetreQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A CP propeller with known pitch must provide one bollard-condition MCR pitch."
+    ] .
+
+gen:CPUnknownShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:hasValue "CP" ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue false ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrFreeRunning ;
+        sh:node gen:MetreQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An unknown CP propeller pitch requires one free-running MCR pitch."
+    ] ;
+    sh:property [
+        sh:path nltl:propellerPitchAtMcrBollard ;
+        sh:node gen:MetreQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "An unknown CP propeller pitch requires one bollard-condition MCR pitch."
+    ] ;
+    sh:sparql [
+        sh:message "For an unknown CP propeller pitch, the bollard-condition pitch must equal 0.7 times the free-running pitch within the permitted tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerPitchAtMcrFreeRunning ?freeQuantity ;
+                       nltl:propellerPitchAtMcrBollard ?bollardQuantity .
+                ?freeQuantity qudt:numericValue ?freeValue ;
+                               qudt:unit unit:M .
+                ?bollardQuantity qudt:numericValue ?observed ;
+                                 qudt:unit unit:M .
+                BIND((0.7 * ?freeValue) AS ?expected)
+                BIND(((0.000001 * ?expected) + 0.000000000001) AS ?tolerance)
+                FILTER(
+                    ?observed < (?expected - ?tolerance) ||
+                    ?observed > (?expected + ?tolerance)
+                )
+            }
+        """
+    ] .
+
+gen:NonCPShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "A non-CP propeller type is outside this CP-specific requirement." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType .
+                FILTER(?propellerType = "CP")
+            }
+        """
+    ] .
+
+gen:TRF086Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        gen:CPKnownShape
+        gen:CPUnknownShape
+        gen:NonCPShape
+    ) .
+
+<END_SHACL>

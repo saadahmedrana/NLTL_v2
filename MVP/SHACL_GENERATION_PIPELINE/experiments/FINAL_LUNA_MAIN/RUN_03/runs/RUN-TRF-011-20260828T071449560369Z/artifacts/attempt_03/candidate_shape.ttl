@@ -1,0 +1,131 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+<urn:nltl:generated-shape:TRF-011-ShipShape> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-IceWaterlineShape>
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-IceWaterlineShape>
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline must cover exactly the intended ice-operating longitudinal positions and its vertical coordinate must equal the maximum intended vertical coordinate at each position." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT ?this
+            WHERE {
+                {
+                    SELECT ?this (COUNT(DISTINCT ?ipPos) AS ?intendedCount)
+                    WHERE {
+                        ?this nltl:hasIntendedIceOperatingWaterline/
+                              nltl:hasWaterlineProfilePoint ?ip .
+                        ?ip nltl:longitudinalPosition ?ipPos .
+                    }
+                    GROUP BY ?this
+                }
+                {
+                    SELECT ?this (COUNT(DISTINCT ?upPos) AS ?uiwlCount)
+                    WHERE {
+                        ?this nltl:hasUpperIceWaterline/
+                              nltl:hasWaterlineProfilePoint ?up .
+                        ?up nltl:longitudinalPosition ?upPos .
+                    }
+                    GROUP BY ?this
+                }
+                {
+                    SELECT ?this (COUNT(DISTINCT ?matchPos) AS ?matchingCount)
+                    WHERE {
+                        ?this nltl:hasIntendedIceOperatingWaterline/
+                              nltl:hasWaterlineProfilePoint ?ip .
+                        ?this nltl:hasUpperIceWaterline/
+                              nltl:hasWaterlineProfilePoint ?up .
+                        ?ip nltl:longitudinalPosition ?matchPos .
+                        ?up nltl:longitudinalPosition ?matchPos .
+                    }
+                    GROUP BY ?this
+                }
+                FILTER (
+                    ?intendedCount != ?matchingCount ||
+                    ?uiwlCount != ?matchingCount
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each upper ice waterline point must have the maximum intended vertical coordinate at the same longitudinal position." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT ?this
+            WHERE {
+                {
+                    SELECT ?this ?position (MAX(?intendedVertical) AS ?expectedVertical)
+                    WHERE {
+                        ?this nltl:hasIntendedIceOperatingWaterline/
+                              nltl:hasWaterlineProfilePoint ?intendedPoint .
+                        ?intendedPoint nltl:longitudinalPosition ?position ;
+                                       nltl:verticalCoordinate ?intendedQuantity .
+                        ?intendedQuantity qudt:numericValue ?intendedVertical .
+                    }
+                    GROUP BY ?this ?position
+                }
+                ?this nltl:hasUpperIceWaterline/
+                      nltl:hasWaterlineProfilePoint ?uiwlPoint .
+                ?uiwlPoint nltl:longitudinalPosition ?position ;
+                           nltl:verticalCoordinate ?uiwlQuantity .
+                ?uiwlQuantity qudt:numericValue ?reportedVertical .
+                FILTER (
+                    ABS(?reportedVertical - ?expectedVertical) >
+                    (1e-6 * ABS(?expectedVertical) + 1e-9)
+                )
+            }
+        """
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-IceWaterlineShape> a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-ProfilePointShape>
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-ProfilePointShape> a sh:NodeShape ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-LengthQuantityShape>
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:minCount 1 ;
+        sh:node <urn:nltl:generated-shape:TRF-011-LengthQuantityShape>
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-LengthQuantityShape> a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:M
+    ] .

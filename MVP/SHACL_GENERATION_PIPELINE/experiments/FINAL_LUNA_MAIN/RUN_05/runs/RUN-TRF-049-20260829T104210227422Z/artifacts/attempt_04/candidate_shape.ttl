@@ -1,0 +1,296 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF049FrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:property [
+        sh:path nltl:withinIceStrengthenedArea ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each frame must state whether it is within the ice-strengthened area."
+    ] ;
+    sh:property [
+        sh:path nltl:passesThroughSupportingStructure ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each frame must state whether it passes through a supporting structure."
+    ] ;
+    sh:or (
+        gen:TRF049OutsideIceAreaShape
+        gen:TRF049InsideIceAreaShape
+    ) .
+
+gen:TRF049OutsideIceAreaShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:withinIceStrengthenedArea ;
+        sh:hasValue false
+    ] .
+
+gen:TRF049InsideIceAreaShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:withinIceStrengthenedArea ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:hasFrameAttachment ;
+        sh:minCount 1 ;
+        sh:node gen:TRF049FrameAttachmentShape ;
+        sh:message "Each in-area frame must have an effective frame attachment."
+    ] ;
+    sh:property [
+        sh:path nltl:hasSupportingBulkhead ;
+        sh:node gen:TRF049SupportingStructureShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasSupportingWebFrame ;
+        sh:node gen:TRF049SupportingStructureShape
+    ] ;
+    sh:or (
+        gen:TRF049LongitudinalFrameShape
+        gen:TRF049TerminatingTransverseFrameShape
+        gen:TRF049NonTerminatingTransverseFrameShape
+    ) ;
+    sh:or (
+        gen:TRF049DoesNotPassThroughShape
+        gen:TRF049PassesThroughShape
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every linked supporting structure must be attached through a frame attachment, and every such attachment must have a reciprocal supportingStructureAttachment link." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                {
+                    $this nltl:hasFrameAttachment ?attachment .
+                    ?attachment nltl:hasAttachedSupportingStructure ?supporting .
+                    FILTER NOT EXISTS {
+                        ?supporting nltl:hasSupportingStructureAttachment ?attachment .
+                    }
+                }
+                UNION
+                {
+                    $this nltl:hasSupportingBulkhead|nltl:hasSupportingWebFrame ?supporting .
+                    FILTER NOT EXISTS {
+                        $this nltl:hasFrameAttachment ?attachment .
+                        ?attachment nltl:hasAttachedSupportingStructure ?supporting .
+                    }
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every installed bracket must be at least as thick as the frame web." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameWebThickness ?webQuantity .
+                ?webQuantity qudt:numericValue ?webThickness .
+                $this nltl:hasFrameAttachment ?attachment .
+                ?attachment nltl:hasConnectionBracket ?bracket .
+                ?bracket nltl:bracketThickness ?bracketQuantity .
+                ?bracketQuantity qudt:numericValue ?bracketThickness .
+                FILTER (xsd:decimal(?bracketThickness) < xsd:decimal(?webThickness))
+            }
+        """
+    ] .
+
+gen:TRF049DoesNotPassThroughShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:passesThroughSupportingStructure ;
+        sh:hasValue false
+    ] .
+
+gen:TRF049PassesThroughShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:passesThroughSupportingStructure ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:webPlateConnectionSideCount ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive 2 ;
+        sh:maxInclusive 2 ;
+        sh:message "A frame passing through a supporting structure must have two connected web-plate sides."
+    ] .
+
+gen:TRF049LongitudinalFrameShape
+    a sh:NodeShape ;
+    sh:class nltl:longitudinalFrame ;
+    sh:property [
+        sh:path nltl:hasFrameAttachment ;
+        sh:node gen:TRF049LongitudinalAttachmentShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A longitudinal frame must have a bracket on every attachment to each supporting web frame or bulkhead." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this a nltl:longitudinalFrame .
+                $this nltl:hasSupportingBulkhead|nltl:hasSupportingWebFrame ?supporting .
+                FILTER NOT EXISTS {
+                    $this nltl:hasFrameAttachment ?attachment .
+                    ?attachment nltl:hasAttachedSupportingStructure ?supporting .
+                    ?attachment nltl:hasConnectionBracket ?bracket .
+                }
+            }
+        """
+    ] .
+
+gen:TRF049TerminatingTransverseFrameShape
+    a sh:NodeShape ;
+    sh:class nltl:transverseFrame ;
+    sh:property [
+        sh:path nltl:terminatesAtDeckOrIceStringer ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:hasFrameAttachment ;
+        sh:node gen:TRF049TerminatingAttachmentShape
+    ] .
+
+gen:TRF049NonTerminatingTransverseFrameShape
+    a sh:NodeShape ;
+    sh:class nltl:transverseFrame ;
+    sh:property [
+        sh:path nltl:terminatesAtDeckOrIceStringer ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue false
+    ] .
+
+gen:TRF049FrameAttachmentShape
+    a sh:NodeShape ;
+    sh:class nltl:frameAttachment ;
+    sh:property [
+        sh:path nltl:effectiveAttachmentConfirmed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "Each applicable frame attachment must be confirmed effective."
+    ] ;
+    sh:property [
+        sh:path nltl:hasAttachedSupportingStructure ;
+        sh:minCount 1 ;
+        sh:node gen:TRF049SupportingStructureShape ;
+        sh:message "Each frame attachment must identify its supporting structure."
+    ] .
+
+gen:TRF049LongitudinalAttachmentShape
+    a sh:NodeShape ;
+    sh:node gen:TRF049FrameAttachmentShape ;
+    sh:property [
+        sh:path nltl:hasConnectionBracket ;
+        sh:minCount 1 ;
+        sh:node gen:TRF049ConnectionBracketShape ;
+        sh:message "Each longitudinal frame attachment must have a connection bracket."
+    ] .
+
+gen:TRF049TerminatingAttachmentShape
+    a sh:NodeShape ;
+    sh:node gen:TRF049FrameAttachmentShape ;
+    sh:or (
+        gen:TRF049BracketAttachmentShape
+        gen:TRF049SimilarConstructionAttachmentShape
+    ) .
+
+gen:TRF049BracketAttachmentShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasConnectionBracket ;
+        sh:minCount 1 ;
+        sh:node gen:TRF049ConnectionBracketShape
+    ] .
+
+gen:TRF049SimilarConstructionAttachmentShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:similarAttachmentConstructionPresent ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] .
+
+gen:TRF049SupportingStructureShape
+    a sh:NodeShape ;
+    sh:class nltl:supportingStructure ;
+    sh:property [
+        sh:path nltl:hasSupportingStructureAttachment ;
+        sh:minCount 1 ;
+        sh:message "Each linked supporting structure must identify its frame attachment."
+    ] .
+
+gen:TRF049ConnectionBracketShape
+    a sh:NodeShape ;
+    sh:class nltl:connectionBracket ;
+    sh:property [
+        sh:path nltl:bracketEdgeStiffened ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:bucklingStiffening ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:bracketThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF049MillimetreQuantityShape ;
+        sh:message "Each bracket must specify one millimetre thickness quantity."
+    ] .
+
+gen:TRF049FrameWebThicknessShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:frameWebThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF049MillimetreQuantityShape ;
+        sh:message "Each applicable frame must specify one millimetre web-thickness quantity."
+    ] .
+
+gen:TRF049MillimetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM>
+    ] .

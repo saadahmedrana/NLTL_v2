@@ -1,0 +1,68 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF_080_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "For an applicable propeller/ice-interaction component, iceLoadCycleCount, propellerBladeCount, and a UNITLESS effectiveIceLoadCycleCount quantity are required; the effective count must equal their product within tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasComponent ?component .
+                ?component a nltl:propellerIceInteractionComponent .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:iceLoadCycleCount ?nice .
+                        FILTER (datatype(?nice) = xsd:integer)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:propellerBladeCount ?z .
+                        FILTER (datatype(?z) = xsd:integer)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:effectiveIceLoadCycleCount ?quantity .
+                        ?quantity qudt:numericValue ?reported ;
+                                   qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                        FILTER (datatype(?reported) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:iceLoadCycleCount ?nice ;
+                              nltl:propellerBladeCount ?z ;
+                              nltl:effectiveIceLoadCycleCount ?quantity .
+                        ?quantity qudt:numericValue ?reported ;
+                                  qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                        FILTER (
+                            datatype(?nice) = xsd:integer &&
+                            datatype(?z) = xsd:integer &&
+                            datatype(?reported) = xsd:decimal
+                        )
+                        BIND((xsd:decimal(?nice) * xsd:decimal(?z)) AS ?expected)
+                        BIND(IF(?expected >= 0, ?expected, 0 - ?expected) AS ?magnitude)
+                        BIND(
+                            IF(
+                                0.000001 > (0.000001 * ?magnitude),
+                                0.000001,
+                                0.000001 * ?magnitude
+                            ) AS ?tolerance
+                        )
+                        FILTER(
+                            xsd:decimal(?reported) < (?expected - ?tolerance) ||
+                            xsd:decimal(?reported) > (?expected + ?tolerance)
+                        )
+                    }
+                )
+            }
+        """
+    ] .

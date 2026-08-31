@@ -1,0 +1,235 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix qv: <http://qudt.org/schema/qudt/> .
+
+nltl:TRF043_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasFramingIceStrengtheningTerminationCase ;
+        sh:node nltl:TRF043_TerminationCaseShape
+    ] .
+
+nltl:TRF043_TerminationCaseShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:framingIceStrengtheningTerminationCase ;
+    sh:property [
+        sh:path nltl:terminationAdjacentBoundary ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:or (
+            [ sh:class nltl:deckStructure ]
+            [ sh:class nltl:tankBoundaryPlating ]
+            [ sh:class nltl:tankTop ]
+        ) ;
+        sh:message "Each framing termination case must identify a deck, tank boundary plating, or tank top as the adjacent boundary."
+    ] ;
+    sh:property [
+        sh:path nltl:extensionBeyondAdjacentDeckOrTankBoundary ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue <http://qudt.org/vocab/unit/MilliM>
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the extension beyond the adjacent boundary is no more than 250 mm, termination at that boundary must be permitted." ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this nltl:extensionBeyondAdjacentDeckOrTankBoundary ?extension .
+                ?extension qudt:numericValue ?millimetres .
+                FILTER (?millimetres <= 250)
+                FILTER NOT EXISTS {
+                    $this nltl:iceStrengtheningTerminationAtAdjacentBoundaryPermitted true .
+                }
+            }
+        """
+    ] .
+
+nltl:TRF043_FrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+        )
+    ] ;
+    sh:property [
+        sh:path nltl:hullRegion ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:bowRegion
+            nltl:midbodyRegion
+            nltl:sternRegion
+        )
+    ] ;
+    sh:property [
+        sh:path nltl:framingIceStrengtheningAboveUpperIceWaterline ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:minInclusive 1.0
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue <http://qudt.org/vocab/unit/M>
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:framingIceStrengtheningBelowLowerIceWaterline ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue <http://qudt.org/vocab/unit/M>
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:upperBowIceBeltRequired ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:reachesUpperBowIceBeltTop ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:reachesTankTopOrBelowFloorTop ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The framing vertical extents must satisfy the applicable Table 4-6 ice-class and hull-region alternative." ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:hullRegion ?region ;
+                      nltl:framingIceStrengtheningAboveUpperIceWaterline ?above ;
+                      nltl:framingIceStrengtheningBelowLowerIceWaterline ?below .
+                ?above qudt:numericValue ?aboveValue .
+                ?below qudt:numericValue ?belowValue .
+                FILTER (
+                    !(
+                        ?iceClass = nltl:iceClassIaSuper &&
+                        ?region = nltl:bowRegion &&
+                        ?belowValue >= 2.0
+                    ) &&
+                    !(
+                        ?iceClass = nltl:iceClassIaSuper &&
+                        ?region = nltl:midbodyRegion &&
+                        ?belowValue >= 2.0
+                    ) &&
+                    !(
+                        ?iceClass = nltl:iceClassIaSuper &&
+                        ?region = nltl:sternRegion &&
+                        ?belowValue >= 1.6
+                    ) &&
+                    !(
+                        ?iceClass IN (
+                            nltl:iceClassIa,
+                            nltl:iceClassIb,
+                            nltl:iceClassIc
+                        ) &&
+                        ?region = nltl:bowRegion &&
+                        ?belowValue >= 1.6
+                    ) &&
+                    !(
+                        ?iceClass IN (
+                            nltl:iceClassIa,
+                            nltl:iceClassIb,
+                            nltl:iceClassIc
+                        ) &&
+                        ?region = nltl:midbodyRegion &&
+                        ?belowValue >= 1.3
+                    ) &&
+                    !(
+                        ?iceClass IN (
+                            nltl:iceClassIa,
+                            nltl:iceClassIb,
+                            nltl:iceClassIc
+                        ) &&
+                        ?region = nltl:sternRegion &&
+                        ?belowValue >= 1.0
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An IA Super bow frame must declare reachesTankTopOrBelowFloorTop as true." ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass nltl:iceClassIaSuper ;
+                      nltl:hullRegion nltl:bowRegion .
+                FILTER NOT EXISTS {
+                    $this nltl:reachesTankTopOrBelowFloorTop true .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When an upper bow ice belt is required, the framing must reach its top." ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this nltl:upperBowIceBeltRequired true .
+                FILTER NOT EXISTS {
+                    $this nltl:reachesUpperBowIceBeltTop true .
+                }
+            }
+        """
+    ] .
+
+</END_SHACL>

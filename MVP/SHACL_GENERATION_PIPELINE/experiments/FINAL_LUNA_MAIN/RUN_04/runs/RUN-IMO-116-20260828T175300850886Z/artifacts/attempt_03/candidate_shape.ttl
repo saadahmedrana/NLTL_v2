@@ -1,0 +1,122 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO_116_Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:sewageDischargeType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:notComminutedOrDisinfected ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceConcentration ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minExclusive "0.1"^^xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:nearbyIceConcentration ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MI_N ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "The sewage discharge type and not-comminuted-or-disinfected indicator are inconsistent." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sewageDischargeType ?dischargeType ;
+                      nltl:notComminutedOrDisinfected ?indicator .
+                FILTER (
+                    (?dischargeType = "not_comminuted_or_disinfected"^^xsd:string && ?indicator != true) ||
+                    (?dischargeType != "not_comminuted_or_disinfected"^^xsd:string && ?indicator != false)
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "When sewage is not comminuted or disinfected, MARPOL compliance must be true and the ship must be more than 12 nautical miles from ice shelf or fast ice." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:sewageDischargeType ?dischargeType .
+                FILTER (?dischargeType = "not_comminuted_or_disinfected"^^xsd:string)
+                FILTER NOT EXISTS {
+                    $this nltl:marpolAnnexIvRegulation11Point1Point1ComplianceStatus true .
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:distanceToNearestIceShelfOrFastIce ?distance .
+                    ?distance qudt:numericValue ?value ;
+                              qudt:unit unit:MI_N .
+                    FILTER (datatype(?value) = xsd:decimal)
+                    FILTER (?value > "12"^^xsd:decimal)
+                }
+            }
+        """
+    ] .

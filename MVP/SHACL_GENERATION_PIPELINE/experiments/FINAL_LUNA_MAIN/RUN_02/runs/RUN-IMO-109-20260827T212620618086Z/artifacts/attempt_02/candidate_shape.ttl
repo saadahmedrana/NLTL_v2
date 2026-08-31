@@ -1,0 +1,98 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO109Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date
+    ] ;
+    sh:property [
+        sh:path nltl:cargoTankCarriesOil ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        sh:message "For an applicable Category A or B ship constructed on or after 1 January 2017, which is not an oil tanker and has cargo tanks carrying oil, every cargo tank outer-shell separation value must be a metre quantity of at least 0.76 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:shipType ?shipType ;
+                      nltl:constructionDate ?constructionDate ;
+                      nltl:cargoTankCarriesOil ?carriesOil .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER (datatype(?constructionDate) = xsd:date)
+                FILTER (?constructionDate >= "2017-01-01"^^xsd:date)
+                FILTER (datatype(?carriesOil) = xsd:boolean && ?carriesOil = true)
+                FILTER NOT EXISTS {
+                    $this a nltl:oilTanker
+                }
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:cargoTankOuterShellSeparation ?missingSeparation
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:cargoTankOuterShellSeparation ?separation .
+
+                        FILTER (
+                            NOT EXISTS {
+                                ?separation a qudt:QuantityValue
+                            }
+                            ||
+                            NOT EXISTS {
+                                ?separation qudt:numericValue ?decimalValue .
+                                FILTER (datatype(?decimalValue) = xsd:decimal)
+                            }
+                            ||
+                            EXISTS {
+                                ?separation qudt:numericValue ?nonDecimalValue .
+                                FILTER (datatype(?nonDecimalValue) != xsd:decimal)
+                            }
+                            ||
+                            NOT EXISTS {
+                                ?separation qudt:unit unit:M
+                            }
+                            ||
+                            EXISTS {
+                                ?separation qudt:unit ?nonMetreUnit .
+                                FILTER (?nonMetreUnit != unit:M)
+                            }
+                            ||
+                            EXISTS {
+                                ?separation qudt:numericValue ?value .
+                                FILTER (
+                                    datatype(?value) = xsd:decimal &&
+                                    ?value < "0.76"^^xsd:decimal
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        """
+    ] .

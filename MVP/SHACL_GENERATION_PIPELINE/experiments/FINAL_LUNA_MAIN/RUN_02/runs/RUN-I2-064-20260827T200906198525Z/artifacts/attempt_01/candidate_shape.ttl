@@ -1,0 +1,135 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:QuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A quantity must have one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The quantity must use MPa."
+    ] .
+
+gs:StructuralMemberFlangeShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMemberFlange ;
+    sh:property [
+        sh:path nltl:nominalFlangeVonMisesStress ;
+        sh:node gs:QuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each structural member flange must provide one nominal von Mises stress in MPa."
+    ] .
+
+gs:StructuralMemberWebShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMemberWeb ;
+    sh:property [
+        sh:path nltl:nominalShearStress ;
+        sh:node gs:QuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each structural member web must provide one nominal shear stress in MPa."
+    ] .
+
+gs:StructuralMemberShape
+    a sh:NodeShape ;
+    sh:class nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:bucklingCriteriaSatisfied ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The applicable buckling criteria must be recorded as satisfied."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberFlange ;
+        sh:node gs:StructuralMemberFlangeShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberWeb ;
+        sh:node gs:StructuralMemberWebShape
+    ] .
+
+gs:CalculationCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:calculationMethod ;
+        sh:hasValue nltl:linearCalculationMethodValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each calculation case must identify the linear calculation method."
+    ] .
+
+gs:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:node gs:QuantityValueShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must provide one yield strength in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:node gs:CalculationCaseShape ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gs:StructuralMemberShape
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Nominal shear stress in each linked structural member web must be less than yield strength divided by sqrt(3)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:yieldStrength ?yieldQuantity .
+                ?yieldQuantity qudt:numericValue ?yieldStrengthValue .
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:hasStructuralMemberWeb ?web .
+                ?web nltl:nominalShearStress ?shearQuantity .
+                ?shearQuantity qudt:numericValue ?shearValue .
+                FILTER (?shearValue >= (?yieldStrengthValue / 1.7320508075688772))
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Nominal flange von Mises stress in each linked structural member flange must be less than 1.15 times yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:yieldStrength ?yieldQuantity .
+                ?yieldQuantity qudt:numericValue ?yieldStrengthValue .
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:hasStructuralMemberFlange ?flange .
+                ?flange nltl:nominalFlangeVonMisesStress ?stressQuantity .
+                ?stressQuantity qudt:numericValue ?stressValue .
+                FILTER (?stressValue >= (1.15 * ?yieldStrengthValue))
+            }
+        """
+    ] .

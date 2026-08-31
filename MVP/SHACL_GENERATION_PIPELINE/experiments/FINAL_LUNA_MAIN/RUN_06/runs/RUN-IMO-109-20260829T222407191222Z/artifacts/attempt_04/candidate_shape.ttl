@@ -1,0 +1,90 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-109-DirectStaticShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:cargoTankCarriesOil ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Applicable ships must have one or more cargo-tank separation measurements, and every measurement must use metre units and be at least 0.76 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category .
+                $this nltl:shipType ?shipType .
+                $this nltl:constructionDate ?constructionDate .
+                $this nltl:cargoTankCarriesOil ?carriesOil .
+
+                FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+                FILTER (?carriesOil = true)
+                FILTER (?constructionDate >= "2017-01-01"^^xsd:date)
+                FILTER NOT EXISTS {
+                    $this rdf:type nltl:oilTanker
+                }
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:cargoTankOuterShellSeparation ?separation
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:cargoTankOuterShellSeparation ?badSeparation .
+                        FILTER (
+                            NOT EXISTS {
+                                ?badSeparation qudt:unit unit:M
+                            }
+                            ||
+                            EXISTS {
+                                ?badSeparation qudt:unit ?otherUnit .
+                                FILTER (?otherUnit != unit:M)
+                            }
+                            ||
+                            NOT EXISTS {
+                                ?badSeparation qudt:numericValue ?numericValue
+                            }
+                            ||
+                            EXISTS {
+                                ?badSeparation qudt:numericValue ?belowThreshold .
+                                FILTER (?belowThreshold < "0.76"^^xsd:decimal)
+                            }
+                        )
+                    }
+                )
+            }
+        """
+    ] .

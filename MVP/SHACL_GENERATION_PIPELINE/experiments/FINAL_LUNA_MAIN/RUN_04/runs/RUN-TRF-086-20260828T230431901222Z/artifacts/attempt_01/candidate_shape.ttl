@@ -1,0 +1,100 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF086Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single propeller type is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single pitch-value-known boolean is required to select the applicable rule."
+    ] ;
+    sh:sparql [
+        sh:message "For CP propellers, the MCR bollard pitch must be present when known, or otherwise equal 0.7 times the MCR free-running pitch within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?ptype ;
+                      nltl:pitchValueKnown ?known .
+                {
+                    FILTER (?ptype = "CP" && ?known = true)
+                    FILTER NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrBollard ?b .
+                        ?b qudt:numericValue ?bv ;
+                           qudt:unit unit:M .
+                        FILTER (datatype(?bv) = xsd:decimal)
+                    }
+                }
+                UNION
+                {
+                    FILTER (?ptype = "CP" && ?known = false)
+                    FILTER NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrFreeRunning ?f .
+                        ?f qudt:numericValue ?fv ;
+                           qudt:unit unit:M .
+                        FILTER (datatype(?fv) = xsd:decimal)
+                    }
+                }
+                UNION
+                {
+                    FILTER (?ptype = "CP" && ?known = false)
+                    FILTER NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrBollard ?b .
+                        ?b qudt:numericValue ?bv ;
+                           qudt:unit unit:M .
+                        FILTER (datatype(?bv) = xsd:decimal)
+                    }
+                }
+                UNION
+                {
+                    FILTER (?ptype = "CP" && ?known = false)
+                    $this nltl:propellerPitchAtMcrFreeRunning ?f ;
+                          nltl:propellerPitchAtMcrBollard ?b .
+                    ?f qudt:numericValue ?fv ;
+                       qudt:unit unit:M .
+                    ?b qudt:numericValue ?bv ;
+                       qudt:unit unit:M .
+                    FILTER (datatype(?fv) = xsd:decimal)
+                    FILTER (datatype(?bv) = xsd:decimal)
+                    BIND (0.7 * ?fv AS ?expected)
+                    FILTER (ABS(?bv - ?expected) >
+                        (ABS(?expected) * 0.000001 + 0.000000001))
+                }
+                UNION
+                {
+                    FILTER (?ptype = "CP" && ?known = true)
+                    $this nltl:propellerPitchAtMcrBollard ?b1, ?b2 .
+                    FILTER (?b1 != ?b2)
+                }
+                UNION
+                {
+                    FILTER (?ptype = "CP" && ?known = false)
+                    $this nltl:propellerPitchAtMcrFreeRunning ?f1, ?f2 .
+                    FILTER (?f1 != ?f2)
+                }
+                UNION
+                {
+                    FILTER (?ptype = "CP" && ?known = false)
+                    $this nltl:propellerPitchAtMcrBollard ?b1, ?b2 .
+                    FILTER (?b1 != ?b2)
+                }
+            }
+        """
+    ] .

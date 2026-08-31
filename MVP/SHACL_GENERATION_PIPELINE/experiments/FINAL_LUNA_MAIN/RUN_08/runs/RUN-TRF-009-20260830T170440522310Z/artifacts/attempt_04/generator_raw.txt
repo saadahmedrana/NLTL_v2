@@ -1,0 +1,100 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF009Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:in (
+            nltl:iceClassIa
+            nltl:iceClassIaSuper
+            nltl:iceClassIb
+            nltl:iceClassIc
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must have one valid Finnish-Swedish ice class."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A valid construction stage date is required to determine applicability."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an IA or IA Super ship whose construction stage predates 1 September 2003, valid delivery and assessment dates and one permitted 2017 compliance method are required, and the assessment date must be no later than 1 January of the year twenty years after delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (?iceClass IN (
+                    nltl:iceClassIa,
+                    nltl:iceClassIaSuper
+                ))
+
+                $this nltl:constructionStageDate ?constructionStageDate .
+                FILTER (datatype(?constructionStageDate) = xsd:date)
+                FILTER (
+                    YEAR(?constructionStageDate) < 2003 ||
+                    (
+                        YEAR(?constructionStageDate) = 2003 &&
+                        MONTH(?constructionStageDate) < 9
+                    )
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:deliveryDate ?deliveryDate .
+                        FILTER (datatype(?deliveryDate) = xsd:date)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:assessmentDate ?assessmentDate .
+                        FILTER (datatype(?assessmentDate) = xsd:date)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:engineOutputComplianceMethod ?method .
+                        FILTER (?method IN (
+                            nltl:traficom2017Section3Point2Point2Method,
+                            nltl:traficom2017Section3Point2Point4Method
+                        ))
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:deliveryDate ?deliveryDate .
+                        $this nltl:assessmentDate ?assessmentDate .
+                        FILTER (datatype(?deliveryDate) = xsd:date)
+                        FILTER (datatype(?assessmentDate) = xsd:date)
+                        FILTER NOT EXISTS {
+                            FILTER (
+                                YEAR(?assessmentDate) < YEAR(?deliveryDate) + 20 ||
+                                (
+                                    YEAR(?assessmentDate) = YEAR(?deliveryDate) + 20 &&
+                                    MONTH(?assessmentDate) < 1
+                                ) ||
+                                (
+                                    YEAR(?assessmentDate) = YEAR(?deliveryDate) + 20 &&
+                                    MONTH(?assessmentDate) = 1 &&
+                                    DAY(?assessmentDate) <= 1
+                                )
+                            )
+                        }
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

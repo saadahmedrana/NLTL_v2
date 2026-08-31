@@ -1,0 +1,230 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF048_LongitudinalFrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:longitudinalFrame ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:node gen:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A longitudinal frame must provide exactly one ice pressure in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A longitudinal frame must provide exactly one design ice load height in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A longitudinal frame must provide exactly one frame spacing in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:span ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A longitudinal frame must provide exactly one frame span in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:frameMomentFactorM ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A longitudinal frame must provide exactly one frame moment factor."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:node gen:PressureQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A longitudinal frame must provide exactly one yield strength in MPa."
+    ] ;
+    sh:property [
+        sh:path nltl:frameBoundaryConditionType ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A frame boundary condition type is required to select the calculation branch."
+    ] ;
+    sh:property [
+        sh:path nltl:significantlyDifferentBoundaryConditions ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The significant-boundary-condition indicator is required to select the calculation branch."
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalFrameLoadDistributionFactorF4 ;
+        sh:node gen:DimensionlessQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The calculated longitudinal-frame load distribution factor f4 is required."
+    ] ;
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:node gen:SectionModulusQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The calculated section modulus is required in cm3."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:node gen:AreaQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The calculated required shear area is required in cm2."
+    ] ;
+    sh:sparql [
+        sh:message "For a continuous beam with brackets without significantly different boundary conditions, frame moment factor m must equal 13.3." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameBoundaryConditionType nltl:continuousBeamWithBracketsFrameCondition ;
+                       nltl:significantlyDifferentBoundaryConditions false ;
+                       nltl:frameMomentFactorM ?mNode .
+                ?mNode qudt:numericValue ?m .
+                FILTER (?m != "13.3"^^xsd:decimal)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "f4, section modulus, and required shear area must match the declared frame calculations within a relative tolerance of 1e-6 plus an absolute tolerance of 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:icePressure ?pNode ;
+                       nltl:designIceLoadHeight ?hNode ;
+                       nltl:spacing ?sNode ;
+                       nltl:span ?lNode ;
+                       nltl:frameMomentFactorM ?mNode ;
+                       nltl:yieldStrength ?sigmaNode ;
+                       nltl:longitudinalFrameLoadDistributionFactorF4 ?f4Node ;
+                       nltl:sectionModulus ?zNode ;
+                       nltl:requiredShearArea ?aNode .
+
+                ?pNode qudt:numericValue ?p .
+                ?hNode qudt:numericValue ?h .
+                ?sNode qudt:numericValue ?s .
+                ?lNode qudt:numericValue ?l .
+                ?mNode qudt:numericValue ?m .
+                ?sigmaNode qudt:numericValue ?sigma .
+                ?f4Node qudt:numericValue ?f4 .
+                ?zNode qudt:numericValue ?z .
+                ?aNode qudt:numericValue ?a .
+
+                BIND ((1 - "0.2"^^xsd:decimal * ?h / ?s) AS ?expectedF4)
+                BIND ((?expectedF4 * ?p * ?h * ?l * ?l /
+                    ("4"^^xsd:decimal * ?m * ?sigma) *
+                    "1000000"^^xsd:decimal) AS ?expectedZ)
+                BIND (("1.7320508075688772"^^xsd:decimal *
+                    ?expectedF4 * "2.16"^^xsd:decimal * ?p * ?h * ?l /
+                    ("2"^^xsd:decimal * ?sigma) *
+                    "10000"^^xsd:decimal) AS ?expectedA)
+
+                FILTER (
+                    ABS(?f4 - ?expectedF4) >
+                        ABS(?expectedF4) * "0.000001"^^xsd:decimal +
+                        "0.000000001"^^xsd:decimal
+                    ||
+                    ABS(?z - ?expectedZ) >
+                        ABS(?expectedZ) * "0.000001"^^xsd:decimal +
+                        "0.000000001"^^xsd:decimal
+                    ||
+                    ABS(?a - ?expectedA) >
+                        ABS(?expectedA) * "0.000001"^^xsd:decimal +
+                        "0.000000001"^^xsd:decimal
+                )
+            }
+        """
+    ] .
+
+gen:PressureQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:DimensionlessQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:AreaQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/CentiM2> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:SectionModulusQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/CentiM3> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

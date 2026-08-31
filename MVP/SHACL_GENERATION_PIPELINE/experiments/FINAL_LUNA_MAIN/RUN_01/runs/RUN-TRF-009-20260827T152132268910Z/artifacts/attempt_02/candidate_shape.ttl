@@ -1,0 +1,90 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+<urn:nltl:generated-shape:TRF-009> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:message "An ice class is required to determine applicability of the IA and IA Super rule."
+    ] ;
+    sh:sparql [
+        sh:message "For an IA or IA Super ship, construction stage information is required; when the construction stage was before 1 September 2003, delivery date, assessment date, and an applicable 2017 compliance method are required, and assessment must be no later than 1 January in the year twenty years after delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?ice .
+                FILTER (?ice IN (
+                    nltl:iceClassIa,
+                    nltl:iceClassIaSuper
+                ))
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:constructionStageDate ?construction .
+                        FILTER (datatype(?construction) = xsd:date)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:constructionStageDate ?construction .
+                        FILTER (datatype(?construction) = xsd:date)
+                        FILTER (
+                            YEAR(?construction) < 2003
+                            ||
+                            (
+                                YEAR(?construction) = 2003
+                                && MONTH(?construction) < 9
+                            )
+                        )
+
+                        FILTER (
+                            NOT EXISTS {
+                                $this nltl:deliveryDate ?delivery .
+                                FILTER (datatype(?delivery) = xsd:date)
+                            }
+                            ||
+                            NOT EXISTS {
+                                $this nltl:assessmentDate ?assessment .
+                                FILTER (datatype(?assessment) = xsd:date)
+                            }
+                            ||
+                            NOT EXISTS {
+                                $this nltl:engineOutputComplianceMethod ?method .
+                                FILTER (?method IN (
+                                    nltl:traficom2017Section3Point2Point2Method,
+                                    nltl:traficom2017Section3Point2Point4Method
+                                ))
+                            }
+                            ||
+                            EXISTS {
+                                $this nltl:deliveryDate ?delivery .
+                                $this nltl:assessmentDate ?assessment .
+                                FILTER (datatype(?delivery) = xsd:date)
+                                FILTER (datatype(?assessment) = xsd:date)
+                                FILTER (
+                                    YEAR(?assessment) > YEAR(?delivery) + 20
+                                    ||
+                                    (
+                                        YEAR(?assessment) = YEAR(?delivery) + 20
+                                        &&
+                                        (
+                                            MONTH(?assessment) > 1
+                                            ||
+                                            (
+                                                MONTH(?assessment) = 1
+                                                && DAY(?assessment) > 1
+                                            )
+                                        )
+                                    )
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        """
+    ] .

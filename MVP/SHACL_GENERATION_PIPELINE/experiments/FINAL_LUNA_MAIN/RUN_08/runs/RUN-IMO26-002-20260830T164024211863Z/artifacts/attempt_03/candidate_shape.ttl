@@ -1,0 +1,168 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO26_002_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:polarCodeChapter9Dash1Applicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The Chapter 9-1 applicability result must be recorded as a single boolean."
+    ] ;
+    sh:property [
+        sh:path nltl:lengthOverall ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:engagedInTrade ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The inputs required to determine Chapter 9-1 applicability are missing or have an invalid datatype or unit for the ship category." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this rdf:type ?shipCategory .
+                FILTER (
+                    ?shipCategory = nltl:fishingVessel ||
+                    ?shipCategory = nltl:pleasureYacht ||
+                    ?shipCategory = nltl:cargoShip
+                )
+                FILTER (
+                    (
+                        ?shipCategory = nltl:fishingVessel &&
+                        !EXISTS {
+                            $this nltl:lengthOverall ?lengthQuantity .
+                            ?lengthQuantity qudt:numericValue ?lengthValue ;
+                                             qudt:unit <http://qudt.org/vocab/unit/M> .
+                            FILTER (datatype(?lengthValue) = xsd:decimal)
+                        }
+                    ) ||
+                    (
+                        ?shipCategory = nltl:pleasureYacht &&
+                        (
+                            !EXISTS {
+                                $this nltl:grossTonnage ?grossQuantity .
+                                ?grossQuantity qudt:numericValue ?grossValue ;
+                                               qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                                FILTER (datatype(?grossValue) = xsd:decimal)
+                            } ||
+                            !EXISTS {
+                                $this nltl:engagedInTrade ?tradeValue .
+                                FILTER (
+                                    datatype(?tradeValue) = xsd:boolean
+                                )
+                            }
+                        )
+                    ) ||
+                    (
+                        ?shipCategory = nltl:cargoShip &&
+                        !EXISTS {
+                            $this nltl:grossTonnage ?grossQuantity .
+                            ?grossQuantity qudt:numericValue ?grossValue ;
+                                           qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                            FILTER (datatype(?grossValue) = xsd:decimal)
+                        }
+                    )
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The Chapter 9-1 applicability result does not match the ship category, dimensions, gross tonnage, and trade status." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:polarCodeChapter9Dash1Applicable ?actual .
+                BIND (
+                    EXISTS {
+                        $this rdf:type nltl:fishingVessel .
+                        $this nltl:lengthOverall ?lengthQuantity .
+                        ?lengthQuantity qudt:numericValue ?lengthValue ;
+                                         qudt:unit <http://qudt.org/vocab/unit/M> .
+                        FILTER (
+                            datatype(?lengthValue) = xsd:decimal &&
+                            ?lengthValue >= 24
+                        )
+                    } ||
+                    EXISTS {
+                        $this rdf:type nltl:pleasureYacht .
+                        $this nltl:grossTonnage ?grossQuantity .
+                        ?grossQuantity qudt:numericValue ?grossValue ;
+                                       qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                        $this nltl:engagedInTrade ?tradeValue .
+                        FILTER (
+                            datatype(?grossValue) = xsd:decimal &&
+                            ?grossValue >= 300 &&
+                            datatype(?tradeValue) = xsd:boolean &&
+                            ?tradeValue = false
+                        )
+                    } ||
+                    EXISTS {
+                        $this rdf:type nltl:cargoShip .
+                        $this nltl:grossTonnage ?grossQuantity .
+                        ?grossQuantity qudt:numericValue ?grossValue ;
+                                       qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                        FILTER (
+                            datatype(?grossValue) = xsd:decimal &&
+                            ?grossValue >= 300 &&
+                            ?grossValue < 500
+                        )
+                    }
+                    AS ?expected
+                )
+                FILTER (?actual != ?expected)
+            }
+        """
+    ] .

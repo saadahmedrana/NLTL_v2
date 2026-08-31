@@ -1,0 +1,157 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix q: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path q:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path q:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:GrossTonnageQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path q:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path q:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:FishingVesselBranch
+    a sh:NodeShape ;
+    sh:class nltl:fishingVessel ;
+    sh:property [
+        sh:path nltl:lengthOverall ;
+        sh:node gs:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:qualifiedValueShape [
+            sh:node gs:LengthQuantityShape
+        ] ;
+        sh:qualifiedMinCount 1
+    ] .
+
+gs:PleasureYachtBranch
+    a sh:NodeShape ;
+    sh:class nltl:pleasureYacht ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:node gs:GrossTonnageQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:engagedInTrade ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue false
+    ] .
+
+gs:CargoShipBranch
+    a sh:NodeShape ;
+    sh:class nltl:cargoShip ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:node gs:GrossTonnageQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:Chapter9Dash1ApplicabilityShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:polarCodeChapter9Dash1Applicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        gs:FishingVesselBranch
+        gs:PleasureYachtBranch
+        gs:CargoShipBranch
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Exactly one canonical ship category must be represented as fishing vessel, pleasure yacht, or cargo ship." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+                BIND(
+                    IF(EXISTS { $this a nltl:fishingVessel }, 1, 0) +
+                    IF(EXISTS { $this a nltl:pleasureYacht }, 1, 0) +
+                    IF(EXISTS { $this a nltl:cargoShip }, 1, 0)
+                    AS ?categoryCount
+                )
+                FILTER(?categoryCount != 1)
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Chapter 9-1 applicability does not match the represented ship category and supplied threshold values." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX q: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:polarCodeChapter9Dash1Applicable ?actual .
+
+                BIND(
+                    IF(
+                        EXISTS {
+                            $this a nltl:fishingVessel .
+                            $this nltl:lengthOverall ?lengthQuantity .
+                            ?lengthQuantity q:numericValue ?length .
+                            FILTER(?length >= "24"^^xsd:decimal)
+                        }
+                        ||
+                        EXISTS {
+                            $this a nltl:pleasureYacht .
+                            $this nltl:grossTonnage ?grossQuantity .
+                            ?grossQuantity q:numericValue ?gross .
+                            $this nltl:engagedInTrade false .
+                            FILTER(?gross >= "300"^^xsd:decimal)
+                        }
+                        ||
+                        EXISTS {
+                            $this a nltl:cargoShip .
+                            $this nltl:grossTonnage ?grossQuantity .
+                            ?grossQuantity q:numericValue ?gross .
+                            FILTER(
+                                ?gross >= "300"^^xsd:decimal &&
+                                ?gross < "500"^^xsd:decimal
+                            )
+                        },
+                        true,
+                        false
+                    )
+                    AS ?expected
+                )
+
+                FILTER(?actual != ?expected)
+            }
+        """
+    ] .

@@ -1,0 +1,117 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF074ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:message "The ship must provide an ice class value." ;
+    ] ;
+    sh:or (
+        gen:TRF074NonApplicableBranch
+        gen:TRF074ApplicableBranch
+    ) .
+
+gen:TRF074NonApplicableBranch
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "This branch is applicable only when the ship ice class is neither IB nor IC." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (?iceClass IN (
+                    nltl:iceClassIb,
+                    nltl:iceClassIc
+                ))
+            }
+        """ ;
+    ] .
+
+gen:TRF074ApplicableBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:ballastConditionPropellerTopDepth ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:M ;
+            ] ;
+        ] ;
+        sh:message "For ice class IB or IC, the ballast-condition propeller top depth must be provided in metres." ;
+    ] ;
+    sh:property [
+        sh:path nltl:requiredPropellerSubmersionDepthHi ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:minCount 1 ;
+                sh:datatype xsd:decimal ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue unit:M ;
+            ] ;
+        ] ;
+        sh:message "For ice class IB or IC, the required propeller submersion depth hi must be provided in metres." ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For ice class IB or IC, if the propeller top is below the required depth hi, the propulsion system must be designed for ice class IA." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (?iceClass IN (
+                    nltl:iceClassIb,
+                    nltl:iceClassIc
+                )) .
+
+                $this nltl:ballastConditionPropellerTopDepth ?depthNode .
+                ?depthNode qudt:numericValue ?depth .
+                ?depthNode qudt:unit unit:M .
+
+                $this nltl:requiredPropellerSubmersionDepthHi ?hiNode .
+                ?hiNode qudt:numericValue ?hi .
+                ?hiNode qudt:unit unit:M .
+
+                FILTER (?depth < ?hi) .
+
+                FILTER NOT EXISTS {
+                    $this nltl:propulsionSystemDesignedForIceClass
+                        nltl:iceClassIa
+                }
+            }
+        """ ;
+    ] .

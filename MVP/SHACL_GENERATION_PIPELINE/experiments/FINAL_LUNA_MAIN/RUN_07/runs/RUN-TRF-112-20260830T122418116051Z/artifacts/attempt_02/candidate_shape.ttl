@@ -1,0 +1,113 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-112> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPropulsionLoadCase ;
+        sh:class nltl:loadCase ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path nltl:shaftLineLoadCaseType ;
+                sh:minCount 1 ;
+                sh:hasValue nltl:bladeFailureLoadCase
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable blade-failure load case must contain both declared load operands with numeric values and kN units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+
+            SELECT $this WHERE {
+                $this nltl:hasPropulsionLoadCase ?loadCase .
+                ?loadCase nltl:shaftLineLoadCaseType nltl:bladeFailureLoadCase .
+                FILTER (
+                    NOT EXISTS {
+                        ?loadCase nltl:bladeFailureUltimateLoad ?ultimateLoad .
+                        ?ultimateLoad qudt:numericValue ?ultimateValue .
+                        ?ultimateLoad qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?loadCase nltl:combinedAxialBendingTorsionLoad ?combinedLoad .
+                        ?combinedLoad qudt:numericValue ?combinedValue .
+                        ?combinedLoad qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "An applicable blade-failure load case must be linked to a propeller shaft line component." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+
+            SELECT $this WHERE {
+                $this nltl:hasPropulsionLoadCase ?loadCase .
+                ?loadCase nltl:shaftLineLoadCaseType nltl:bladeFailureLoadCase .
+                FILTER NOT EXISTS {
+                    $this nltl:hasPropellerShaftLineComponent ?component .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every linked propeller shaft line component must report bending and torsional yield safety factors for an applicable blade-failure load case." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+
+            SELECT $this WHERE {
+                $this nltl:hasPropulsionLoadCase ?loadCase .
+                ?loadCase nltl:shaftLineLoadCaseType nltl:bladeFailureLoadCase .
+                $this nltl:hasPropellerShaftLineComponent ?component .
+                FILTER (
+                    NOT EXISTS {
+                        ?component nltl:bendingYieldSafetyFactor ?bendingFactor .
+                        ?bendingFactor qudt:numericValue ?bendingValue .
+                        ?bendingFactor qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?component nltl:torsionalYieldSafetyFactor ?torsionalFactor .
+                        ?torsionalFactor qudt:numericValue ?torsionalValue .
+                        ?torsionalFactor qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every reported bending or torsional yield safety factor must be at least 1.0." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+
+            SELECT $this WHERE {
+                $this nltl:hasPropulsionLoadCase ?loadCase .
+                ?loadCase nltl:shaftLineLoadCaseType nltl:bladeFailureLoadCase .
+                $this nltl:hasPropellerShaftLineComponent ?component .
+                ?component
+                    ?factorProperty ?factorQuantity .
+                FILTER (
+                    ?factorProperty = nltl:bendingYieldSafetyFactor ||
+                    ?factorProperty = nltl:torsionalYieldSafetyFactor
+                )
+                ?factorQuantity qudt:numericValue ?factorValue .
+                FILTER (?factorValue < 1.0)
+            }
+        """
+    ] .

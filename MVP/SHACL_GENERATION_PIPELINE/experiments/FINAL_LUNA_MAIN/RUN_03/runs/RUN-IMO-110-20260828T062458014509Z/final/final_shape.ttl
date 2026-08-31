@@ -1,0 +1,123 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO_110_Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:polarShipCategoryValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship category is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single ship type is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A construction date is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:deadweight ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:TON_Metric ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "A single deadweight quantity in metric tonnes is required to determine applicability."
+    ] ;
+    sh:sparql [
+        sh:message "Applicable category A or B oil tankers constructed on or after 1 January 2017 with deadweight below 5,000 tonnes shall have both required protection statuses exactly true, with no non-true status value." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+    $this nltl:shipCategory ?category ;
+          nltl:shipType ?shipType ;
+          nltl:constructionDate ?constructionDate ;
+          nltl:deadweight ?deadweight .
+
+    ?deadweight qudt:numericValue ?deadweightValue ;
+                qudt:unit unit:TON_Metric .
+
+    FILTER (
+        ?category IN (
+            nltl:polarShipCategoryA,
+            nltl:polarShipCategoryB
+        )
+        && datatype(?shipType) = xsd:string
+        && ?shipType = "oil_tanker"^^xsd:string
+        && datatype(?deadweightValue) = xsd:decimal
+        && ?deadweightValue < "5000"^^xsd:decimal
+        && datatype(?constructionDate) = xsd:date
+        && ?constructionDate >= "2017-01-01"^^xsd:date
+    )
+
+    FILTER (
+        NOT EXISTS {
+            $this nltl:entireCargoTankLengthDoubleBottomProtectionStatus ?doubleBottomStatus .
+            FILTER (
+                datatype(?doubleBottomStatus) = xsd:boolean
+                && ?doubleBottomStatus = "true"^^xsd:boolean
+            )
+        }
+        || EXISTS {
+            $this nltl:entireCargoTankLengthDoubleBottomProtectionStatus ?doubleBottomStatusOther .
+            FILTER (
+                datatype(?doubleBottomStatusOther) != xsd:boolean
+                || (
+                    datatype(?doubleBottomStatusOther) = xsd:boolean
+                    && ?doubleBottomStatusOther != "true"^^xsd:boolean
+                )
+            )
+        }
+        || NOT EXISTS {
+            $this nltl:wingTankProtectionStatus ?wingStatus .
+            FILTER (
+                datatype(?wingStatus) = xsd:boolean
+                && ?wingStatus = "true"^^xsd:boolean
+            )
+        }
+        || EXISTS {
+            $this nltl:wingTankProtectionStatus ?wingStatusOther .
+            FILTER (
+                datatype(?wingStatusOther) != xsd:boolean
+                || (
+                    datatype(?wingStatusOther) = xsd:boolean
+                    && ?wingStatusOther != "true"^^xsd:boolean
+                )
+            )
+        }
+    )
+}
+""" ;
+    ] .

@@ -1,0 +1,163 @@
+<BEGIN_SHACL>
+@prefix nltlgen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltlgen:QuantityValueShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+nltlgen:LengthQuantityValueShape a sh:NodeShape ;
+    sh:node nltlgen:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+nltlgen:DimensionlessQuantityValueShape a sh:NodeShape ;
+    sh:node nltlgen:QuantityValueShape ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+nltlgen:InterpolationPointShape a sh:NodeShape ;
+    sh:class nltl:interpolationPoint ;
+    sh:property [
+        sh:path nltl:interpolationCoordinate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltlgen:QuantityValueShape ;
+        sh:message "Each interpolation point must provide one interpolation coordinate."
+    ] ;
+    sh:property [
+        sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltlgen:LengthQuantityValueShape ;
+        sh:message "Each interpolation point must provide one hull-girder position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationPointValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltlgen:QuantityValueShape ;
+        sh:message "Each interpolation point must provide one interpolation value."
+    ] .
+
+nltlgen:CalculationCaseShape a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:hasInterpolationPoint ;
+        sh:minCount 1 ;
+        sh:node nltlgen:InterpolationPointShape
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationLowerEndpoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltlgen:InterpolationPointShape ;
+        sh:message "A calculation case must identify one lower interpolation endpoint."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolationUpperEndpoint ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltlgen:InterpolationPointShape ;
+        sh:message "A calculation case must identify one upper interpolation endpoint."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolatedLongitudinalDistributionFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node nltlgen:DimensionlessQuantityValueShape ;
+        sh:message "Each calculation case must provide its externally calculated interpolated distribution factor."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The calculation case must contain a distinct intermediate point whose coordinate lies strictly between ordered endpoint coordinates and whose result matches linear interpolation within tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:interpolationLowerEndpoint ?lower ;
+                      nltl:interpolationUpperEndpoint ?upper ;
+                      nltl:interpolatedLongitudinalDistributionFactor ?result .
+
+                ?lower nltl:hullGirderLongitudinalPositionFromAft ?lowerPosition ;
+                       nltl:interpolationPointValue ?lowerValue .
+                ?lowerPosition qudt:numericValue ?lc .
+                ?lowerValue qudt:numericValue ?lv .
+
+                ?upper nltl:hullGirderLongitudinalPositionFromAft ?upperPosition ;
+                       nltl:interpolationPointValue ?upperValue .
+                ?upperPosition qudt:numericValue ?uc .
+                ?upperValue qudt:numericValue ?uv .
+
+                ?result qudt:numericValue ?rv .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:hasInterpolationPoint ?mid .
+                        FILTER (?mid != ?lower && ?mid != ?upper)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasInterpolationPoint ?mid .
+                        FILTER (?mid != ?lower && ?mid != ?upper)
+
+                        ?mid nltl:interpolationCoordinate ?coordinate .
+                        ?coordinate qudt:numericValue ?x .
+
+                        FILTER (?lc < ?uc)
+                        FILTER (
+                            ?x < ?lc ||
+                            ?x > ?uc ||
+                            ABS(
+                                ?rv -
+                                (?lv + ((?x - ?lc) / (?uc - ?lc)) * (?uv - ?lv))
+                            )
+                            >
+                            (
+                                1e-6 *
+                                ABS(
+                                    ?lv + ((?x - ?lc) / (?uc - ?lc)) * (?uv - ?lv)
+                                )
+                                + 1e-9
+                            )
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+
+nltlgen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node nltlgen:CalculationCaseShape ;
+        sh:message "The ship must provide a calculation case for the linear interpolation readiness record."
+    ] ;
+    sh:property [
+        sh:path nltl:interpolatedValue ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must provide the externally computed interpolated value."
+    ] .
+<END_SHACL>

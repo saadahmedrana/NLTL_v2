@@ -1,0 +1,79 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:TRF024ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must identify its ice class to determine applicability of the IA or IA Super retention rule."
+    ] ;
+    sh:sparql [
+        sh:message "For a ship retaining ice class IA or IA Super whose construction stage began before 1 September 2003, construction stage date, delivery date, and assessment date are required, and the section 3.2.2 deadline is 1 January in the year twenty years after delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (
+                    ?iceClass = nltl:iceClassIa ||
+                    ?iceClass = nltl:iceClassIaSuper
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:constructionStageDate ?stageDate .
+                        FILTER (datatype(?stageDate) = xsd:date)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:constructionStageDate ?stageDate .
+                        FILTER (
+                            datatype(?stageDate) = xsd:date &&
+                            ?stageDate < "2003-09-01"^^xsd:date
+                        )
+                        FILTER (
+                            NOT EXISTS {
+                                $this nltl:deliveryDate ?deliveryDate .
+                                FILTER (datatype(?deliveryDate) = xsd:date)
+                            }
+                            ||
+                            NOT EXISTS {
+                                $this nltl:assessmentDate ?assessmentDate .
+                                FILTER (datatype(?assessmentDate) = xsd:date)
+                            }
+                            ||
+                            EXISTS {
+                                $this nltl:deliveryDate ?deliveryDate .
+                                $this nltl:assessmentDate ?assessmentDate .
+                                FILTER (
+                                    datatype(?deliveryDate) = xsd:date &&
+                                    datatype(?assessmentDate) = xsd:date
+                                )
+                                FILTER (
+                                    YEAR(?assessmentDate) > YEAR(?deliveryDate) + 20
+                                    ||
+                                    (
+                                        YEAR(?assessmentDate) = YEAR(?deliveryDate) + 20 &&
+                                        (
+                                            MONTH(?assessmentDate) > 1
+                                            ||
+                                            (
+                                                MONTH(?assessmentDate) = 1 &&
+                                                DAY(?assessmentDate) > 1
+                                            )
+                                        )
+                                    )
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        """
+    ] .

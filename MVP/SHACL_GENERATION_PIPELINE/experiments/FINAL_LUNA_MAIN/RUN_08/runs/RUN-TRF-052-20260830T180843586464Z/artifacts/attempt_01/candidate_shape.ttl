@@ -1,0 +1,152 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-052-FrameShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:property [
+        sh:path nltl:frameAsymmetrical ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Frame asymmetry status is required and must be a single boolean value."
+    ] ;
+    sh:property [
+        sh:path nltl:frameWebAngleToShell ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/DEG> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Frame web angle to shell is required as a single degree-valued quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpan ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Frame span is required as a single metre-valued quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ice class is required as a single value for selecting the support-scope rule."
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentSupportStatusByDirectCalculation ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+        sh:message "Equivalent support status, when supplied, must be a single boolean value."
+    ] ;
+    sh:property [
+        sh:path nltl:antitrippingSupportSpacing ;
+        sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the frame is asymmetrical or its web angle to the shell is below 90 degrees, antitripping support spacing must be present and must not exceed 1300 mm unless an equivalent arrangement is demonstrated." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameAsymmetrical ?asym .
+                $this nltl:frameWebAngleToShell ?angleNode .
+                ?angleNode qudt:numericValue ?angle .
+                FILTER (?asym = true || ?angle < 90)
+                FILTER NOT EXISTS {
+                    $this nltl:equivalentSupportStatusByDirectCalculation true .
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:antitrippingSupportSpacing ?spacingNode .
+                    ?spacingNode qudt:numericValue ?spacing .
+                    ?spacingNode qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+                    FILTER (?spacing <= 1300)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a frame span of 4 m or less, IA frames require antitripping support in both the bow and midbody regions, and IB or IC frames require support in the bow region, unless an equivalent arrangement is demonstrated." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameSpan ?spanNode .
+                ?spanNode qudt:numericValue ?span .
+                ?spanNode qudt:unit <http://qudt.org/vocab/unit/M> .
+                $this nltl:iceClass ?ice .
+                FILTER (?span <= 4)
+                FILTER NOT EXISTS {
+                    $this nltl:equivalentSupportStatusByDirectCalculation true .
+                }
+                FILTER (
+                    (
+                        ?ice = nltl:iceClassIa &&
+                        (
+                            NOT EXISTS {
+                                $this nltl:hasAntitrippingSupportRegion nltl:bowRegion .
+                            } ||
+                            NOT EXISTS {
+                                $this nltl:hasAntitrippingSupportRegion nltl:midbodyRegion .
+                            }
+                        )
+                    ) ||
+                    (
+                        (?ice = nltl:iceClassIb || ?ice = nltl:iceClassIc) &&
+                        NOT EXISTS {
+                            $this nltl:hasAntitrippingSupportRegion nltl:bowRegion .
+                        }
+                    )
+                )
+            }
+        """
+    ] .

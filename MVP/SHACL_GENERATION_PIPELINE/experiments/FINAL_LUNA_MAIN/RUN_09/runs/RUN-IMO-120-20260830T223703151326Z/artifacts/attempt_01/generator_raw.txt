@@ -1,0 +1,94 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-120> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:operatingArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "The ship operating area must be recorded."
+    ] ;
+    sh:property [
+        sh:path nltl:arcticWaters ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "The Arctic-waters applicability information must be recorded."
+    ] ;
+    sh:property [
+        sh:path nltl:foodWasteDischargeToSea ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "The food-waste discharge status must be recorded."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an Arctic-waters ship discharging food waste to sea, the distance to the nearest land ice shelf or fast ice must be at least 12 nautical miles." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:operatingArea ?area ;
+                      nltl:arcticWaters ?arctic ;
+                      nltl:foodWasteDischargeToSea true .
+
+                FILTER (STR(?area) = "Arctic_waters")
+                FILTER (STR(?arctic) = "Arctic_waters")
+
+                FILTER NOT EXISTS {
+                    $this nltl:distanceToNearestLandIceShelfOrFastIce ?distance .
+                    ?distance qudt:numericValue ?value ;
+                              qudt:unit unit:MI_N .
+                    FILTER (
+                        datatype(?value) = xsd:decimal &&
+                        ?value >= "12"^^xsd:decimal
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable discharge, the distance from areas with ice concentration above one tenth must be recorded together with the corresponding concentration data." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:operatingArea ?area ;
+                      nltl:arcticWaters ?arctic ;
+                      nltl:foodWasteDischargeToSea true .
+
+                FILTER (STR(?area) = "Arctic_waters")
+                FILTER (STR(?arctic) = "Arctic_waters")
+
+                FILTER NOT EXISTS {
+                    $this nltl:nearbyIceConcentration ?concentration ;
+                          nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?distance .
+
+                    ?concentration qudt:numericValue ?concentrationValue ;
+                                   qudt:unit unit:UNITLESS .
+                    ?distance qudt:numericValue ?distanceValue ;
+                              qudt:unit unit:MI_N .
+
+                    FILTER (
+                        datatype(?concentrationValue) = xsd:decimal &&
+                        ?concentrationValue > "1"^^xsd:decimal &&
+                        datatype(?distanceValue) = xsd:decimal
+                    )
+                }
+            }
+        """
+    ] .
+<END_SHACL>

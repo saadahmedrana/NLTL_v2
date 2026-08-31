@@ -1,0 +1,335 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF014MarkingShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:warningTrianglePresent ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassDraughtMarkPresent ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:iceClassDraughtMarkDraughtAmidships ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "The ice-class draught mark amidships must equal the class certificate maximum ice-class draught amidships." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClassDraughtMarkDraughtAmidships ?mark .
+                ?mark qudt:numericValue ?markValue .
+                $this nltl:hasClassCertificate ?certificate .
+                ?certificate nltl:maximumIceClassDraughtAmidships ?maximum .
+                ?maximum qudt:numericValue ?maximumValue .
+                FILTER (?markValue != ?maximumValue)
+            }
+        """
+    ] .
+
+gen:TRF014PostApplicableBranch
+    a sh:NodeShape ;
+    sh:node gen:TRF014MarkingShape ;
+    sh:sparql [
+        sh:message "For a ship built on or after 1 July 2007 with the summer load line above the UIWL, the required marking applicability condition is not satisfied." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:constructionDate ?constructionDate .
+                $this nltl:summerLoadLineFreshWaterDraught ?summerQuantity .
+                ?summerQuantity qudt:numericValue ?summerValue .
+                $this nltl:upperIceWaterlineDraught ?uiwlQuantity .
+                ?uiwlQuantity qudt:numericValue ?uiwlValue .
+                FILTER (
+                    !(
+                        ?constructionDate >= "2007-07-01"^^xsd:date &&
+                        ?summerValue > ?uiwlValue
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:TRF014PostNotApplicableBranch
+    a sh:NodeShape ;
+    sh:sparql [
+        sh:message "For a ship built on or after 1 July 2007 with the summer load line not above the UIWL, the non-applicable marking condition is not satisfied." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:constructionDate ?constructionDate .
+                $this nltl:summerLoadLineFreshWaterDraught ?summerQuantity .
+                ?summerQuantity qudt:numericValue ?summerValue .
+                $this nltl:upperIceWaterlineDraught ?uiwlQuantity .
+                ?uiwlQuantity qudt:numericValue ?uiwlValue .
+                FILTER (
+                    !(
+                        ?constructionDate >= "2007-07-01"^^xsd:date &&
+                        ?summerValue <= ?uiwlValue
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:TRF014PreCutoffMarkedBranch
+    a sh:NodeShape ;
+    sh:node gen:TRF014MarkingShape ;
+    sh:sparql [
+        sh:message "A pre-1 July 2007 ship with complete marking evidence must satisfy the pre-cutoff construction condition." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:constructionDate ?constructionDate .
+                FILTER (!(?constructionDate < "2007-07-01"^^xsd:date))
+            }
+        """
+    ] .
+
+gen:TRF014PreCutoffDeferredBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:firstScheduledDryDockingDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "A pre-1 July 2007 ship without complete marking evidence must have a first scheduled dry docking date later than the assessment date." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:constructionDate ?constructionDate .
+                $this nltl:firstScheduledDryDockingDate ?dryDockingDate .
+                $this nltl:assessmentDate ?assessmentDate .
+                FILTER (
+                    !(
+                        ?constructionDate < "2007-07-01"^^xsd:date &&
+                        ?dryDockingDate > ?assessmentDate
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:TRF014PreCutoffDueBranch
+    a sh:NodeShape ;
+    sh:node gen:TRF014MarkingShape ;
+    sh:property [
+        sh:path nltl:firstScheduledDryDockingDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "A pre-1 July 2007 ship whose first scheduled dry docking is due by the assessment date must satisfy the marking applicability condition." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:constructionDate ?constructionDate .
+                $this nltl:firstScheduledDryDockingDate ?dryDockingDate .
+                $this nltl:assessmentDate ?assessmentDate .
+                FILTER (
+                    !(
+                        ?constructionDate < "2007-07-01"^^xsd:date &&
+                        ?dryDockingDate <= ?assessmentDate
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:TRF014Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:assessmentDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:summerLoadLineFreshWaterDraught ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasClassCertificate ;
+        sh:class nltl:classCertificate ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path nltl:maximumIceClassDraughtFore ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:TRF014MetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:maximumIceClassDraughtAmidships ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:TRF014MetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:maximumIceClassDraughtAft ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:TRF014MetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:minimumIceClassDraughtFore ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:TRF014MetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:minimumIceClassDraughtAmidships ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:TRF014MetreQuantityShape
+            ] ;
+            sh:property [
+                sh:path nltl:minimumIceClassDraughtAft ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node gen:TRF014MetreQuantityShape
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasIceDraughtRestrictionDocument ;
+        sh:class nltl:iceDraughtRestrictionDocument ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:retainedOnBoard ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:property [
+        sh:path nltl:readilyAvailableToMaster ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+    sh:or (
+        [ sh:node gen:TRF014PostApplicableBranch ]
+        [ sh:node gen:TRF014PostNotApplicableBranch ]
+        [ sh:node gen:TRF014PreCutoffMarkedBranch ]
+        [ sh:node gen:TRF014PreCutoffDeferredBranch ]
+        [ sh:node gen:TRF014PreCutoffDueBranch ]
+    ) .
+
+gen:TRF014MetreQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

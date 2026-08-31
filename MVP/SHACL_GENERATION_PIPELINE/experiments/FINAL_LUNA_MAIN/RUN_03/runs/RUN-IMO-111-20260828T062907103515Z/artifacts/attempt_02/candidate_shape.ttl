@@ -1,0 +1,125 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-111-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:polarShipCategoryA nltl:polarShipCategoryB ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must have exactly one Category A or Category B classification."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:minInclusive "2017-01-01"^^xsd:date ;
+        sh:message "The ship must have a construction date on or after 2017-01-01."
+    ] ;
+    sh:property [
+        sh:path nltl:hasComponent ;
+        sh:nodeKind sh:IRI
+    ] ;
+    sh:sparql [
+        sh:message "Each linked oil residue tank or oily bilge water holding tank must provide an individual capacity as a decimal QuantityValue in cubic metres." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:hasComponent ?tank .
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER (
+                    YEAR(?date) > 2017 ||
+                    (YEAR(?date) = 2017 && MONTH(?date) > 1) ||
+                    (YEAR(?date) = 2017 && MONTH(?date) = 1 && DAY(?date) >= 1)
+                )
+                ?tank rdf:type ?tankType .
+                FILTER (
+                    ?tankType IN (
+                        nltl:oilResidueTank,
+                        nltl:oilyBilgeWaterHoldingTank
+                    )
+                )
+                FILTER NOT EXISTS {
+                    ?tank nltl:individualTankCapacity ?capacity .
+                    ?capacity rdf:type qudt:QuantityValue ;
+                              qudt:numericValue ?capacityValue ;
+                              qudt:unit unit:M3 .
+                    FILTER ( datatype(?capacityValue) = xsd:decimal )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For every applicable tank with capacity greater than 30 m3, the separation from the outer shell must be at least 0.76 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:hasComponent ?tank .
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER (
+                    YEAR(?date) > 2017 ||
+                    (YEAR(?date) = 2017 && MONTH(?date) > 1) ||
+                    (YEAR(?date) = 2017 && MONTH(?date) = 1 && DAY(?date) >= 1)
+                )
+                ?tank rdf:type ?tankType ;
+                      nltl:individualTankCapacity ?capacity .
+                FILTER (
+                    ?tankType IN (
+                        nltl:oilResidueTank,
+                        nltl:oilyBilgeWaterHoldingTank
+                    )
+                )
+                ?capacity rdf:type qudt:QuantityValue ;
+                          qudt:numericValue ?capacityValue ;
+                          qudt:unit unit:M3 .
+                FILTER (
+                    datatype(?capacityValue) = xsd:decimal &&
+                    ?capacityValue > 30
+                )
+                FILTER NOT EXISTS {
+                    ?tank nltl:tankOuterShellSeparation ?separation .
+                    ?separation rdf:type qudt:QuantityValue ;
+                                qudt:numericValue ?separationValue ;
+                                qudt:unit unit:M .
+                    FILTER (
+                        datatype(?separationValue) = xsd:decimal &&
+                        ?separationValue >= 0.76
+                    )
+                }
+            }
+        """
+    ] .

@@ -1,0 +1,99 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+gen:TRF009ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:minCount 1 ;
+        sh:message "A ship must provide a permitted Finnish-Swedish ice class."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a ship of ice class IA or IA Super, a valid construction stage date is required to determine whether the conditional rule applies." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (
+                    ?iceClass = nltl:iceClassIa ||
+                    ?iceClass = nltl:iceClassIaSuper
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:constructionStageDate ?constructionStageDate .
+                    FILTER (datatype(?constructionStageDate) = xsd:date)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable IA or IA Super ship, valid delivery and assessment dates and one of the specified 2017 compliance methods are required, and compliance must be established by 1 January of the year in which twenty years have elapsed since delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                       nltl:constructionStageDate ?constructionStageDate .
+
+                FILTER (
+                    ?iceClass = nltl:iceClassIa ||
+                    ?iceClass = nltl:iceClassIaSuper
+                )
+                FILTER (datatype(?constructionStageDate) = xsd:date)
+                FILTER (?constructionStageDate < "2003-09-01"^^xsd:date)
+
+                OPTIONAL {
+                    $this nltl:deliveryDate ?deliveryDate .
+                    FILTER (datatype(?deliveryDate) = xsd:date)
+                }
+                OPTIONAL {
+                    $this nltl:assessmentDate ?assessmentDate .
+                    FILTER (datatype(?assessmentDate) = xsd:date)
+                }
+                OPTIONAL {
+                    $this nltl:engineOutputComplianceMethod ?method .
+                    FILTER (
+                        ?method = nltl:traficom2017Section3Point2Point2Method ||
+                        ?method = nltl:traficom2017Section3Point2Point4Method
+                    )
+                }
+
+                FILTER (
+                    !BOUND(?deliveryDate) ||
+                    !BOUND(?assessmentDate) ||
+                    !BOUND(?method) ||
+                    (
+                        YEAR(?assessmentDate) > YEAR(?deliveryDate) + 20
+                    ) ||
+                    (
+                        YEAR(?assessmentDate) = YEAR(?deliveryDate) + 20 &&
+                        MONTH(?assessmentDate) > 1
+                    ) ||
+                    (
+                        YEAR(?assessmentDate) = YEAR(?deliveryDate) + 20 &&
+                        MONTH(?assessmentDate) = 1 &&
+                        DAY(?assessmentDate) > 1
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,123 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO26_012_Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:nodeKind sh:IRI ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Gross tonnage shall be a single unitless decimal quantity."
+    ] ;
+    sh:property [
+        sh:path nltl:hasNonMagneticHeadingMeans ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:nonMagneticHeadingMeans
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For ships of 500 gross tonnage and upwards, at least two distinct non-magnetic heading means are required; each shall be connected to main and emergency power and shall be independent from another distinct heading means of the same ship." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:grossTonnage ?grossQuantity .
+                ?grossQuantity qudt:numericValue ?gross .
+                FILTER (
+                    datatype(?gross) = xsd:decimal &&
+                    ?gross >= 500
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:hasNonMagneticHeadingMeans ?meansA .
+                        $this nltl:hasNonMagneticHeadingMeans ?meansB .
+                        FILTER (?meansA != ?meansB)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasNonMagneticHeadingMeans ?means .
+                        FILTER (
+                            NOT EXISTS {
+                                ?means nltl:connectedToMainPower ?mainPower
+                            }
+                            ||
+                            EXISTS {
+                                ?means nltl:connectedToMainPower ?mainPowerValue .
+                                FILTER (
+                                    !isIRI(?mainPowerValue) ||
+                                    NOT EXISTS {
+                                        ?mainPowerValue a nltl:benchmarkEntity
+                                    }
+                                )
+                            }
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasNonMagneticHeadingMeans ?means .
+                        FILTER (
+                            NOT EXISTS {
+                                ?means nltl:connectedToEmergencyPower ?emergencyPower
+                            }
+                            ||
+                            EXISTS {
+                                ?means nltl:connectedToEmergencyPower ?emergencyPowerValue .
+                                FILTER (
+                                    !isIRI(?emergencyPowerValue) ||
+                                    NOT EXISTS {
+                                        ?emergencyPowerValue a nltl:benchmarkEntity
+                                    }
+                                )
+                            }
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:hasNonMagneticHeadingMeans ?means .
+                        FILTER (
+                            NOT EXISTS {
+                                ?means nltl:independentFromHeadingMeans ?otherMeans .
+                                $this nltl:hasNonMagneticHeadingMeans ?otherMeans .
+                                FILTER (?otherMeans != ?means)
+                            }
+                            ||
+                            EXISTS {
+                                ?means nltl:independentFromHeadingMeans ?independentValue .
+                                FILTER (
+                                    !isIRI(?independentValue) ||
+                                    NOT EXISTS {
+                                        ?independentValue a nltl:nonMagneticHeadingMeans
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

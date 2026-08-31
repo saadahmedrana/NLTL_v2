@@ -1,0 +1,115 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:class nltl:frameProfileTypeValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must represent its frame profile type."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path nltl:longitudinalFrameOrientation ;
+                sh:datatype xsd:boolean
+            ] ;
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:class nltl:structuralLocationValue
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberLoadCase ;
+                sh:node [
+                    a sh:NodeShape ;
+                    sh:property [
+                        sh:path nltl:combinedShearAndBendingDemand ;
+                        sh:node [
+                            a sh:NodeShape ;
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1
+                            ]
+                        ]
+                    ]
+                ]
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "For an applicable longitudinal side-structure frame, plastic strength, midspan plastic collapse load, and each represented load-case demand must be represented with valid numeric values and the declared KiloN unit for the two strength quantities." ;
+                sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+  $this nltl:longitudinalFrameOrientation true ;
+        nltl:structuralLocation nltl:sideStructureLocation .
+  FILTER (
+    NOT EXISTS {
+      $this nltl:plasticStrength ?ps .
+      ?ps qudt:numericValue ?psv ;
+          qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+      FILTER (DATATYPE(?psv) = xsd:decimal)
+    }
+    ||
+    NOT EXISTS {
+      $this nltl:midspanPlasticCollapseLoad ?pc .
+      ?pc qudt:numericValue ?pcv ;
+          qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+      FILTER (DATATYPE(?pcv) = xsd:decimal)
+    }
+    ||
+    EXISTS {
+      $this nltl:hasStructuralMemberLoadCase ?lc .
+      FILTER NOT EXISTS {
+        ?lc nltl:combinedShearAndBendingDemand ?d .
+        ?d qudt:numericValue ?dv .
+        FILTER (DATATYPE(?dv) = xsd:decimal)
+      }
+    }
+  )
+}
+"""
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "For an applicable longitudinal side-structure frame, every represented combined shear-and-bending demand must not exceed either the plastic strength or the midspan plastic collapse load." ;
+                sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+  $this nltl:longitudinalFrameOrientation true ;
+        nltl:structuralLocation nltl:sideStructureLocation ;
+        nltl:plasticStrength ?ps ;
+        nltl:midspanPlasticCollapseLoad ?pc ;
+        nltl:hasStructuralMemberLoadCase ?lc .
+  ?ps qudt:numericValue ?psv ;
+      qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+  ?pc qudt:numericValue ?pcv ;
+      qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+  ?lc nltl:combinedShearAndBendingDemand ?d .
+  ?d qudt:numericValue ?dv .
+  FILTER (
+    DATATYPE(?psv) = xsd:decimal &&
+    DATATYPE(?pcv) = xsd:decimal &&
+    DATATYPE(?dv) = xsd:decimal &&
+    (?dv > ?psv || ?dv > ?pcv)
+  )
+}
+"""
+            ]
+        ]
+    ]
+] .
+<END_SHACL>

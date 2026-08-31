@@ -1,0 +1,178 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-079> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadCycleCoefficientK2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:propellerImmersionFunction ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:propellerShaftCentrelineDepth ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "Propeller diameter must be non-zero before calculating the immersion function." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:propellerDiameter ?diameterNode .
+                ?diameterNode qudt:numericValue ?diameter .
+                FILTER (datatype(?diameter) = xsd:decimal)
+                FILTER (?diameter = 0)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The propeller immersion function and ice load cycle coefficient k2 must satisfy clauses 6.15 and 6.16." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:designIceThickness ?iceNode ;
+                      nltl:iceLoadCycleCoefficientK2 ?k2Node ;
+                      nltl:propellerDiameter ?diameterNode ;
+                      nltl:propellerImmersionFunction ?fNode ;
+                      nltl:propellerShaftCentrelineDepth ?depthNode .
+                ?iceNode qudt:numericValue ?ice .
+                ?k2Node qudt:numericValue ?k2 .
+                ?diameterNode qudt:numericValue ?diameter .
+                ?fNode qudt:numericValue ?f .
+                ?depthNode qudt:numericValue ?depth .
+                FILTER (datatype(?ice) = xsd:decimal)
+                FILTER (datatype(?k2) = xsd:decimal)
+                FILTER (datatype(?diameter) = xsd:decimal)
+                FILTER (datatype(?f) = xsd:decimal)
+                FILTER (datatype(?depth) = xsd:decimal)
+                FILTER (?diameter != 0)
+                BIND ((2 * (?depth - ?ice) / ?diameter) - 1 AS ?expectedF)
+                BIND (
+                    IF(?expectedF < 0,
+                       0.8 - ?expectedF,
+                       IF(?expectedF <= 1,
+                          0.8 - 0.4 * ?expectedF,
+                          IF(?expectedF <= 2.5,
+                             0.6 - 0.2 * ?expectedF,
+                             0.1)))
+                    AS ?expectedK2)
+                BIND (
+                    IF(?expectedF >= 0,
+                       0.000001 * ?expectedF + 0.000000001,
+                       0.000001 * (0 - ?expectedF) + 0.000000001)
+                    AS ?fTolerance)
+                BIND (
+                    IF(?expectedK2 >= 0,
+                       0.000001 * ?expectedK2 + 0.000000001,
+                       0.000001 * (0 - ?expectedK2) + 0.000000001)
+                    AS ?k2Tolerance)
+                FILTER (
+                    ?f < (?expectedF - ?fTolerance) ||
+                    ?f > (?expectedF + ?fTolerance) ||
+                    ?k2 < (?expectedK2 - ?k2Tolerance) ||
+                    ?k2 > (?expectedK2 + ?k2Tolerance)
+                )
+            }
+        """
+    ] .
+<END_SHACL>

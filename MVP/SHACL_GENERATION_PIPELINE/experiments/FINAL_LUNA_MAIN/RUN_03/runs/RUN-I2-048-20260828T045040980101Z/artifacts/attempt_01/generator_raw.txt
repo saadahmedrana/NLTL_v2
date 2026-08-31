@@ -1,0 +1,330 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:polarClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:polarClassValue ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasSteelGradeRequirementCase ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeRequirementCase ;
+        sh:node gs:SteelGradeRequirementCaseShape
+    ] .
+
+gs:SteelGradeRequirementCaseShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:steelGradeRequirementCasePlating ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:plating ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:tableReference ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:tableReferenceValue ;
+        sh:hasValue nltl:iacsUrI2Table8 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:asBuiltPlateThickness ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:steelMaterialClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelMaterialClassValue ;
+        sh:in (
+            nltl:steelMaterialClassOne
+            nltl:steelMaterialClassTwo
+            nltl:steelMaterialClassThree
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:steelStrengthCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelStrengthCategoryValue ;
+        sh:in (
+            nltl:normalStrengthSteelCategory
+            nltl:highTensileSteelCategory
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:actualHullStructuralSteelGrade ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:steelGradeValue ;
+        sh:in (
+            nltl:steelGradeB
+            nltl:steelGradeD
+            nltl:steelGradeE
+            nltl:steelGradeAh
+            nltl:steelGradeDh
+            nltl:steelGradeEh
+            nltl:steelGradeFh
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path (
+            nltl:actualHullStructuralSteelGrade
+            nltl:steelGradeOrderRank
+        ) ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The Table 8 required grade is missing or incorrect for the case selectors, or the actual grade is below the required grade within its strength category." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+    ?ship nltl:hasSteelGradeRequirementCase $this ;
+          nltl:polarClass ?pc .
+
+    $this nltl:asBuiltPlateThickness ?th ;
+          nltl:steelMaterialClass ?mat ;
+          nltl:steelStrengthCategory ?cat ;
+          nltl:actualHullStructuralSteelGrade ?actual .
+
+    ?th <http://qudt.org/schema/qudt/numericValue> ?mm .
+    ?actual nltl:steelGradeOrderRank ?actualRank .
+
+    OPTIONAL {
+        $this nltl:requiredHullStructuralSteelGrade ?required .
+        OPTIONAL {
+            ?required nltl:steelGradeOrderRank ?requiredRank .
+        }
+    }
+
+    BIND(?mat = nltl:steelMaterialClassOne || ?mat = nltl:steelMaterialClassTwo AS ?mat12)
+    BIND(?mat = nltl:steelMaterialClassThree AS ?mat3)
+    BIND(?cat = nltl:normalStrengthSteelCategory AS ?normal)
+    BIND(?cat = nltl:highTensileSteelCategory AS ?high)
+    BIND(?pc IN (
+        nltl:polarClassPc1,
+        nltl:polarClassPc2,
+        nltl:polarClassPc3,
+        nltl:polarClassPc4,
+        nltl:polarClassPc5
+    ) AS ?pc15)
+    BIND(?pc IN (
+        nltl:polarClassPc1,
+        nltl:polarClassPc2,
+        nltl:polarClassPc3
+    ) AS ?pc13)
+    BIND(?pc IN (
+        nltl:polarClassPc4,
+        nltl:polarClassPc5
+    ) AS ?pc45)
+    BIND(?pc IN (
+        nltl:polarClassPc6,
+        nltl:polarClassPc7
+    ) AS ?pc67)
+
+    BIND(
+        IF(
+            (
+                ?mm <= 10 &&
+                (
+                    (?normal && ?mat12) ||
+                    (?normal && ?mat3 && ?pc67)
+                )
+            ) ||
+            (
+                ?mm > 10 && ?mm <= 35 &&
+                ?normal && ?mat12 && ?pc67
+            ),
+            nltl:steelGradeB,
+            IF(
+                (
+                    ?mm > 10 && ?mm <= 35 &&
+                    ?normal &&
+                    (
+                        (?mat12 && ?pc15) ||
+                        (?mat3 && ?pc67)
+                    )
+                ) ||
+                (
+                    ?mm > 35 && ?mm <= 45 &&
+                    ?normal &&
+                    (
+                        (?mat = nltl:steelMaterialClassOne) ||
+                        (?mat = nltl:steelMaterialClassTwo && ?pc67)
+                    )
+                ) ||
+                (
+                    ?mm > 45 && ?mm <= 50 &&
+                    ?normal && ?mat12 && ?pc67
+                ),
+                nltl:steelGradeD,
+                IF(
+                    (
+                        ?mm <= 10 &&
+                        ?normal && ?mat3 && ?pc15
+                    ) ||
+                    (
+                        ?mm > 10 && ?mm <= 35 &&
+                        ?normal && ?mat3 && ?pc15
+                    ) ||
+                    (
+                        ?mm > 35 && ?mm <= 40 &&
+                        ?normal && ?mat3 && ?pc15
+                    ) ||
+                    (
+                        ?mm > 40 && ?mm <= 45 &&
+                        ?normal && ?mat = nltl:steelMaterialClassTwo && ?pc15
+                    ) ||
+                    (
+                        ?mm > 45 && ?mm <= 50 &&
+                        ?normal &&
+                        (
+                            (?mat12 && ?pc15) ||
+                            (?mat3 && ?pc67)
+                        )
+                    ),
+                    nltl:steelGradeE,
+                    IF(
+                        (
+                            ?mm <= 10 &&
+                            ?high && ?mat12
+                        ) ||
+                        (
+                            ?mm <= 10 &&
+                            ?high && ?mat3 && ?pc67
+                        ) ||
+                        (
+                            ?mm > 10 && ?mm <= 35 &&
+                            ?high && ?mat12 && ?pc67
+                        ),
+                        nltl:steelGradeAh,
+                        IF(
+                            (
+                                ?mm > 10 && ?mm <= 35 &&
+                                ?high &&
+                                (
+                                    (?mat12 && ?pc15) ||
+                                    (?mat3 && ?pc67)
+                                )
+                            ) ||
+                            (
+                                ?mm > 35 && ?mm <= 45 &&
+                                ?high &&
+                                (
+                                    (?mat = nltl:steelMaterialClassOne) ||
+                                    (?mat = nltl:steelMaterialClassTwo && ?pc67)
+                                )
+                            ) ||
+                            (
+                                ?mm > 45 && ?mm <= 50 &&
+                                ?high && ?mat12 && ?pc67
+                            ),
+                            nltl:steelGradeDh,
+                            IF(
+                                (
+                                    ?mm <= 10 &&
+                                    ?high && ?mat3 && ?pc15
+                                ) ||
+                                (
+                                    ?mm > 10 && ?mm <= 35 &&
+                                    ?high && ?mat3 && ?pc15
+                                ) ||
+                                (
+                                    ?mm > 35 && ?mm <= 40 &&
+                                    ?high && ?mat3 && ?pc15
+                                ) ||
+                                (
+                                    ?mm > 40 && ?mm <= 45 &&
+                                    ?high && ?mat = nltl:steelMaterialClassTwo && ?pc15
+                                ) ||
+                                (
+                                    ?mm > 45 && ?mm <= 50 &&
+                                    ?high &&
+                                    (
+                                        (?mat12 && ?pc15) ||
+                                        (?mat3 && ?pc67)
+                                    )
+                                ),
+                                nltl:steelGradeEh,
+                                IF(
+                                    ?mm > 35 && ?mm <= 50 &&
+                                    ?high && ?mat3 &&
+                                    (
+                                        (?pc13 && ?mm > 35) ||
+                                        (?pc45 && ?mm > 40)
+                                    ),
+                                    nltl:steelGradeFh,
+                                    UNDEF
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        ) AS ?expected
+    )
+
+    BIND(
+        (
+            ?mm > 35 && ?mm <= 40 &&
+            ?normal && ?mat3 && ?pc13
+        ) ||
+        (
+            ?mm > 40 && ?mm <= 50 &&
+            ?normal && ?mat3 && ?pc15
+        )
+        AS ?notApplicable
+    )
+
+    FILTER(
+        (
+            BOUND(?expected) &&
+            BOUND(?required) &&
+            ?required = ?expected &&
+            BOUND(?requiredRank) &&
+            ?actualRank >= ?requiredRank
+        ) ||
+        (
+            !BOUND(?expected) &&
+            ?notApplicable &&
+            !BOUND(?required)
+        )
+    )
+}
+"""
+    ] .
+<END_SHACL>

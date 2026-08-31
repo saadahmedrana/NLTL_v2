@@ -1,0 +1,141 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:QuantityValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TRF084Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:node gs:QuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:node gs:QuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:node gs:QuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:sparql [
+                sh:message "For a CP propeller with an unknown pitch value, the bollard-condition pitch must equal 0.7 times the free-running pitch within a relative tolerance of 1e-6 and an absolute fallback tolerance of 1e-9 m." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerType "CP" ;
+                              nltl:pitchValueKnown false ;
+                              nltl:propellerPitchAtMcrBollard ?bollardPitch ;
+                              nltl:propellerPitchAtMcrFreeRunning ?freePitch .
+
+                        ?bollardPitch qudt:numericValue ?bollardValue .
+                        ?freePitch qudt:numericValue ?freeValue .
+
+                        FILTER (isNumeric(?bollardValue) && isNumeric(?freeValue))
+
+                        BIND (0.7 * ?freeValue AS ?expectedValue)
+                        BIND (
+                            IF(
+                                ?expectedValue >= 0,
+                                IF(
+                                    (?expectedValue * 0.000001) > 0.000000001,
+                                    ?expectedValue * 0.000001,
+                                    0.000000001
+                                ),
+                                IF(
+                                    (-?expectedValue * 0.000001) > 0.000000001,
+                                    -?expectedValue * 0.000001,
+                                    0.000000001
+                                )
+                            )
+                            AS ?tolerance
+                        )
+
+                        FILTER (
+                            ?bollardValue < (?expectedValue - ?tolerance)
+                            ||
+                            ?bollardValue > (?expectedValue + ?tolerance)
+                        )
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:pattern "^(?!CP$).*$" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) .
+
+<END_SHACL>
