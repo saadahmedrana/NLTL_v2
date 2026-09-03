@@ -1,0 +1,133 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO109ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:cargoTankCarriesOil ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        gen:IMO109ApplicableShape
+        gen:IMO109NonApplicableShape
+    ) .
+
+gen:IMO109ApplicableShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+        )
+    ] ;
+    sh:property [
+        sh:path nltl:cargoTankOuterShellSeparation ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "For an applicable ship, cargo tank outer shell separation must be at least 0.76 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:shipType ?shipType ;
+                      nltl:constructionDate ?constructionDate ;
+                      nltl:cargoTankCarriesOil ?carriesOil .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                    && ?shipType != "oil_tanker"
+                    && ?constructionDate >= "2017-01-01"^^xsd:date
+                    && ?carriesOil = true
+                )
+
+                FILTER NOT EXISTS {
+                    $this nltl:cargoTankOuterShellSeparation ?separation .
+                    ?separation qudt:numericValue ?value ;
+                                 qudt:unit unit:M .
+                    FILTER (
+                        datatype(?value) = xsd:decimal
+                        && ?value >= "0.76"^^xsd:decimal
+                    )
+                }
+            }
+        """
+    ] .
+
+gen:IMO109NonApplicableShape
+    a sh:NodeShape ;
+    sh:sparql [
+        sh:message "The ship must provide applicability information showing that the IMO-109 condition is not met, or satisfy the applicable separation constraint." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:shipType ?shipType ;
+                      nltl:constructionDate ?constructionDate ;
+                      nltl:cargoTankCarriesOil ?carriesOil .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                    && ?shipType != "oil_tanker"
+                    && ?constructionDate >= "2017-01-01"^^xsd:date
+                    && ?carriesOil = true
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,209 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix nltlgen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltlgen:IMO26_002_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship type is required to determine Chapter 9-1 applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:lengthOverall ;
+        sh:node nltlgen:LengthOverallQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:grossTonnage ;
+        sh:node nltlgen:GrossTonnageQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:engagedInTrade ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeChapter9Dash1Applicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Chapter 9-1 applicability must be recorded as a single boolean value."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The inputs required by the ship type to determine Chapter 9-1 applicability are missing or have an invalid quantity/unit representation." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipType ?type .
+                FILTER (
+                    (?type = "fishing_vessel" &&
+                     NOT EXISTS {
+                         $this nltl:lengthOverall ?length .
+                         ?length qudt:numericValue ?lengthValue ;
+                                 qudt:unit unit:M .
+                         FILTER (datatype(?lengthValue) = xsd:decimal)
+                     })
+                    ||
+                    (?type = "pleasure_yacht" &&
+                     (
+                         NOT EXISTS {
+                             $this nltl:grossTonnage ?tonnage .
+                             ?tonnage qudt:numericValue ?tonnageValue ;
+                                     qudt:unit unit:UNITLESS .
+                             FILTER (datatype(?tonnageValue) = xsd:decimal)
+                         }
+                         ||
+                         NOT EXISTS {
+                             $this nltl:engagedInTrade ?trade .
+                             FILTER (datatype(?trade) = xsd:boolean)
+                         }
+                     ))
+                    ||
+                    (?type = "cargo_ship" &&
+                     NOT EXISTS {
+                         $this nltl:grossTonnage ?tonnage .
+                         ?tonnage qudt:numericValue ?tonnageValue ;
+                                 qudt:unit unit:UNITLESS .
+                         FILTER (datatype(?tonnageValue) = xsd:decimal)
+                     })
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The Chapter 9-1 applicability result does not match the prescribed ship-type and threshold conditions." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:shipType ?type ;
+                      nltl:polarCodeChapter9Dash1Applicable ?applicable .
+                FILTER (
+                    (?applicable = true &&
+                     !(
+                         (
+                             ?type = "fishing_vessel" &&
+                             EXISTS {
+                                 $this nltl:lengthOverall ?length .
+                                 ?length qudt:numericValue ?lengthValue ;
+                                         qudt:unit unit:M .
+                                 FILTER (datatype(?lengthValue) = xsd:decimal &&
+                                         ?lengthValue >= 24)
+                             }
+                         )
+                         ||
+                         (
+                             ?type = "pleasure_yacht" &&
+                             EXISTS {
+                                 $this nltl:grossTonnage ?tonnage .
+                                 ?tonnage qudt:numericValue ?tonnageValue ;
+                                         qudt:unit unit:UNITLESS .
+                                 FILTER (datatype(?tonnageValue) = xsd:decimal &&
+                                         ?tonnageValue >= 300)
+                             } &&
+                             EXISTS {
+                                 $this nltl:engagedInTrade ?trade .
+                                 FILTER (datatype(?trade) = xsd:boolean &&
+                                         ?trade = false)
+                             }
+                         )
+                         ||
+                         (
+                             ?type = "cargo_ship" &&
+                             EXISTS {
+                                 $this nltl:grossTonnage ?tonnage .
+                                 ?tonnage qudt:numericValue ?tonnageValue ;
+                                         qudt:unit unit:UNITLESS .
+                                 FILTER (datatype(?tonnageValue) = xsd:decimal &&
+                                         ?tonnageValue >= 300 &&
+                                         ?tonnageValue < 500)
+                             }
+                         )
+                     ))
+                    ||
+                    (?applicable = false &&
+                     (
+                         (
+                             ?type = "fishing_vessel" &&
+                             EXISTS {
+                                 $this nltl:lengthOverall ?length .
+                                 ?length qudt:numericValue ?lengthValue ;
+                                         qudt:unit unit:M .
+                                 FILTER (datatype(?lengthValue) = xsd:decimal &&
+                                         ?lengthValue >= 24)
+                             }
+                         )
+                         ||
+                         (
+                             ?type = "pleasure_yacht" &&
+                             EXISTS {
+                                 $this nltl:grossTonnage ?tonnage .
+                                 ?tonnage qudt:numericValue ?tonnageValue ;
+                                         qudt:unit unit:UNITLESS .
+                                 FILTER (datatype(?tonnageValue) = xsd:decimal &&
+                                         ?tonnageValue >= 300)
+                             } &&
+                             EXISTS {
+                                 $this nltl:engagedInTrade ?trade .
+                                 FILTER (datatype(?trade) = xsd:boolean &&
+                                         ?trade = false)
+                             }
+                         )
+                         ||
+                         (
+                             ?type = "cargo_ship" &&
+                             EXISTS {
+                                 $this nltl:grossTonnage ?tonnage .
+                                 ?tonnage qudt:numericValue ?tonnageValue ;
+                                         qudt:unit unit:UNITLESS .
+                                 FILTER (datatype(?tonnageValue) = xsd:decimal &&
+                                         ?tonnageValue >= 300 &&
+                                         ?tonnageValue < 500)
+                             }
+                         )
+                     ))
+                )
+            }
+        """
+    ] .
+
+nltlgen:LengthOverallQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:maxCount 1
+    ] .
+
+nltlgen:GrossTonnageQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:maxCount 1
+    ] .

@@ -1,0 +1,156 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix q: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:I2_031_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:class nltl:frameProfileTypeValue ;
+        sh:minCount 1 ;
+        sh:message "A frame profile type is required for the ship."
+    ] ;
+    sh:property [
+        sh:path nltl:patchLoad ;
+        sh:node gs:KiloNewtonQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "A patch load in kN is required for the ship."
+    ] ;
+    sh:property [
+        sh:path nltl:plasticCollapseMechanism ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "The plastic collapse mechanism must be recorded."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gs:I2_031_MemberShape
+    ] .
+
+gs:I2_031_MemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:in (
+            nltl:bottomStructureLocation
+            nltl:sideStructureLocation
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each structural member must have exactly one permitted structural location."
+    ] ;
+    sh:property [
+        sh:path nltl:plasticStrength ;
+        sh:node gs:KiloNewtonQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must declare its plastic strength in kN."
+    ] ;
+    sh:property [
+        sh:path nltl:midspanPlasticCollapseLoad ;
+        sh:node gs:KiloNewtonQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must declare the midspan load causing plastic collapse in kN."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberLoadCase ;
+        sh:node gs:I2_031_LoadCaseShape ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must have a structural-member load case."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:hasValue nltl:bottomStructureLocation
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberLoadCase ;
+                sh:node gs:I2_031_BottomLoadCaseShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:hasValue nltl:sideStructureLocation
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Combined shear and bending demand must not exceed plastic strength, and plastic strength must equal the midspan plastic-collapse load." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX q: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:plasticStrength ?plasticStrength ;
+                      nltl:midspanPlasticCollapseLoad ?midspanLoad ;
+                      nltl:hasStructuralMemberLoadCase ?loadCase .
+                ?plasticStrength q:numericValue ?plasticValue .
+                ?midspanLoad q:numericValue ?midspanValue .
+                ?loadCase nltl:combinedShearAndBendingDemand ?demand .
+                ?demand q:numericValue ?demandValue .
+                FILTER (
+                    ?demandValue > ?plasticValue ||
+                    ?plasticValue != ?midspanValue
+                )
+            }
+        """
+    ] .
+
+gs:I2_031_LoadCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:node gs:UnittedQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "Each load case must declare the combined shear and bending demand."
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchOrientation ;
+        sh:class nltl:loadPatchOrientationValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each load case must declare a load patch orientation."
+    ] .
+
+gs:I2_031_BottomLoadCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:loadPatchOrientation ;
+        sh:hasValue nltl:loadPatchHeightParallelToFrame ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "For bottom structures, patch-load dimension b must be parallel with the frame direction."
+    ] .
+
+gs:KiloNewtonQuantityShape
+    a sh:NodeShape ;
+    sh:class q:QuantityValue ;
+    sh:property [
+        sh:path q:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path q:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+gs:UnittedQuantityShape
+    a sh:NodeShape ;
+    sh:class q:QuantityValue ;
+    sh:property [
+        sh:path q:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

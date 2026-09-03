@@ -1,0 +1,159 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:KiloNewtonQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF081ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:property [
+        sh:path nltl:forwardBladeForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "A single forward blade force in kN is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:backwardBladeForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "A single backward blade force in kN is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:hydrodynamicBollardThrust ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "A single hydrodynamic bollard thrust in kN is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:forwardIceThrust ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "A single forward ice thrust in kN is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:backwardIceThrust ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "A single backward ice thrust in kN is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:forwardPropellerShaftDesignThrust ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "A single forward propeller shaft design thrust in kN is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:backwardPropellerShaftDesignThrust ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "A single backward propeller shaft design thrust in kN is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:propellerShaftDesignThrust ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:KiloNewtonQuantityShape ;
+        sh:message "A single propeller shaft design thrust in kN is required."
+    ] ;
+
+    sh:sparql [
+        sh:message "The ice thrust and propeller shaft design thrust values must satisfy the TRF-081 formulas within a relative tolerance of 1e-6 and an absolute tolerance of 1e-6 kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:forwardBladeForce ?forwardBladeNode ;
+                      nltl:backwardBladeForce ?backwardBladeNode ;
+                      nltl:hydrodynamicBollardThrust ?bollardNode ;
+                      nltl:forwardIceThrust ?forwardIceNode ;
+                      nltl:backwardIceThrust ?backwardIceNode ;
+                      nltl:forwardPropellerShaftDesignThrust ?forwardDesignNode ;
+                      nltl:backwardPropellerShaftDesignThrust ?backwardDesignNode ;
+                      nltl:propellerShaftDesignThrust ?designNode .
+
+                ?forwardBladeNode qudt:numericValue ?forwardBlade ;
+                                  qudt:unit unit:KiloN .
+                ?backwardBladeNode qudt:numericValue ?backwardBlade ;
+                                   qudt:unit unit:KiloN .
+                ?bollardNode qudt:numericValue ?bollard ;
+                             qudt:unit unit:KiloN .
+                ?forwardIceNode qudt:numericValue ?forwardIce ;
+                                qudt:unit unit:KiloN .
+                ?backwardIceNode qudt:numericValue ?backwardIce ;
+                                 qudt:unit unit:KiloN .
+                ?forwardDesignNode qudt:numericValue ?forwardDesign ;
+                                   qudt:unit unit:KiloN .
+                ?backwardDesignNode qudt:numericValue ?backwardDesign ;
+                                    qudt:unit unit:KiloN .
+                ?designNode qudt:numericValue ?design ;
+                            qudt:unit unit:KiloN .
+
+                BIND ((1.1 * ?forwardBlade) AS ?expectedForwardIce)
+                BIND ((1.1 * ?backwardBlade) AS ?expectedBackwardIce)
+                BIND ((?bollard + (2.2 * ?expectedForwardIce)) AS ?expectedForwardDesign)
+                BIND ((1.5 * ?expectedBackwardIce) AS ?expectedBackwardDesign)
+                BIND (
+                    IF(
+                        ?expectedForwardDesign >= ?expectedBackwardDesign,
+                        ?expectedForwardDesign,
+                        ?expectedBackwardDesign
+                    )
+                    AS ?expectedDesign
+                )
+
+                FILTER (
+                    ABS(?forwardIce - ?expectedForwardIce) >
+                        ((0.000001 * ABS(?expectedForwardIce)) + 0.000001)
+                    ||
+                    ABS(?backwardIce - ?expectedBackwardIce) >
+                        ((0.000001 * ABS(?expectedBackwardIce)) + 0.000001)
+                    ||
+                    ABS(?forwardDesign - ?expectedForwardDesign) >
+                        ((0.000001 * ABS(?expectedForwardDesign)) + 0.000001)
+                    ||
+                    ABS(?backwardDesign - ?expectedBackwardDesign) >
+                        ((0.000001 * ABS(?expectedBackwardDesign)) + 0.000001)
+                    ||
+                    ABS(?design - ?expectedDesign) >
+                        ((0.000001 * ABS(?expectedDesign)) + 0.000001)
+                )
+            }
+        """
+    ] .

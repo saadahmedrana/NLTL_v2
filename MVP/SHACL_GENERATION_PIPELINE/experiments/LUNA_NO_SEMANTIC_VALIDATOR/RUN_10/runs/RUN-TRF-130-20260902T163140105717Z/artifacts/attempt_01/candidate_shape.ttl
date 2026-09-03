@@ -1,0 +1,219 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF130Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasComponent ;
+        sh:class nltl:inletChest ;
+        sh:minCount 1 ;
+        sh:message "The ship shall have at least one cooling-water inlet chest."
+    ] ;
+    sh:property [
+        sh:path nltl:totalRelevantEnginePower ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloW ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloW ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "At least one inlet chest shall satisfy the required location, height, discharge, volume, and strainer-area conditions." ;
+                sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  FILTER NOT EXISTS {
+    $this nltl:totalRelevantEnginePower ?totalPower .
+    ?totalPower qudt:numericValue ?totalValue ;
+                qudt:unit unit:KiloW .
+    FILTER (datatype(?totalValue) = xsd:decimal)
+
+    $this nltl:maximumContinuousRatingPower ?maximumPower .
+    ?maximumPower qudt:numericValue ?maximumValue ;
+                   qudt:unit unit:KiloW .
+    FILTER (datatype(?maximumValue) = xsd:decimal)
+
+    $this nltl:hasComponent ?chest .
+    ?chest a nltl:inletChest ;
+           nltl:seaInletLocation "near_centreline_and_well_aft_if_possible" ;
+           nltl:nearCentrelineAndWellAftIfPossible true ;
+           nltl:iceAccumulationSpaceAboveInlet true ;
+           nltl:fullCapacityDischargePipeConnected true ;
+           nltl:recommendedChestVolume ?recommendedVolume ;
+           nltl:seaChestVolume ?seaVolume ;
+           nltl:strainerOpenArea ?openArea ;
+           nltl:inletPipeArea ?pipeArea ;
+           nltl:strainerOpenAreaRatio ?areaRatio .
+
+    ?recommendedVolume qudt:numericValue ?recommendedValue ;
+                       qudt:unit unit:M3 .
+    ?seaVolume qudt:numericValue ?seaValue ;
+               qudt:unit unit:M3 .
+    ?openArea qudt:numericValue ?openValue ;
+              qudt:unit unit:M2 .
+    ?pipeArea qudt:numericValue ?pipeValue ;
+              qudt:unit unit:M2 .
+    ?areaRatio qudt:numericValue ?ratioValue ;
+               qudt:unit unit:UNITLESS .
+
+    FILTER (
+      datatype(?recommendedValue) = xsd:decimal &&
+      datatype(?seaValue) = xsd:decimal &&
+      datatype(?openValue) = xsd:decimal &&
+      datatype(?pipeValue) = xsd:decimal &&
+      datatype(?ratioValue) = xsd:decimal
+    )
+    FILTER (
+      ABS(?recommendedValue - (?totalValue / 750))
+      <= ABS(?totalValue / 750) * 0.000001 + 0.000000001
+    )
+    FILTER (?openValue >= 4 * ?pipeValue)
+    FILTER (?ratioValue >= 4)
+  }
+}
+"""
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:coolingWaterChestVolumeAndHeightRequirementsCannotBeMet ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:coolingWaterChestAlternativeArrangementUsed ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "When the volume and height requirements cannot be met, at least two alternating inlet chests with the required remaining arrangements shall be provided." ;
+                sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  FILTER NOT EXISTS {
+    $this nltl:hasComponent ?chest1, ?chest2 .
+    FILTER (?chest1 != ?chest2)
+
+    ?chest1 a nltl:inletChest ;
+            nltl:seaInletLocation "near_centreline_and_well_aft_if_possible" ;
+            nltl:nearCentrelineAndWellAftIfPossible true ;
+            nltl:fullCapacityDischargePipeConnected true ;
+            nltl:alternatingCoolingWaterIntakeAndDischarge true ;
+            nltl:seaChestVolume ?volume1 ;
+            nltl:strainerOpenArea ?openArea1 ;
+            nltl:inletPipeArea ?pipeArea1 ;
+            nltl:strainerOpenAreaRatio ?ratio1 .
+
+    ?chest2 a nltl:inletChest ;
+            nltl:seaInletLocation "near_centreline_and_well_aft_if_possible" ;
+            nltl:nearCentrelineAndWellAftIfPossible true ;
+            nltl:fullCapacityDischargePipeConnected true ;
+            nltl:alternatingCoolingWaterIntakeAndDischarge true ;
+            nltl:seaChestVolume ?volume2 ;
+            nltl:strainerOpenArea ?openArea2 ;
+            nltl:inletPipeArea ?pipeArea2 ;
+            nltl:strainerOpenAreaRatio ?ratio2 .
+
+    ?volume1 qudt:numericValue ?volumeValue1 ;
+             qudt:unit unit:M3 .
+    ?volume2 qudt:numericValue ?volumeValue2 ;
+             qudt:unit unit:M3 .
+    ?openArea1 qudt:numericValue ?openValue1 ;
+               qudt:unit unit:M2 .
+    ?openArea2 qudt:numericValue ?openValue2 ;
+               qudt:unit unit:M2 .
+    ?pipeArea1 qudt:numericValue ?pipeValue1 ;
+               qudt:unit unit:M2 .
+    ?pipeArea2 qudt:numericValue ?pipeValue2 ;
+               qudt:unit unit:M2 .
+    ?ratio1 qudt:numericValue ?ratioValue1 ;
+            qudt:unit unit:UNITLESS .
+    ?ratio2 qudt:numericValue ?ratioValue2 ;
+            qudt:unit unit:UNITLESS .
+
+    FILTER (
+      datatype(?volumeValue1) = xsd:decimal &&
+      datatype(?volumeValue2) = xsd:decimal &&
+      datatype(?openValue1) = xsd:decimal &&
+      datatype(?openValue2) = xsd:decimal &&
+      datatype(?pipeValue1) = xsd:decimal &&
+      datatype(?pipeValue2) = xsd:decimal &&
+      datatype(?ratioValue1) = xsd:decimal &&
+      datatype(?ratioValue2) = xsd:decimal
+    )
+    FILTER (?openValue1 >= 4 * ?pipeValue1)
+    FILTER (?openValue2 >= 4 * ?pipeValue2)
+    FILTER (?ratioValue1 >= 4)
+    FILTER (?ratioValue2 >= 4)
+  }
+}
+"""
+            ]
+        ]
+    ) .

@@ -1,0 +1,134 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-011-QuantityValueShape>
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:nodeKind sh:IRI ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-ProfilePointShape>
+    a sh:NodeShape ;
+    sh:class nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:node <urn:nltl:generated-shape:TRF-011-QuantityValueShape> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:node <urn:nltl:generated-shape:TRF-011-QuantityValueShape> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-IceWaterlineShape>
+    a sh:NodeShape ;
+    sh:class nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:node <urn:nltl:generated-shape:TRF-011-ProfilePointShape> ;
+        sh:minCount 1
+    ] .
+
+<urn:nltl:generated-shape:TRF-011-Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:node <urn:nltl:generated-shape:TRF-011-IceWaterlineShape> ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:node <urn:nltl:generated-shape:TRF-011-IceWaterlineShape> ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1
+    ] ;
+    sh:sparql [
+        sh:message "Each intended ice-operating waterline profile position must occur on the UIWL at the maximum intended vertical coordinate." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+                ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+                ?intendedPoint nltl:longitudinalPosition ?intendedXValue ;
+                    nltl:verticalCoordinate ?intendedYValue .
+                ?intendedXValue qudt:numericValue ?x .
+                ?intendedYValue qudt:numericValue ?y .
+
+                {
+                    SELECT ?x (MAX(?candidateY) AS ?maximumY)
+                    WHERE {
+                        $this nltl:hasIntendedIceOperatingWaterline ?sourceWaterline .
+                        ?sourceWaterline nltl:hasWaterlineProfilePoint ?sourcePoint .
+                        ?sourcePoint nltl:longitudinalPosition ?sourceXValue ;
+                            nltl:verticalCoordinate ?sourceYValue .
+                        ?sourceXValue qudt:numericValue ?x .
+                        ?sourceYValue qudt:numericValue ?candidateY .
+                    }
+                    GROUP BY ?x
+                }
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasUpperIceWaterline ?upperWaterline .
+                    ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+                    ?upperPoint nltl:longitudinalPosition ?upperXValue ;
+                        nltl:verticalCoordinate ?upperYValue .
+                    ?upperXValue qudt:numericValue ?upperX .
+                    ?upperYValue qudt:numericValue ?upperY .
+                    FILTER (?upperX = ?x && ?upperY = ?maximumY)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "Every UIWL profile point must be the maximum intended vertical coordinate at its longitudinal position." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasUpperIceWaterline ?upperWaterline .
+                ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+                ?upperPoint nltl:longitudinalPosition ?upperXValue ;
+                    nltl:verticalCoordinate ?upperYValue .
+                ?upperXValue qudt:numericValue ?x .
+                ?upperYValue qudt:numericValue ?y .
+
+                {
+                    SELECT ?x (MAX(?intendedY) AS ?maximumY)
+                    WHERE {
+                        $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+                        ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+                        ?intendedPoint nltl:longitudinalPosition ?intendedXValue ;
+                            nltl:verticalCoordinate ?intendedYValue .
+                        ?intendedXValue qudt:numericValue ?x .
+                        ?intendedYValue qudt:numericValue ?intendedY .
+                    }
+                    GROUP BY ?x
+                }
+
+                FILTER (?y != ?maximumY)
+            }
+        """
+    ] .

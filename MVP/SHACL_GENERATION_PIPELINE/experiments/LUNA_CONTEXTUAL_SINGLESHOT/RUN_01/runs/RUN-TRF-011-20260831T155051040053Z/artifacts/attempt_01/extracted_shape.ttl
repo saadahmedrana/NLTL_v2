@@ -1,0 +1,119 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF011ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011IceWaterlineShape ;
+        sh:message "The ship must identify its intended ice-operating waterline with profile points."
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011IceWaterlineShape ;
+        sh:message "The ship must identify an upper ice waterline with profile points."
+    ] ;
+    sh:sparql [
+        sh:message "The upper ice waterline must equal, within a relative tolerance of 1e-6 plus an absolute fallback of 1e-9 m near zero, the maximum vertical coordinate of the intended ice-operating waterline at every longitudinal position, with no unmatched positions." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                {
+                    SELECT $this ?x
+                           (MAX(?iv) AS ?im)
+                           (MAX(?uv) AS ?um)
+                           (COUNT(?iv) AS ?ic)
+                           (COUNT(?uv) AS ?uc)
+                    WHERE {
+                        {
+                            $this nltl:hasIntendedIceOperatingWaterline ?iw .
+                            ?iw nltl:hasWaterlineProfilePoint ?ip .
+                            ?ip nltl:longitudinalPosition ?xq ;
+                                nltl:verticalCoordinate ?vq .
+                            ?xq qudt:numericValue ?x ;
+                                qudt:unit <http://qudt.org/vocab/unit/M> .
+                            ?vq qudt:numericValue ?v ;
+                                qudt:unit <http://qudt.org/vocab/unit/M> .
+                            BIND(?v AS ?iv)
+                        }
+                        UNION
+                        {
+                            $this nltl:hasUpperIceWaterline ?uw .
+                            ?uw nltl:hasWaterlineProfilePoint ?up .
+                            ?up nltl:longitudinalPosition ?uxq ;
+                                nltl:verticalCoordinate ?uvq .
+                            ?uxq qudt:numericValue ?x ;
+                                qudt:unit <http://qudt.org/vocab/unit/M> .
+                            ?uvq qudt:numericValue ?uv ;
+                                qudt:unit <http://qudt.org/vocab/unit/M> .
+                        }
+                    }
+                    GROUP BY $this ?x
+                }
+                FILTER(
+                    ?ic = 0 ||
+                    ?uc = 0 ||
+                    ABS(?im - ?um) >
+                    (1e-6 * ABS(?im) + 1e-9)
+                )
+            }
+        """
+    ] .
+
+gen:TRF011IceWaterlineShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011ProfilePointShape ;
+        sh:message "Each represented ice waterline must contain profile points."
+    ] .
+
+gen:TRF011ProfilePointShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:nodeKind sh:IRI ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011LengthQuantityShape ;
+        sh:message "Each waterline profile point must have one longitudinal position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011LengthQuantityShape ;
+        sh:message "Each waterline profile point must have one vertical coordinate in metres."
+    ] .
+
+gen:TRF011LengthQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

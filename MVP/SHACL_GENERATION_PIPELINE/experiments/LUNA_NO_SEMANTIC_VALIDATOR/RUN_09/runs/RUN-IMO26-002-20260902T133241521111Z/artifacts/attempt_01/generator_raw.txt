@@ -1,0 +1,130 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO26-002> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship type is required to determine Chapter 9-1 applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeChapter9Dash1Applicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "Chapter 9-1 applicability shall be recorded as true for a ship meeting the applicable scope."
+    ] ;
+    sh:sparql [
+        sh:message "The required length, gross tonnage, or trade-status input for the declared ship type is missing or has an invalid datatype or unit." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  $this nltl:shipType ?type .
+  FILTER (
+    (?type = "fishing_vessel" &&
+      NOT EXISTS {
+        $this nltl:lengthOverall ?lengthNode .
+        ?lengthNode qudt:numericValue ?lengthValue ;
+                    qudt:unit qudt:M .
+        FILTER (datatype(?lengthValue) = xsd:decimal)
+      })
+    ||
+    (?type = "pleasure_yacht" &&
+      (
+        NOT EXISTS {
+          $this nltl:grossTonnage ?tonnageNode .
+          ?tonnageNode qudt:numericValue ?tonnageValue ;
+                       qudt:unit qudt:UNITLESS .
+          FILTER (datatype(?tonnageValue) = xsd:decimal)
+        }
+        ||
+        NOT EXISTS {
+          $this nltl:engagedInTrade ?tradeStatus .
+          FILTER (datatype(?tradeStatus) = xsd:boolean)
+        }
+      ))
+    ||
+    (?type = "cargo_ship" &&
+      NOT EXISTS {
+        $this nltl:grossTonnage ?tonnageNode .
+        ?tonnageNode qudt:numericValue ?tonnageValue ;
+                     qudt:unit qudt:UNITLESS .
+        FILTER (datatype(?tonnageValue) = xsd:decimal)
+      })
+  )
+}
+"""
+    ] ;
+    sh:sparql [
+        sh:message "Chapter 9-1 applicability does not match the declared ship type, dimensions, gross tonnage, and trade status." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  $this nltl:shipType ?type ;
+        nltl:polarCodeChapter9Dash1Applicable ?applicable .
+
+  BIND(
+    (
+      (?type = "fishing_vessel" &&
+        EXISTS {
+          $this nltl:lengthOverall ?lengthNode .
+          ?lengthNode qudt:numericValue ?lengthValue ;
+                      qudt:unit qudt:M .
+          FILTER (
+            datatype(?lengthValue) = xsd:decimal &&
+            ?lengthValue >= 24
+          )
+        })
+      ||
+      (?type = "pleasure_yacht" &&
+        EXISTS {
+          $this nltl:grossTonnage ?tonnageNode .
+          ?tonnageNode qudt:numericValue ?tonnageValue ;
+                       qudt:unit qudt:UNITLESS .
+          FILTER (
+            datatype(?tonnageValue) = xsd:decimal &&
+            ?tonnageValue >= 300
+          )
+        } &&
+        EXISTS {
+          $this nltl:engagedInTrade ?tradeStatus .
+          FILTER (
+            datatype(?tradeStatus) = xsd:boolean &&
+            ?tradeStatus = false
+          )
+        })
+      ||
+      (?type = "cargo_ship" &&
+        EXISTS {
+          $this nltl:grossTonnage ?tonnageNode .
+          ?tonnageNode qudt:numericValue ?tonnageValue ;
+                       qudt:unit qudt:UNITLESS .
+          FILTER (
+            datatype(?tonnageValue) = xsd:decimal &&
+            ?tonnageValue >= 300 &&
+            ?tonnageValue < 500
+          )
+        })
+    ) AS ?expectedApplicable
+  )
+
+  FILTER (?applicable != ?expectedApplicable)
+}
+"""
+    ] .
+<END_SHACL>

@@ -1,0 +1,85 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-124> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:operatingArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "An operating area is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:antarcticArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "The Antarctic area identifier is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:marpolAnnexVRegulation6Point1DischargeOccurs ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "The MARPOL Annex V regulation 6.1 discharge record is required to determine applicability."
+    ] ;
+    sh:sparql [
+        sh:message "For an Antarctic-area MARPOL Annex V regulation 6.1 discharge, the nearest-fast-ice distance must be at least 12 nautical miles, the applicable ice-area distance must be recorded, nearby ice concentration must exceed 1, and food waste must not be discharged onto ice." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:operatingArea ?operatingArea ;
+                       nltl:antarcticArea ?antarcticArea ;
+                       nltl:marpolAnnexVRegulation6Point1DischargeOccurs true .
+
+                FILTER (STR(?operatingArea) = STR(?antarcticArea))
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:distanceToNearestFastIce ?nearestFastIce .
+                        ?nearestFastIce qudt:numericValue ?nearestValue ;
+                                        qudt:unit unit:MI_N .
+                        FILTER (
+                            DATATYPE(?nearestValue) = xsd:decimal &&
+                            ?nearestValue >= "12"^^xsd:decimal
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:distanceFromAreaWithIceConcentrationAboveOneTenth ?iceAreaDistance .
+                        ?iceAreaDistance qudt:numericValue ?iceAreaValue ;
+                                          qudt:unit unit:MI_N .
+                        FILTER (DATATYPE(?iceAreaValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:nearbyIceConcentration ?nearbyConcentration .
+                        ?nearbyConcentration qudt:numericValue ?concentrationValue ;
+                                              qudt:unit unit:UNITLESS .
+                        FILTER (
+                            DATATYPE(?concentrationValue) = xsd:decimal &&
+                            ?concentrationValue > "1"^^xsd:decimal
+                        )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:foodWasteDischargeOntoIce false .
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:foodWasteDischargeOntoIce ?foodWasteDischarge .
+                        FILTER (
+                            DATATYPE(?foodWasteDischarge) = xsd:boolean &&
+                            ?foodWasteDischarge != false
+                        )
+                    }
+                )
+            }
+        """
+    ] .

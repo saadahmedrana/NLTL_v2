@@ -1,0 +1,185 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO_038_ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:damageCenterForwardOfMaxBreadth ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDamageExtent ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:transversePenetration ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:minInclusive "760"^^xsd:decimal ;
+                sh:maxInclusive "760"^^xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:verticalDamageExtent ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:selectedVerticalDamagePosition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "The calculated ice damage extents or selected vertical damage position does not satisfy the required formulas and inclusive range." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:damageCenterForwardOfMaxBreadth ?forward ;
+                      nltl:upperIceWaterlineLength ?lengthNode ;
+                      nltl:upperIceWaterlineDraught ?draughtNode ;
+                      nltl:longitudinalDamageExtent ?longitudinalNode ;
+                      nltl:verticalDamageExtent ?verticalNode ;
+                      nltl:selectedVerticalDamagePosition ?positionNode .
+
+                ?lengthNode qudt:numericValue ?length .
+                ?draughtNode qudt:numericValue ?draught .
+                ?longitudinalNode qudt:numericValue ?longitudinal .
+                ?verticalNode qudt:numericValue ?vertical .
+                ?positionNode qudt:numericValue ?position .
+
+                BIND(IF(?forward = true,
+                        ?length * "0.045"^^xsd:decimal,
+                        ?length * "0.015"^^xsd:decimal) AS ?expectedLongitudinal)
+                BIND(?draught * "0.20"^^xsd:decimal AS ?draughtLimit)
+                BIND(IF(?draughtLimit < ?expectedLongitudinal,
+                        ?draughtLimit,
+                        ?expectedLongitudinal) AS ?expectedVertical)
+
+                FILTER (
+                    (
+                        ABS(?longitudinal - ?expectedLongitudinal) >
+                        (?expectedLongitudinal * "0.000001"^^xsd:decimal)
+                        &&
+                        ABS(?longitudinal - ?expectedLongitudinal) >
+                        "0.000000001"^^xsd:decimal
+                    )
+                    ||
+                    (
+                        ABS(?vertical - ?expectedVertical) >
+                        (?expectedVertical * "0.000001"^^xsd:decimal)
+                        &&
+                        ABS(?vertical - ?expectedVertical) >
+                        "0.000000001"^^xsd:decimal
+                    )
+                    ||
+                    ?position < "0"^^xsd:decimal
+                    ||
+                    ?position > (?draught * "1.20"^^xsd:decimal)
+                )
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,112 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:I2-064-ComplexReadiness> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class nltl:calculationCase ;
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:class nltl:calculationMethodValue ;
+                sh:in (
+                    nltl:linearCalculationMethodValue
+                    nltl:directCalculationMethodValue
+                    nltl:nonlinearCalculationMethodValue
+                    nltl:prescribedAnalyticalProcedure
+                )
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "For each linear calculation case, the required structural members, buckling assessment, yield strength, and externally computed stress results must be present and conforming." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this a nltl:ship .
+                $this nltl:hasCalculationCase ?linearCase .
+                ?linearCase nltl:calculationMethod nltl:linearCalculationMethodValue .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:yieldStrength ?yieldQuantity .
+                        ?yieldQuantity qudt:numericValue ?yieldValue ;
+                                        qudt:unit qudt:MegaPA .
+                        FILTER (datatype(?yieldValue) = xsd:decimal)
+                    }
+
+                    || EXISTS {
+                        $this nltl:hasStructuralMember ?member .
+                        FILTER NOT EXISTS {
+                            ?member a nltl:structuralMember .
+                            ?member nltl:bucklingCriteriaSatisfied "true"^^xsd:boolean .
+                        }
+                    }
+
+                    || EXISTS {
+                        $this nltl:hasStructuralMember ?member .
+                        FILTER NOT EXISTS {
+                            ?member nltl:hasStructuralMemberWeb ?web .
+                        }
+                    }
+
+                    || EXISTS {
+                        $this nltl:hasStructuralMember ?member .
+                        FILTER NOT EXISTS {
+                            ?member nltl:hasStructuralMemberFlange ?flange .
+                        }
+                    }
+
+                    || EXISTS {
+                        $this nltl:hasStructuralMember ?member .
+                        ?member nltl:hasStructuralMemberWeb ?web .
+                        FILTER NOT EXISTS {
+                            ?web a nltl:structuralMemberWeb .
+                            ?web nltl:nominalShearStress ?stressQuantity .
+                            ?stressQuantity qudt:numericValue ?stressValue ;
+                                            qudt:unit qudt:MegaPA .
+                            $this nltl:yieldStrength ?yieldQuantity .
+                            ?yieldQuantity qudt:numericValue ?yieldValue ;
+                                            qudt:unit qudt:MegaPA .
+                            FILTER (
+                                datatype(?stressValue) = xsd:decimal &&
+                                datatype(?yieldValue) = xsd:decimal &&
+                                ?stressValue < (?yieldValue / 1.7320508075688772)
+                            )
+                        }
+                    }
+
+                    || EXISTS {
+                        $this nltl:hasStructuralMember ?member .
+                        ?member nltl:hasStructuralMemberFlange ?flange .
+                        FILTER NOT EXISTS {
+                            ?flange a nltl:structuralMemberFlange .
+                            ?flange nltl:nominalFlangeVonMisesStress ?stressQuantity .
+                            ?stressQuantity qudt:numericValue ?stressValue ;
+                                            qudt:unit qudt:MegaPA .
+                            $this nltl:yieldStrength ?yieldQuantity .
+                            ?yieldQuantity qudt:numericValue ?yieldValue ;
+                                            qudt:unit qudt:MegaPA .
+                            FILTER (
+                                datatype(?stressValue) = xsd:decimal &&
+                                datatype(?yieldValue) = xsd:decimal &&
+                                ?stressValue < (1.15 * ?yieldValue)
+                            )
+                        }
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

@@ -1,0 +1,1200 @@
+diff --git a/MVP/SHACL_GENERATION_PIPELINE/src/nltl_pipeline/cli.py b/MVP/SHACL_GENERATION_PIPELINE/src/nltl_pipeline/cli.py
+index 676d7a6fe..31fb7e14e 100644
+--- a/MVP/SHACL_GENERATION_PIPELINE/src/nltl_pipeline/cli.py
++++ b/MVP/SHACL_GENERATION_PIPELINE/src/nltl_pipeline/cli.py
+@@ -11,6 +11,7 @@ from .config import PIPELINE_ROOT, PipelineConfig
+ from .errors import PipelineError
+ from .evaluator.bulk import BulkRdfEvaluator, EvaluationManifest
+ from .orchestration.runner import PipelineRunner, identifier
++from .orchestration.singleshot import ContextualSingleShotRunner
+ from .reporting.costs import terminal_cost_summary, write_cost_ledger
+ from .retrieval.context import VocabularyRepository
+ from .retrieval.fewshot import FewShotSelector
+@@ -78,6 +79,20 @@ def make_parser() -> argparse.ArgumentParser:
+     batch.add_argument("--queue", type=Path, required=True)
+     batch.add_argument("--allow-deferred", action="store_true")
+ 
++    single = sub.add_parser(
++        "contextual-single-shot",
++        help="Run exactly one contextual generator call followed by read-only diagnostics",
++    )
++    single.add_argument("--requirement", required=True)
++    single.add_argument("--allow-deferred", action="store_true")
++
++    single_batch = sub.add_parser(
++        "contextual-single-shot-batch",
++        help="Run a queue with exactly one generator call per requirement and no LLM repair",
++    )
++    single_batch.add_argument("--queue", type=Path, required=True)
++    single_batch.add_argument("--allow-deferred", action="store_true")
++
+     evaluate = sub.add_parser("evaluate", help="Run frozen SHACL shapes against RDF graphs without an LLM")
+     evaluate.add_argument("--manifest", type=Path, required=True)
+     evaluate.add_argument("--output", type=Path, help="Evaluation output root")
+@@ -156,7 +171,10 @@ def main(argv: list[str] | None = None) -> None:
+             print(json.dumps({"status": "PASS", "output": str(result)}, indent=2))
+             return
+ 
+-        runner = PipelineRunner(config, live_progress=True)
++        if args.command in {"contextual-single-shot", "contextual-single-shot-batch"}:
++            runner = ContextualSingleShotRunner(config, live_progress=True)
++        else:
++            runner = PipelineRunner(config, live_progress=True)
+         if args.command == "offline-smoke":
+             client = ScriptedResponsesClient(offline_smoke_responses(args.requirement))
+             result = runner.run_requirement(args.requirement, client)
+@@ -165,6 +183,14 @@ def main(argv: list[str] | None = None) -> None:
+             return
+ 
+         client = AaltoResponsesClient(config)
++        if args.command == "contextual-single-shot":
++            result = runner.run_requirement(
++                args.requirement,
++                client,
++                allow_deferred=args.allow_deferred,
++            )
++            print(json.dumps(result.to_dict(), indent=2, ensure_ascii=True))
++            return
+         if args.command == "generate":
+             result = runner.run_requirement(
+                 args.requirement,
+@@ -181,7 +207,8 @@ def main(argv: list[str] | None = None) -> None:
+             queue,
+             str(runner.vocabulary.lock_info.get("lock_id", "")),
+         )
+-        session_id = identifier("SESSION-BATCH")
++        single_shot_batch = args.command == "contextual-single-shot-batch"
++        session_id = identifier("SESSION-SINGLESHOT-BATCH" if single_shot_batch else "SESSION-BATCH")
+         results = []
+         total_items = repetitions * len(requirements)
+         print(
+@@ -230,40 +257,57 @@ def main(argv: list[str] | None = None) -> None:
+                         flush=True,
+                     )
+         accepted_count = sum(1 for item in results if item.get("accepted") is True)
++        deterministic_valid_count = sum(
++            1 for item in results if item.get("deterministic_valid") is True
++        )
+         session_directory = config.path("outputs") / "sessions" / session_id
+         session_directory.mkdir(parents=True, exist_ok=True)
+         session_result = session_directory / "batch_result.json"
++        batch_payload = {
++            "session_id": session_id,
++            "pipeline_version": config.raw["pipeline_version"],
++            "vocabulary_lock_id": str(runner.vocabulary.lock_info.get("lock_id", "")),
++            "queue": str(queue_path),
++            "requirements": len(requirements),
++            "repetitions": repetitions,
++            "total_items": total_items,
++            "accepted": accepted_count,
++            "results": results,
++        }
++        if single_shot_batch:
++            batch_payload["deterministic_valid"] = deterministic_valid_count
++            batch_payload["execution_mode"] = "LUNA_CONTEXTUAL_SINGLESHOT"
+         session_result.write_text(
+             json.dumps(
+-                {
+-                    "session_id": session_id,
+-                    "pipeline_version": config.raw["pipeline_version"],
+-                    "vocabulary_lock_id": str(runner.vocabulary.lock_info.get("lock_id", "")),
+-                    "queue": str(queue_path),
+-                    "requirements": len(requirements),
+-                    "repetitions": repetitions,
+-                    "total_items": total_items,
+-                    "accepted": accepted_count,
+-                    "results": results,
+-                },
++                batch_payload,
+                 indent=2,
+                 ensure_ascii=True,
+             ) + "\n",
+             encoding="utf-8",
+         )
+-        print(
+-            f"[BATCH] FINISH session={session_id} accepted={accepted_count}/{total_items}",
+-            file=sys.stderr,
+-            flush=True,
+-        )
++        if single_shot_batch:
++            print(
++                f"[BATCH] FINISH session={session_id} captured={len(results)}/{total_items} "
++                f"deterministic_valid={deterministic_valid_count}",
++                file=sys.stderr,
++                flush=True,
++            )
++        else:
++            print(
++                f"[BATCH] FINISH session={session_id} accepted={accepted_count}/{total_items}",
++                file=sys.stderr,
++                flush=True,
++            )
+         print(f"[BATCH] RESULT FILE {session_result}", file=sys.stderr, flush=True)
+-        report_project_cost(config)
++        if not single_shot_batch:
++            report_project_cost(config)
+         print(json.dumps({"session_id": session_id, "results": results}, indent=2, ensure_ascii=True))
+     except KeyboardInterrupt:
+-        try:
+-            report_project_cost(config)
+-        except Exception as cost_exc:
+-            print(f"[COST] WARNING could not refresh ledger: {type(cost_exc).__name__}: {cost_exc}", file=sys.stderr)
++        if args.command not in {"contextual-single-shot", "contextual-single-shot-batch"}:
++            try:
++                report_project_cost(config)
++            except Exception as cost_exc:
++                print(f"[COST] WARNING could not refresh ledger: {type(cost_exc).__name__}: {cost_exc}", file=sys.stderr)
+         print("Run interrupted safely; completed JSONL events remain in the run folder.", file=sys.stderr)
+         raise SystemExit(130)
+     except (PipelineError, ValueError, OSError, json.JSONDecodeError) as exc:
+diff --git a/SHACL_GENERATION_PIPELINE/src/nltl_pipeline/orchestration/singleshot.py b/SHACL_GENERATION_PIPELINE/src/nltl_pipeline/orchestration/singleshot.py
+new file mode 100644
+index 000000000..5443002e5
+--- /dev/null
++++ b/SHACL_GENERATION_PIPELINE/src/nltl_pipeline/orchestration/singleshot.py
+@@ -0,0 +1,287 @@
++from __future__ import annotations
++
++import hashlib
++import json
++from dataclasses import asdict, dataclass
++from pathlib import Path
++from typing import Any
++
++from ..config import PipelineConfig
++from ..errors import ConfigurationError
++from ..models import ApiCallResult, ContextPack
++from ..telemetry.events import EventLogger
++from .runner import LLMClient, PipelineRunner, hash_text, identifier
++
++
++@dataclass(slots=True)
++class SingleShotRunResult:
++    run_id: str
++    requirement_id: str
++    status: str
++    attempts: int
++    run_directory: Path
++    raw_response: Path
++    extracted_shape: Path | None
++    diagnostics: Path
++    extraction_status: str
++    rdf_parse_status: str
++    shacl_validation_status: str
++    vocabulary_diagnostic_status: str
++    deterministic_valid: bool
++    generator_calls: int
++    validator_calls: int
++    vocabulary_matcher_calls: int
++    syntax_repair_calls: int
++    regeneration_calls: int
++    elapsed_ms: float
++    input_tokens: int
++    output_tokens: int
++    total_tokens: int
++    estimated_cost_usd: float
++
++    def to_dict(self) -> dict[str, Any]:
++        payload = asdict(self)
++        for key in ("run_directory", "raw_response", "extracted_shape", "diagnostics"):
++            value = payload[key]
++            payload[key] = str(value) if value else None
++        return payload
++
++
++def render_first_generator_request(
++    runner: PipelineRunner,
++    requirement_id: str,
++) -> tuple[ContextPack, list[dict[str, Any]], str, str]:
++    """Render the normal pipeline's pre-repair first generator request offline."""
++    context = runner.vocabulary.build_context_pack(requirement_id)
++    selected_few_shots = runner.few_shots.select(
++        context,
++        count=int(runner.config.raw["generation"]["few_shot_count"]),
++    )
++    generated_namespace = str(runner.config.raw["generation"]["generated_shape_namespace"])
++    user_prompt = runner.prompts.generator_user(
++        context,
++        selected_few_shots,
++        "",
++        generated_namespace,
++    )
++    return context, selected_few_shots, runner.prompts.generator_instructions, user_prompt
++
++
++def estimate_call_cost(config: PipelineConfig, result: ApiCallResult) -> float:
++    rates = config.raw.get("cost_estimation", {}).get("usd_per_million_tokens", {})
++    model_rates = rates.get(result.model) or rates.get(config.model("generator")) or {}
++    input_rate = float(model_rates.get("input", 0.0))
++    output_rate = float(model_rates.get("output", 0.0))
++    input_tokens = int(result.usage.get("input_tokens") or 0)
++    output_tokens = int(result.usage.get("output_tokens") or 0)
++    return (input_tokens * input_rate + output_tokens * output_rate) / 1_000_000
++
++
++class ContextualSingleShotRunner(PipelineRunner):
++    """One contextual generator call followed only by read-only diagnostics."""
++
++    def run_requirement(
++        self,
++        requirement_id: str,
++        client: LLMClient,
++        *,
++        allow_deferred: bool = False,
++        session_id: str | None = None,
++    ) -> SingleShotRunResult:
++        requirement = self.vocabulary.requirement(requirement_id)
++        if not allow_deferred and not self.vocabulary.is_generation_eligible(requirement):
++            raise ConfigurationError(
++                f"{requirement_id} is not generation-eligible: "
++                f"{requirement.get('activeStatus')}"
++            )
++        if bool(self.config.raw["generation"].get("require_complete_dependency_contracts", False)):
++            contract = self.vocabulary.dependency_contracts.get(requirement_id, {})
++            if contract.get("status") != "COMPLETE":
++                raise ConfigurationError(
++                    f"{requirement_id} requires a COMPLETE dependency contract for generation"
++                )
++
++        session_id = session_id or identifier("SESSION-SINGLESHOT")
++        run_id = identifier(f"RUN-{requirement_id}")
++        logger = EventLogger(
++            self.config.path("outputs") / "runs" / run_id,
++            session_id,
++            run_id,
++            requirement_id,
++            live_progress=self.live_progress,
++        )
++        run_directory = logger.run_directory
++        client.telemetry = lambda event, payload: logger.emit(event, payload)
++
++        context, selected_few_shots, developer_prompt, user_prompt = render_first_generator_request(
++            self, requirement_id
++        )
++        logger.emit(
++            "run_started",
++            pipeline_version=str(self.config.raw["pipeline_version"]),
++            vocabulary_lock_id=context.source_lock["lock_id"],
++            requirement_category=requirement.get("category", ""),
++            eligibility=context.selection["eligibleForGeneration"],
++            execution_mode="LUNA_CONTEXTUAL_SINGLESHOT",
++        )
++        logger.write_artifact(
++            "artifacts/context_pack_initial.json",
++            json.dumps(context.to_dict(), indent=2, ensure_ascii=True) + "\n",
++            artifact_type="initial_context_pack",
++        )
++        logger.write_artifact(
++            "artifacts/few_shots_selected.json",
++            json.dumps(selected_few_shots, indent=2, ensure_ascii=True) + "\n",
++            artifact_type="few_shot_selection",
++        )
++        self._log_context(logger, context, 0)
++        for item in selected_few_shots:
++            logger.emit(
++                "few_shot_selected",
++                example_id=item["exampleId"],
++                case_id=item["caseId"],
++                score=item["selectionScore"],
++                matched_tags=item["selectionReasons"],
++                status=item["status"],
++            )
++
++        combined_prompt = developer_prompt + "\n\n--- USER INPUT ---\n" + user_prompt
++        logger.write_artifact(
++            "artifacts/attempt_01/generator_prompt.txt",
++            combined_prompt,
++            artifact_type="generator_prompt",
++            iteration=1,
++        )
++
++        result = client.call("generator", developer_prompt, user_prompt)
++        usage = result.usage
++        logger.emit(
++            "api_call_completed",
++            role="generator",
++            model=result.model,
++            response_id=result.response_id,
++            transport_attempts=result.transport_attempts,
++            elapsed_ms=result.elapsed_ms,
++            input_tokens=usage.get("input_tokens", ""),
++            output_tokens=usage.get("output_tokens", ""),
++            total_tokens=usage.get("total_tokens", ""),
++            prompt_sha256=hash_text(developer_prompt + "\n" + user_prompt),
++            response_sha256=hash_text(result.text),
++            iteration=1,
++        )
++        raw_path = logger.write_artifact(
++            "artifacts/attempt_01/generator_raw.txt",
++            result.text,
++            artifact_type="generator_raw_response",
++            iteration=1,
++        )
++
++        candidate_turtle, validation = self.static_validator.validate_raw(result.text, context)
++        extracted_path: Path | None = None
++        if candidate_turtle:
++            extracted_path = logger.write_artifact(
++                "artifacts/attempt_01/extracted_shape.ttl",
++                candidate_turtle,
++                artifact_type="single_shot_extracted_shape",
++                iteration=1,
++            )
++        diagnostics_payload = {
++            "mode": "LUNA_CONTEXTUAL_SINGLESHOT",
++            "readOnlyDiagnostics": True,
++            "noRepairOrFeedback": True,
++            "extractionStatus": "PASS" if validation.extraction_valid else "FAIL",
++            "rdfParseStatus": (
++                "PASS" if validation.turtle_valid else "FAIL"
++                if validation.extraction_valid else "NOT_RUN"
++            ),
++            "shaclValidationStatus": (
++                "PASS"
++                if validation.shacl_structure_valid and validation.meta_shacl_valid
++                else "FAIL"
++                if validation.turtle_valid
++                else "NOT_RUN"
++            ),
++            "vocabularyDiagnosticStatus": (
++                "PASS" if validation.vocabulary_valid else "FAIL"
++                if validation.extraction_valid else "NOT_RUN"
++            ),
++            "deterministicValidation": validation.to_dict(),
++            "llmCallCounts": {
++                "generator": 1,
++                "validator": 0,
++                "vocabulary_matcher": 0,
++                "syntax_repair": 0,
++                "regeneration": 0,
++            },
++        }
++        diagnostics_path = logger.write_artifact(
++            "artifacts/attempt_01/single_shot_diagnostics.json",
++            json.dumps(diagnostics_payload, indent=2, ensure_ascii=True) + "\n",
++            artifact_type="single_shot_diagnostics",
++            iteration=1,
++        )
++        logger.emit("validation_completed", iteration=1, **validation.to_dict())
++        logger.emit(
++            "single_shot_diagnostics_completed",
++            iteration=1,
++            extraction_status=diagnostics_payload["extractionStatus"],
++            rdf_parse_status=diagnostics_payload["rdfParseStatus"],
++            shacl_validation_status=diagnostics_payload["shaclValidationStatus"],
++            vocabulary_diagnostic_status=diagnostics_payload["vocabularyDiagnosticStatus"],
++            llm_call_counts=diagnostics_payload["llmCallCounts"],
++            blocking=False,
++        )
++        status = "SINGLESHOT_CAPTURED_DIAGNOSTIC_PASS" if validation.valid else "SINGLESHOT_CAPTURED_DIAGNOSTIC_FAIL"
++        logger.emit(
++            "run_finished",
++            status=status,
++            attempts=1,
++            accepted=False,
++            deterministic_valid=validation.valid,
++            final_shape="",
++            extracted_shape=(
++                str(extracted_path.relative_to(run_directory)) if extracted_path else ""
++            ),
++            final_feedback="No semantic validator was called; raw output retained without repair.",
++        )
++        try:
++            workbook, warnings = self.tracker.export(run_directory)
++            for warning in warnings:
++                logger.emit("reporting_warning", warning=warning)
++            if workbook:
++                logger.emit(
++                    "reporting_completed",
++                    workbook=str(workbook.relative_to(run_directory)),
++                    sha256=hashlib.sha256(workbook.read_bytes()).hexdigest(),
++                )
++        except Exception as exc:
++            logger.emit(
++                "reporting_warning",
++                warning=f"Tracker export failed without changing diagnostics: {type(exc).__name__}: {exc}",
++            )
++
++        return SingleShotRunResult(
++            run_id=run_id,
++            requirement_id=requirement_id,
++            status=status,
++            attempts=1,
++            run_directory=run_directory,
++            raw_response=raw_path,
++            extracted_shape=extracted_path,
++            diagnostics=diagnostics_path,
++            extraction_status=diagnostics_payload["extractionStatus"],
++            rdf_parse_status=diagnostics_payload["rdfParseStatus"],
++            shacl_validation_status=diagnostics_payload["shaclValidationStatus"],
++            vocabulary_diagnostic_status=diagnostics_payload["vocabularyDiagnosticStatus"],
++            deterministic_valid=validation.valid,
++            generator_calls=1,
++            validator_calls=0,
++            vocabulary_matcher_calls=0,
++            syntax_repair_calls=0,
++            regeneration_calls=0,
++            elapsed_ms=result.elapsed_ms,
++            input_tokens=int(usage.get("input_tokens") or 0),
++            output_tokens=int(usage.get("output_tokens") or 0),
++            total_tokens=int(usage.get("total_tokens") or 0),
++            estimated_cost_usd=estimate_call_cost(self.config, result),
++        )
+diff --git a/SHACL_GENERATION_PIPELINE/tests/test_contextual_singleshot.py b/SHACL_GENERATION_PIPELINE/tests/test_contextual_singleshot.py
+new file mode 100644
+index 000000000..e84e9d004
+--- /dev/null
++++ b/SHACL_GENERATION_PIPELINE/tests/test_contextual_singleshot.py
+@@ -0,0 +1,98 @@
++from __future__ import annotations
++
++import copy
++import json
++import tempfile
++import unittest
++from pathlib import Path
++
++from nltl_pipeline.api.client import ScriptedResponsesClient
++from nltl_pipeline.cli import make_parser, offline_smoke_responses
++from nltl_pipeline.config import PipelineConfig
++from nltl_pipeline.orchestration.runner import PipelineRunner
++from nltl_pipeline.orchestration.singleshot import (
++    ContextualSingleShotRunner,
++    render_first_generator_request,
++)
++
++
++ROOT = Path(__file__).resolve().parents[1]
++R13_CONFIG = ROOT / "config" / "pipeline.official-r13.json"
++
++
++class ContextualSingleShotTests(unittest.TestCase):
++    def config_for(self, output: Path) -> PipelineConfig:
++        base = PipelineConfig.load(R13_CONFIG)
++        raw = copy.deepcopy(base.raw)
++        raw["paths"]["outputs"] = str(output)
++        raw["reporting"]["excel_enabled"] = False
++        return PipelineConfig(raw=raw, config_path=base.config_path)
++
++    def test_valid_output_makes_exactly_one_generator_call(self) -> None:
++        with tempfile.TemporaryDirectory() as temp_name:
++            config = self.config_for(Path(temp_name) / "outputs")
++            client = ScriptedResponsesClient({
++                "generator": [offline_smoke_responses("IMO26-014")["generator"][1]],
++            })
++            result = ContextualSingleShotRunner(config).run_requirement("IMO26-014", client)
++
++            self.assertEqual(["generator"], [item["role"] for item in client.calls])
++            self.assertEqual(1, result.generator_calls)
++            self.assertEqual(0, result.validator_calls)
++            self.assertEqual(0, result.vocabulary_matcher_calls)
++            self.assertEqual(0, result.syntax_repair_calls)
++            self.assertEqual(0, result.regeneration_calls)
++            self.assertTrue(result.raw_response.is_file())
++            self.assertTrue(result.extracted_shape and result.extracted_shape.is_file())
++            self.assertTrue(result.diagnostics.is_file())
++
++            events = [
++                json.loads(line)
++                for line in (result.run_directory / "events.jsonl").read_text(encoding="utf-8").splitlines()
++            ]
++            completed_roles = [
++                event["role"] for event in events if event["event_type"] == "api_call_completed"
++            ]
++            self.assertEqual(["generator"], completed_roles)
++            self.assertFalse(any(event["event_type"] == "matcher_search" for event in events))
++            self.assertFalse(any(event["event_type"] == "syntax_repair_started" for event in events))
++
++    def test_malformed_markers_are_retained_without_repair(self) -> None:
++        with tempfile.TemporaryDirectory() as temp_name:
++            config = self.config_for(Path(temp_name) / "outputs")
++            raw_response = "Here is malformed Turtle without the required response markers."
++            client = ScriptedResponsesClient({"generator": [raw_response]})
++            result = ContextualSingleShotRunner(config).run_requirement("IMO26-014", client)
++
++            self.assertEqual(raw_response, result.raw_response.read_text(encoding="utf-8"))
++            self.assertIsNone(result.extracted_shape)
++            self.assertEqual("FAIL", result.extraction_status)
++            self.assertEqual("NOT_RUN", result.rdf_parse_status)
++            self.assertEqual(["generator"], [item["role"] for item in client.calls])
++
++    def test_first_request_renderer_matches_full_pipeline_construction(self) -> None:
++        with tempfile.TemporaryDirectory() as temp_name:
++            config = self.config_for(Path(temp_name) / "outputs")
++            full = PipelineRunner(config)
++            single = ContextualSingleShotRunner(config)
++            _, full_few_shots, full_developer, full_user = render_first_generator_request(
++                full, "IMO26-014"
++            )
++            _, single_few_shots, single_developer, single_user = render_first_generator_request(
++                single, "IMO26-014"
++            )
++            self.assertEqual(full_developer, single_developer)
++            self.assertEqual(full_user, single_user)
++            self.assertEqual(full_few_shots, single_few_shots)
++            self.assertEqual("NONE", json.loads(single_user)["repairFeedback"])
++
++    def test_cli_exposes_isolated_single_and_batch_commands(self) -> None:
++        parser = make_parser()
++        single = parser.parse_args(["contextual-single-shot", "--requirement", "IMO26-014"])
++        batch = parser.parse_args(["contextual-single-shot-batch", "--queue", "queue.json"])
++        self.assertEqual("contextual-single-shot", single.command)
++        self.assertEqual("contextual-single-shot-batch", batch.command)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/CONFIGS/pipeline.luna-contextual-singleshot-smoke.json b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/CONFIGS/pipeline.luna-contextual-singleshot-smoke.json
+new file mode 100644
+index 000000000..3ccd7fecf
+--- /dev/null
++++ b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/CONFIGS/pipeline.luna-contextual-singleshot-smoke.json
+@@ -0,0 +1,68 @@
++{
++  "pipeline_version": "luna-contextual-singleshot-smoke-v1",
++  "environment_file": "/Users/sadisfaction570/Desktop/Journal 1/env/NLTL_v2.env",
++  "paths": {
++    "vocabulary_lock": "../benchmark_vocabulary_stage2_LOCK-2026-08-22-R13.lock.json",
++    "term_registry": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/registry/term_registry.json",
++    "ontology": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/ontology/nltl_benchmark_vocabulary.ttl",
++    "requirement_evidence": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/evidence/stage1_approved.json",
++    "requirement_term_index": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/requirement_term_index.json",
++    "few_shot_jsonl": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/few_shots/few_shot_pairs.jsonl",
++    "prompt_directory": "prompts/r11",
++    "outputs": "experiments/LUNA_CONTEXTUAL_SINGLESHOT/SMOKE_TEST"
++  },
++  "models": {
++    "generator": "gpt-5.6-luna-2026-07-09",
++    "syntax_repair": "gpt-5.6-luna-2026-07-09",
++    "validator": "gpt-5.6-luna-2026-07-09",
++    "vocabulary_matcher": "gpt-5.6-luna-2026-07-09"
++  },
++  "cost_estimation": {
++    "currency": "USD",
++    "basis": "Indicative Microsoft Azure list-price estimate; not an Aalto invoice.",
++    "source_url": "https://azure.microsoft.com/en-us/blog/gpt-5-6-now-available-in-microsoft-foundry/",
++    "usd_per_million_tokens": {
++      "gpt-5.6-sol-2026-07-09": {"input": 5.0, "output": 30.0},
++      "gpt-5.6-terra-2026-07-09": {"input": 2.5, "output": 15.0},
++      "gpt-5.6-luna-2026-07-09": {"input": 1.0, "output": 6.0},
++      "offline-scripted": {"input": 0.0, "output": 0.0}
++    }
++  },
++  "api": {
++    "requests_per_minute": 70,
++    "minimum_interval_seconds": 0.05,
++    "initial_backoff_seconds": 5,
++    "maximum_backoff_seconds": 60,
++    "auth_retry_seconds": 60,
++    "persistent_transient_retries": true,
++    "contract_response_retries": 2,
++    "validator_response_retries": 2,
++    "auth_header_order": ["Ocp-Apim-Subscription-Key", "api-key"],
++    "max_output_tokens": {
++      "generator": 16000,
++      "syntax_repair": 16000,
++      "validator": 3000,
++      "vocabulary_matcher": 700
++    }
++  },
++  "generation": {
++    "require_complete_dependency_contracts": true,
++    "maximum_semantic_attempts": 4,
++    "maximum_syntax_repairs_per_semantic_attempt": 3,
++    "few_shot_count": 2,
++    "matcher_candidate_limit": 12,
++    "matcher_minimum_score": 0.24,
++    "generated_shape_namespace": "urn:nltl:generated-shape:"
++  },
++  "ablation": {
++    "execution_mode": "LUNA_CONTEXTUAL_SINGLESHOT",
++    "generator_calls_per_requirement": 1,
++    "downstream_llm_calls_enabled": false,
++    "diagnostics_are_read_only": true
++  },
++  "reporting": {
++    "excel_enabled": true,
++    "node_executable": "/Users/sadisfaction570/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
++    "artifact_tool_node_modules": "/Users/sadisfaction570/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules"
++  }
++}
+diff --git a/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/CONFIGS/pipeline.luna-contextual-singleshot-run01.json b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/CONFIGS/pipeline.luna-contextual-singleshot-run01.json
+new file mode 100644
+index 000000000..8310190a5
+--- /dev/null
++++ b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/CONFIGS/pipeline.luna-contextual-singleshot-run01.json
+@@ -0,0 +1,68 @@
++{
++  "pipeline_version": "luna-contextual-singleshot-run01-v1",
++  "environment_file": "/Users/sadisfaction570/Desktop/Journal 1/env/NLTL_v2.env",
++  "paths": {
++    "vocabulary_lock": "../benchmark_vocabulary_stage2_LOCK-2026-08-22-R13.lock.json",
++    "term_registry": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/registry/term_registry.json",
++    "ontology": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/ontology/nltl_benchmark_vocabulary.ttl",
++    "requirement_evidence": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/evidence/stage1_approved.json",
++    "requirement_term_index": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/requirement_term_index.json",
++    "few_shot_jsonl": "../BENCHMARK_VOCABULARY/FINAL_LOCK_R13/few_shots/few_shot_pairs.jsonl",
++    "prompt_directory": "prompts/r11",
++    "outputs": "experiments/LUNA_CONTEXTUAL_SINGLESHOT/RUN_01"
++  },
++  "models": {
++    "generator": "gpt-5.6-luna-2026-07-09",
++    "syntax_repair": "gpt-5.6-luna-2026-07-09",
++    "validator": "gpt-5.6-luna-2026-07-09",
++    "vocabulary_matcher": "gpt-5.6-luna-2026-07-09"
++  },
++  "cost_estimation": {
++    "currency": "USD",
++    "basis": "Indicative Microsoft Azure list-price estimate; not an Aalto invoice.",
++    "source_url": "https://azure.microsoft.com/en-us/blog/gpt-5-6-now-available-in-microsoft-foundry/",
++    "usd_per_million_tokens": {
++      "gpt-5.6-sol-2026-07-09": {"input": 5.0, "output": 30.0},
++      "gpt-5.6-terra-2026-07-09": {"input": 2.5, "output": 15.0},
++      "gpt-5.6-luna-2026-07-09": {"input": 1.0, "output": 6.0},
++      "offline-scripted": {"input": 0.0, "output": 0.0}
++    }
++  },
++  "api": {
++    "requests_per_minute": 70,
++    "minimum_interval_seconds": 0.05,
++    "initial_backoff_seconds": 5,
++    "maximum_backoff_seconds": 60,
++    "auth_retry_seconds": 60,
++    "persistent_transient_retries": true,
++    "contract_response_retries": 2,
++    "validator_response_retries": 2,
++    "auth_header_order": ["Ocp-Apim-Subscription-Key", "api-key"],
++    "max_output_tokens": {
++      "generator": 16000,
++      "syntax_repair": 16000,
++      "validator": 3000,
++      "vocabulary_matcher": 700
++    }
++  },
++  "generation": {
++    "require_complete_dependency_contracts": true,
++    "maximum_semantic_attempts": 4,
++    "maximum_syntax_repairs_per_semantic_attempt": 3,
++    "few_shot_count": 2,
++    "matcher_candidate_limit": 12,
++    "matcher_minimum_score": 0.24,
++    "generated_shape_namespace": "urn:nltl:generated-shape:"
++  },
++  "ablation": {
++    "execution_mode": "LUNA_CONTEXTUAL_SINGLESHOT",
++    "generator_calls_per_requirement": 1,
++    "downstream_llm_calls_enabled": false,
++    "diagnostics_are_read_only": true
++  },
++  "reporting": {
++    "excel_enabled": true,
++    "node_executable": "/Users/sadisfaction570/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
++    "artifact_tool_node_modules": "/Users/sadisfaction570/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules"
++  }
++}
+diff --git a/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/QUEUES/luna_contextual_singleshot_268_frozen.json b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/QUEUES/luna_contextual_singleshot_268_frozen.json
+new file mode 100644
+index 000000000..93a1a3159
+--- /dev/null
++++ b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/QUEUES/luna_contextual_singleshot_268_frozen.json
+@@ -0,0 +1,276 @@
++{
++  "queue_id": "DEVELOPMENT-R13-LUNA-FULL268-MAX4-01",
++  "development_vocabulary_id": "VOCAB-LOCK-2026-08-22-R13",
++  "purpose": "Full R13 Luna evaluation over the same 268 COMPLETE generation-eligible requirements, maximum four semantic attempts, one repetition.",
++  "repetitions": 1,
++  "requirements": [
++    "I2-001",
++    "I2-004",
++    "I2-005",
++    "I2-006",
++    "I2-008",
++    "I2-009",
++    "I2-010",
++    "I2-011",
++    "I2-013",
++    "I2-014",
++    "I2-015",
++    "I2-017",
++    "I2-018",
++    "I2-019",
++    "I2-021",
++    "I2-022",
++    "I2-023",
++    "I2-024",
++    "I2-026",
++    "I2-029",
++    "I2-030",
++    "I2-031",
++    "I2-032",
++    "I2-034",
++    "I2-035",
++    "I2-037",
++    "I2-040",
++    "I2-041",
++    "I2-042",
++    "I2-043",
++    "I2-046",
++    "I2-047",
++    "I2-048",
++    "I2-050",
++    "I2-051",
++    "I2-052",
++    "I2-054",
++    "I2-055",
++    "I2-060",
++    "I2-061",
++    "I2-062",
++    "I2-064",
++    "I2-065",
++    "I2-066",
++    "I2-067",
++    "IMO-001",
++    "IMO-002",
++    "IMO-003",
++    "IMO-004",
++    "IMO-005",
++    "IMO-006",
++    "IMO-007",
++    "IMO-008",
++    "IMO-009",
++    "IMO-010",
++    "IMO-011",
++    "IMO-012",
++    "IMO-013",
++    "IMO-014",
++    "IMO-016",
++    "IMO-017",
++    "IMO-018",
++    "IMO-019",
++    "IMO-021",
++    "IMO-022",
++    "IMO-023",
++    "IMO-024",
++    "IMO-025",
++    "IMO-026",
++    "IMO-027",
++    "IMO-028",
++    "IMO-029",
++    "IMO-030",
++    "IMO-031",
++    "IMO-032",
++    "IMO-033",
++    "IMO-034",
++    "IMO-035",
++    "IMO-037",
++    "IMO-038",
++    "IMO-040",
++    "IMO-041",
++    "IMO-043",
++    "IMO-045",
++    "IMO-047",
++    "IMO-048",
++    "IMO-049",
++    "IMO-050",
++    "IMO-051",
++    "IMO-052",
++    "IMO-053",
++    "IMO-055",
++    "IMO-057",
++    "IMO-058",
++    "IMO-059",
++    "IMO-060",
++    "IMO-062",
++    "IMO-064",
++    "IMO-065",
++    "IMO-066",
++    "IMO-068",
++    "IMO-069",
++    "IMO-070",
++    "IMO-071",
++    "IMO-072",
++    "IMO-073",
++    "IMO-074",
++    "IMO-075",
++    "IMO-077",
++    "IMO-078",
++    "IMO-079",
++    "IMO-081",
++    "IMO-082",
++    "IMO-083",
++    "IMO-084",
++    "IMO-085",
++    "IMO-086",
++    "IMO-087",
++    "IMO-088",
++    "IMO-089",
++    "IMO-091",
++    "IMO-092",
++    "IMO-094",
++    "IMO-095",
++    "IMO-096",
++    "IMO-097",
++    "IMO-098",
++    "IMO-099",
++    "IMO-100",
++    "IMO-101",
++    "IMO-102",
++    "IMO-103",
++    "IMO-104",
++    "IMO-105",
++    "IMO-106",
++    "IMO-107",
++    "IMO-108",
++    "IMO-109",
++    "IMO-110",
++    "IMO-111",
++    "IMO-112",
++    "IMO-113",
++    "IMO-114",
++    "IMO-115",
++    "IMO-116",
++    "IMO-117",
++    "IMO-118",
++    "IMO-119",
++    "IMO-120",
++    "IMO-121",
++    "IMO-122",
++    "IMO-123",
++    "IMO-124",
++    "IMO-125",
++    "IMO26-001",
++    "IMO26-002",
++    "IMO26-005",
++    "IMO26-007",
++    "IMO26-008",
++    "IMO26-009",
++    "IMO26-010",
++    "IMO26-011",
++    "IMO26-012",
++    "IMO26-013",
++    "IMO26-014",
++    "IMO26-015",
++    "IMO26-016",
++    "IMO26-017",
++    "IMO26-018",
++    "TRF-001",
++    "TRF-002",
++    "TRF-003",
++    "TRF-004",
++    "TRF-005",
++    "TRF-006",
++    "TRF-007",
++    "TRF-009",
++    "TRF-010",
++    "TRF-011",
++    "TRF-012",
++    "TRF-013",
++    "TRF-014",
++    "TRF-015",
++    "TRF-016",
++    "TRF-017",
++    "TRF-018",
++    "TRF-020",
++    "TRF-022",
++    "TRF-023",
++    "TRF-024",
++    "TRF-025",
++    "TRF-026",
++    "TRF-027",
++    "TRF-028",
++    "TRF-029",
++    "TRF-030",
++    "TRF-031",
++    "TRF-032",
++    "TRF-034",
++    "TRF-035",
++    "TRF-036",
++    "TRF-037",
++    "TRF-040",
++    "TRF-041",
++    "TRF-042",
++    "TRF-043",
++    "TRF-044",
++    "TRF-045",
++    "TRF-046",
++    "TRF-047",
++    "TRF-048",
++    "TRF-049",
++    "TRF-050",
++    "TRF-051",
++    "TRF-052",
++    "TRF-053",
++    "TRF-054",
++    "TRF-055",
++    "TRF-056",
++    "TRF-057",
++    "TRF-058",
++    "TRF-059",
++    "TRF-060",
++    "TRF-062",
++    "TRF-063",
++    "TRF-064",
++    "TRF-066",
++    "TRF-067",
++    "TRF-069",
++    "TRF-070",
++    "TRF-074",
++    "TRF-075",
++    "TRF-076",
++    "TRF-077",
++    "TRF-078",
++    "TRF-079",
++    "TRF-080",
++    "TRF-081",
++    "TRF-082",
++    "TRF-083",
++    "TRF-084",
++    "TRF-085",
++    "TRF-086",
++    "TRF-087",
++    "TRF-088",
++    "TRF-091",
++    "TRF-101",
++    "TRF-102",
++    "TRF-103",
++    "TRF-104",
++    "TRF-108",
++    "TRF-109",
++    "TRF-111",
++    "TRF-112",
++    "TRF-113",
++    "TRF-114",
++    "TRF-116",
++    "TRF-118",
++    "TRF-120",
++    "TRF-123",
++    "TRF-126",
++    "TRF-127",
++    "TRF-128",
++    "TRF-129",
++    "TRF-130",
++    "TRF-131",
++    "TRF-132",
++    "TRF-133"
++  ]
++}
+diff --git a/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/architecture_audit.md b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/architecture_audit.md
+new file mode 100644
+index 000000000..5cbb9cf71
+--- /dev/null
++++ b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/architecture_audit.md
+@@ -0,0 +1,43 @@
++# LUNA_CONTEXTUAL_SINGLESHOT architecture audit
++
++## Frozen full-pipeline reference
++
++The reference condition is `experiments/FINAL_LUNA_MAIN/`. Its ten configurations use `VOCAB-LOCK-2026-08-22-R13`, the frozen 268-item queue, `gpt-5.6-luna-2026-07-09` for every LLM role, two few-shots, and four maximum semantic attempts. This directory was inspected read-only.
++
++## Actual execution trace
++
++1. `src/nltl_pipeline/cli.py::main` loads the JSON configuration with `PipelineConfig.load`, validates the batch queue with `validate_batch_queue`, instantiates `PipelineRunner` and `AaltoResponsesClient`, and invokes `PipelineRunner.run_requirement` for every queue item.
++2. `src/nltl_pipeline/orchestration/runner.py::PipelineRunner.run_requirement` verifies generation eligibility and the COMPLETE dependency-contract gate.
++3. `src/nltl_pipeline/retrieval/context.py::VocabularyRepository.build_context_pack` loads the frozen requirement, source/normalized text, category, verification/dependency contract, canonical terms, owner/path/node patterns, formulas/tables, applicability and usage policy.
++4. `src/nltl_pipeline/retrieval/fewshot.py::FewShotSelector.select` selects the configured two examples from the locked R13 JSONL asset.
++5. `src/nltl_pipeline/prompts.py::PromptFactory.generator_user` constructs the first generator user prompt. The developer prompt is the unchanged `generator.txt` loaded by `PromptFactory`. Before the first call, `repairFeedback` is `NONE`.
++6. `src/nltl_pipeline/api/client.py::AaltoResponsesClient.call` builds the Responses API request. It supplies the developer and user text, selects the configured role model, and applies the role's `max_output_tokens`.
++7. `src/nltl_pipeline/validation/shacl.py::extract_shacl` parses the exact `BEGIN_SHACL` / `END_SHACL` response contract. `ShaclStaticValidator.validate_raw` performs extraction and then `validate_turtle`.
++8. `ShaclStaticValidator.validate_turtle` performs RDF/Turtle parsing, SHACL structure/meta-SHACL checks, embedded SPARQL parsing/runtime smoke checks, canonical-vocabulary scope checks, datatype/unit checks, target/path checks and deterministic contract policy checks.
++9. If the failure is syntactic, `PipelineRunner.run_requirement` calls `PromptFactory.syntax_repair_user` and the `syntax_repair` LLM. The syntax-repair loop is bounded by `maximum_syntax_repairs_per_semantic_attempt` and does not consume a semantic attempt.
++10. Once syntax parses, `PromptFactory.validator_user` constructs the semantic-validator request. `_call_and_parse` invokes the `validator` LLM and validates its one-line JSON response with `parse_validator_decision`.
++11. When requested, `CandidateSearcher.search` supplies deterministic candidates and `_call_and_parse` invokes the `vocabulary_matcher` LLM; verified terms are appended to the next context/repair feedback.
++12. The outer loop in `PipelineRunner.run_requirement` regenerates with accumulated feedback. `generation.maximum_semantic_attempts` bounds this loop.
++13. `src/nltl_pipeline/telemetry/events.py::EventLogger` writes append-only `events.jsonl` and artifacts. `src/nltl_pipeline/reporting/tracker.py::TrackerExporter` derives CSV tables and the workbook. Batch session results are written by `src/nltl_pipeline/cli.py::main`.
++
++## First-call information boundary
++
++The first generator request contains the full generator developer instructions plus a sorted JSON user payload containing:
++
++- frozen R13 requirement and source/normalized text;
++- classification and verification/dependency contract;
++- scoped allowed canonical vocabulary;
++- node/owner/path patterns;
++- formula, operand, result, table and applicability material present in the contract;
++- selection and vocabulary-usage policies;
++- the same two retrieved few-shot examples;
++- the same generated-shape namespace;
++- `repairFeedback: NONE`.
++
++No validator output, matcher output, syntax-repair output or later expanded vocabulary is available before this first call.
++
++## Isolated ablation path
++
++`src/nltl_pipeline/orchestration/singleshot.py::ContextualSingleShotRunner` reuses `PipelineRunner` initialization, `VocabularyRepository`, `FewShotSelector`, `PromptFactory`, `ShaclStaticValidator`, `EventLogger` and `TrackerExporter. It renders the request through `render_first_generator_request`, calls only role `generator` once, saves the exact response, and runs diagnostics without feeding them to any model.
++
++The CLI commands `contextual-single-shot` and `contextual-single-shot-batch` select this runner. Existing `generate`, `generate-batch`, `offline-smoke`, `evaluate` and `doctor` routes remain unchanged.
+diff --git a/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/verify_first_call_equivalence.py b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/verify_first_call_equivalence.py
+new file mode 100644
+index 000000000..663c18299
+--- /dev/null
++++ b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/verify_first_call_equivalence.py
+@@ -0,0 +1,99 @@
++from __future__ import annotations
++
++import hashlib
++import json
++from pathlib import Path
++
++from nltl_pipeline.config import PipelineConfig
++from nltl_pipeline.orchestration.runner import PipelineRunner
++from nltl_pipeline.orchestration.singleshot import (
++    ContextualSingleShotRunner,
++    render_first_generator_request,
++)
++
++
++ROOT = Path(__file__).resolve().parents[3]
++REQUIREMENT_ID = "IMO26-014"
++FULL_CONFIG = ROOT / "experiments/FINAL_LUNA_MAIN/CONFIGS/pipeline.final-luna-main-run01.json"
++SINGLE_CONFIG = ROOT / "experiments/LUNA_CONTEXTUAL_SINGLESHOT/CONFIGS/pipeline.luna-contextual-singleshot-smoke.json"
++REFERENCE_PROMPT = ROOT / (
++    "experiments/FINAL_LUNA_MAIN/RUN_01/runs/"
++    "RUN-IMO26-014-20260827T151107173451Z/artifacts/attempt_01/generator_prompt.txt"
++)
++OUTPUT = Path(__file__).with_name("first_call_equivalence.json")
++
++
++def sha256(text: str) -> str:
++    return hashlib.sha256(text.encode("utf-8")).hexdigest()
++
++
++def render(runner: PipelineRunner) -> tuple[str, str, str, list[dict]]:
++    _context, few_shots, developer, user = render_first_generator_request(
++        runner, REQUIREMENT_ID
++    )
++    combined = developer + "\n\n--- USER INPUT ---\n" + user
++    return developer, user, combined, few_shots
++
++
++def main() -> None:
++    full_config = PipelineConfig.load(FULL_CONFIG)
++    single_config = PipelineConfig.load(SINGLE_CONFIG)
++    full_dev, full_user, full_combined, full_few = render(PipelineRunner(full_config))
++    single_dev, single_user, single_combined, single_few = render(
++        ContextualSingleShotRunner(single_config)
++    )
++    historical = REFERENCE_PROMPT.read_text(encoding="utf-8")
++    fields = (
++        "generator",
++        "few_shot_count",
++        "generated_shape_namespace",
++        "generator_max_output_tokens",
++    )
++    full_values = {
++        "generator": full_config.model("generator"),
++        "few_shot_count": full_config.raw["generation"]["few_shot_count"],
++        "generated_shape_namespace": full_config.raw["generation"]["generated_shape_namespace"],
++        "generator_max_output_tokens": full_config.raw["api"]["max_output_tokens"]["generator"],
++    }
++    single_values = {
++        "generator": single_config.model("generator"),
++        "few_shot_count": single_config.raw["generation"]["few_shot_count"],
++        "generated_shape_namespace": single_config.raw["generation"]["generated_shape_namespace"],
++        "generator_max_output_tokens": single_config.raw["api"]["max_output_tokens"]["generator"],
++    }
++    checks = {
++        "developerPromptMatches": full_dev == single_dev,
++        "userPromptMatches": full_user == single_user,
++        "combinedPromptMatches": full_combined == single_combined,
++        "fewShotsMatch": full_few == single_few,
++        "historicalFullPromptMatchesCurrentRenderer": historical == full_combined,
++        "historicalFullPromptMatchesSingleShotRenderer": historical == single_combined,
++        "modelAndGenerationSettingsMatch": all(
++            full_values[field] == single_values[field] for field in fields
++        ),
++    }
++    payload = {
++        "status": "PASS" if all(checks.values()) else "FAIL",
++        "requirementId": REQUIREMENT_ID,
++        "referencePrompt": str(REFERENCE_PROMPT),
++        "checks": checks,
++        "sha256": {
++            "historicalFullPrompt": sha256(historical),
++            "currentFullRenderer": sha256(full_combined),
++            "singleShotRenderer": sha256(single_combined),
++            "developerPrompt": sha256(single_dev),
++            "userPrompt": sha256(single_user),
++        },
++        "fullSettings": full_values,
++        "singleShotSettings": single_values,
++        "fewShotExampleIds": [item["exampleId"] for item in single_few],
++        "repairFeedback": json.loads(single_user)["repairFeedback"],
++    }
++    OUTPUT.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
++    print(json.dumps(payload, indent=2, ensure_ascii=True))
++    if payload["status"] != "PASS":
++        raise SystemExit(1)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/capture_repository_state.py b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/capture_repository_state.py
+new file mode 100644
+index 000000000..dcbd4f993
+--- /dev/null
++++ b/SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/capture_repository_state.py
+@@ -0,0 +1,64 @@
++from __future__ import annotations
++
++import subprocess
++from pathlib import Path
++
++
++PIPELINE_ROOT = Path(__file__).resolve().parents[3]
++REPO_ROOT = PIPELINE_ROOT.parent
++PREPARATION = Path(__file__).resolve().parent
++
++
++def git(*args: str) -> subprocess.CompletedProcess[str]:
++    return subprocess.run(
++        ["git", *args],
++        cwd=REPO_ROOT,
++        text=True,
++        capture_output=True,
++        check=False,
++    )
++
++
++def main() -> None:
++    status = git("status", "--short", "--branch", "--untracked-files=all")
++    if status.returncode != 0:
++        raise SystemExit(status.stderr or status.stdout)
++    protected = git(
++        "status",
++        "--short",
++        "--",
++        "SHACL_GENERATION_PIPELINE/experiments/FINAL_LUNA_MAIN",
++        "BENCHMARK_VOCABULARY/FINAL_LOCK_R13",
++        "benchmark_vocabulary_stage2_LOCK-2026-08-22-R13.lock.json",
++    )
++    if protected.returncode != 0:
++        raise SystemExit(protected.stderr or protected.stdout)
++    status_text = status.stdout
++    status_text += "\nPROTECTED R13/FINAL_LUNA_MAIN STATUS:\n"
++    status_text += protected.stdout or "CLEAN / UNCHANGED\n"
++    (PREPARATION / "git_status_after.txt").write_text(status_text, encoding="utf-8")
++
++    tracked = git("diff", "--", "SHACL_GENERATION_PIPELINE/src/nltl_pipeline/cli.py")
++    if tracked.returncode != 0:
++        raise SystemExit(tracked.stderr or tracked.stdout)
++    pieces = [tracked.stdout]
++    new_files = [
++        "SHACL_GENERATION_PIPELINE/src/nltl_pipeline/orchestration/singleshot.py",
++        "SHACL_GENERATION_PIPELINE/tests/test_contextual_singleshot.py",
++        "SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/CONFIGS/pipeline.luna-contextual-singleshot-smoke.json",
++        "SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/CONFIGS/pipeline.luna-contextual-singleshot-run01.json",
++        "SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/QUEUES/luna_contextual_singleshot_268_frozen.json",
++        "SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/architecture_audit.md",
++        "SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/verify_first_call_equivalence.py",
++        "SHACL_GENERATION_PIPELINE/experiments/LUNA_CONTEXTUAL_SINGLESHOT/PREPARATION/capture_repository_state.py",
++    ]
++    for relative in new_files:
++        result = git("diff", "--no-index", "--", "/dev/null", relative)
++        if result.returncode not in {0, 1}:
++            raise SystemExit(result.stderr or result.stdout)
++        pieces.append(result.stdout)
++    (PREPARATION / "implementation.patch").write_text("".join(pieces), encoding="utf-8")
++
++
++if __name__ == "__main__":
++    main()

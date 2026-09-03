@@ -1,0 +1,95 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-114> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:polarShipCategoryA nltl:polarShipCategoryB nltl:polarShipCategoryC ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A valid ship category is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A construction date is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:carriedNoxiousLiquidSubstanceRequiresType3Tank ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The NLS Type 3 tank applicability input is required."
+    ] ;
+    sh:property [
+        sh:path nltl:cargoTankType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The cargo tank type is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:administrationCarriageApprovalStatus ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:evidenceState
+    ] ;
+    sh:property [
+        sh:path nltl:applicableCertificatePolarOperationEntryPresent ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable Category A or B ship constructed on or after 1 January 2017 carrying NLS requiring a Type 3 tank in a Type 3 cargo tank, Administration approval and the applicable polar-operation certificate entry are required." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:carriedNoxiousLiquidSubstanceRequiresType3Tank ?requiresType3 ;
+                      nltl:cargoTankType ?tankType .
+
+                FILTER (
+                    ?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB)
+                    && YEAR(?date) > 2017
+                    || (
+                        YEAR(?date) = 2017
+                        && MONTH(?date) > 1
+                    )
+                    || (
+                        YEAR(?date) = 2017
+                        && MONTH(?date) = 1
+                        && DAY(?date) >= 1
+                    )
+                )
+
+                FILTER (?requiresType3 = true)
+                FILTER (?tankType = "3"^^xsd:string)
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:administrationCarriageApprovalStatus
+                              nltl:evidenceStateApproved
+                    }
+                    || EXISTS {
+                        $this nltl:administrationCarriageApprovalStatus ?status .
+                        FILTER (?status != nltl:evidenceStateApproved)
+                    }
+                    || NOT EXISTS {
+                        $this nltl:applicableCertificatePolarOperationEntryPresent true
+                    }
+                    || EXISTS {
+                        $this nltl:applicableCertificatePolarOperationEntryPresent ?entry .
+                        FILTER (?entry != true)
+                    }
+                )
+            }
+        """
+    ] .

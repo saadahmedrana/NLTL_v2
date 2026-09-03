@@ -1,0 +1,80 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-084> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A propeller type is required to determine whether the CP-propeller rule applies."
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The pitch-value-known status is required to determine the applicable pitch constraint."
+    ] ;
+    sh:sparql [
+        sh:message "For a CP propeller with unknown pitch value, the bollard-condition pitch must be present in metres and equal to 0.7 times the free-running MCR pitch, within a relative tolerance of 1e-6 and an absolute fallback tolerance of 1e-9." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType "CP" ;
+                      nltl:pitchValueKnown false .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrFreeRunning ?freePitch .
+                        ?freePitch a qudt:QuantityValue ;
+                                   qudt:numericValue ?freeValue ;
+                                   qudt:unit unit:M .
+                        FILTER (datatype(?freeValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrBollard ?bollardPitch .
+                        ?bollardPitch a qudt:QuantityValue ;
+                                      qudt:numericValue ?bollardValue ;
+                                      qudt:unit unit:M .
+                        FILTER (datatype(?bollardValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrFreeRunning ?freePitch ;
+                              nltl:propellerPitchAtMcrBollard ?bollardPitch .
+                        ?freePitch a qudt:QuantityValue ;
+                                   qudt:numericValue ?freeValue ;
+                                   qudt:unit unit:M .
+                        ?bollardPitch a qudt:QuantityValue ;
+                                      qudt:numericValue ?bollardValue ;
+                                      qudt:unit unit:M .
+                        FILTER (
+                            datatype(?freeValue) = xsd:decimal &&
+                            datatype(?bollardValue) = xsd:decimal
+                        )
+                        FILTER (
+                            ABS(?bollardValue - (0.7 * ?freeValue)) >
+                            IF(
+                                ABS(0.7 * ?freeValue) * 0.000001 > 0.000000001,
+                                ABS(0.7 * ?freeValue) * 0.000001,
+                                0.000000001
+                            )
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

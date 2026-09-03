@@ -1,0 +1,92 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-006> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "A construction-stage date is required to determine whether this rule applies."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a ship constructed in the stated cohort, the applicable ice-class regulation must be the 1985 rule edition and an ice class must be recorded." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:constructionStageDate ?date .
+                FILTER (
+                    ?date >= "1986-11-01"^^xsd:date &&
+                    ?date < "2003-09-01"^^xsd:date
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:applicableIceClassRegulationEdition
+                        nltl:iceClassRuleEdition1985 .
+                }
+                FILTER NOT EXISTS {
+                    $this nltl:iceClass ?iceClass .
+                    FILTER (isIRI(?iceClass))
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable ship, the owner-request selector must be a boolean value." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:constructionStageDate ?date .
+                FILTER (
+                    ?date >= "1986-11-01"^^xsd:date &&
+                    ?date < "2003-09-01"^^xsd:date
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:ownerRequested2008EngineOutputRequirements ?requested .
+                    FILTER (
+                        datatype(?requested) = xsd:boolean &&
+                        (?requested = true || ?requested = false)
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The engine-output regulation edition must be 2008 when the owner requested the 2008 requirements, and 1985 otherwise." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:constructionStageDate ?date ;
+                      nltl:ownerRequested2008EngineOutputRequirements ?requested .
+                FILTER (
+                    ?date >= "1986-11-01"^^xsd:date &&
+                    ?date < "2003-09-01"^^xsd:date
+                )
+                FILTER (
+                    (
+                        ?requested = true &&
+                        NOT EXISTS {
+                            $this nltl:engineOutputRegulationEdition
+                                nltl:iceClassRegulationEdition2008 .
+                        }
+                    ) ||
+                    (
+                        ?requested = false &&
+                        NOT EXISTS {
+                            $this nltl:engineOutputRegulationEdition
+                                nltl:iceClassRuleEdition1985 .
+                        }
+                    )
+                )
+            }
+        """
+    ] .

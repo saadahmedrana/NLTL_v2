@@ -1,0 +1,114 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-037-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+        ) ;
+        sh:minCount 1 ;
+        sh:message "A ship category of Category A or Category B is required to establish applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "A construction date is required to establish applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:hasLoadingConditionCase ;
+        sh:class nltl:loadingConditionCase
+    ] ;
+    sh:sparql [
+        sh:message "For every applicable loading condition, the loading-condition identifier and result evidence must be present; either the residual stability factor must equal 1, or the permitted alternative instrument must be applicable and its residual stability status must be compliant." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?case
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?constructionDate ;
+                      nltl:hasLoadingConditionCase ?case .
+
+                ?case a nltl:loadingConditionCase .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+                FILTER (
+                    ?constructionDate >= "2017-01-01"^^xsd:date
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        ?case nltl:loadingConditionIdentifier ?identifier .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?case nltl:hasLoadingConditionResultEvidence ?evidence .
+                        ?evidence a nltl:evidenceArtifact .
+                    }
+                    ||
+                    NOT EXISTS {
+                        ?case nltl:alternativeInstrumentApplicable ?applicable .
+                    }
+                    ||
+                    EXISTS {
+                        ?case nltl:alternativeInstrumentApplicable ?invalidApplicable .
+                        FILTER ( datatype(?invalidApplicable) != xsd:boolean )
+                    }
+                    ||
+                    (
+                        EXISTS {
+                            ?case nltl:alternativeInstrumentApplicable ?alternativeApplicable .
+                            FILTER (
+                                datatype(?alternativeApplicable) = xsd:boolean &&
+                                ?alternativeApplicable = true
+                            )
+                        }
+                        &&
+                        NOT EXISTS {
+                            ?case nltl:alternativeInstrumentResidualStabilityStatus ?status .
+                            FILTER (
+                                datatype(?status) = xsd:boolean &&
+                                ?status = true
+                            )
+                        }
+                    )
+                    ||
+                    (
+                        NOT EXISTS {
+                            ?case nltl:alternativeInstrumentApplicable ?alternativeApplicableFalse .
+                            FILTER (
+                                datatype(?alternativeApplicableFalse) = xsd:boolean &&
+                                ?alternativeApplicableFalse = true
+                            )
+                        }
+                        &&
+                        NOT EXISTS {
+                            ?case nltl:residualStabilityFactorSI ?factor .
+                            ?factor qudt:numericValue ?numericValue ;
+                                   qudt:unit qudt:UNITLESS .
+                            FILTER (
+                                datatype(?numericValue) = xsd:decimal &&
+                                ?numericValue = 1
+                            )
+                        }
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

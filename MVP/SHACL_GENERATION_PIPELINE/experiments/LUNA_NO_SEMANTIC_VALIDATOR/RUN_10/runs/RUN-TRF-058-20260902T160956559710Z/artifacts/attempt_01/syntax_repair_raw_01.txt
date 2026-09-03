@@ -1,0 +1,135 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix nltlgen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltlgen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+nltlgen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+nltlgen:TRF058WebFrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:iceLoadForce ;
+                sh:class qudt:QuantityValue ;
+                sh:node nltlgen:ForceQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:stringerOutsideIceBeltHeight ;
+                sh:class qudt:QuantityValue ;
+                sh:node nltlgen:LengthQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:stringerSpan ;
+                sh:class qudt:QuantityValue ;
+                sh:node nltlgen:LengthQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:adjustedIceLoadForce ;
+                sh:class qudt:QuantityValue ;
+                sh:node nltlgen:ForceQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+        ]
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "When the supported stringer is outside the ice belt, adjustedIceLoadForce must equal iceLoadForce multiplied by (1 - stringerOutsideIceBeltHeight / stringerSpan), within a relative tolerance of 1e-6 and an absolute fallback of 1e-6 kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:supportedStringerOutsideIceBelt true ;
+                      nltl:iceLoadForce ?iceQuantity ;
+                      nltl:stringerOutsideIceBeltHeight ?heightQuantity ;
+                      nltl:stringerSpan ?spanQuantity ;
+                      nltl:adjustedIceLoadForce ?adjustedQuantity .
+
+                ?iceQuantity qudt:numericValue ?iceForce .
+                ?heightQuantity qudt:numericValue ?height .
+                ?spanQuantity qudt:numericValue ?span .
+                ?adjustedQuantity qudt:numericValue ?adjustedForce .
+
+                BIND(
+                    IF(
+                        ?span = 0,
+                        0,
+                        ?iceForce * (1 - (?height / ?span))
+                    )
+                    AS ?expectedForce
+                )
+
+                BIND(
+                    IF(
+                        (ABS(?expectedForce) * 0.000001) > 0.000001,
+                        ABS(?expectedForce) * 0.000001,
+                        0.000001
+                    )
+                    AS ?tolerance
+                )
+
+                FILTER(
+                    ?span = 0 ||
+                    ABS(?adjustedForce - ?expectedForce) > ?tolerance
+                )
+            }
+        """
+    ] .
+<END_SHACL>

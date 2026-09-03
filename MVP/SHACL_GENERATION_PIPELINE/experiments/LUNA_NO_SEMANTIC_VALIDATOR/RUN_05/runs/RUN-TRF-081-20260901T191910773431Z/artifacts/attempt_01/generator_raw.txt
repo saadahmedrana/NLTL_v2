@@ -1,0 +1,161 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Force quantity must have exactly one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Force quantity must use kN."
+    ] .
+
+gen:TRF081Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    sh:property [
+        sh:path nltl:forwardBladeForce ;
+        sh:node gen:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Forward blade force is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:backwardBladeForce ;
+        sh:node gen:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Backward blade force is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:hydrodynamicBollardThrust ;
+        sh:node gen:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Hydrodynamic bollard thrust is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:forwardIceThrust ;
+        sh:node gen:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Forward ice thrust is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:backwardIceThrust ;
+        sh:node gen:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Backward ice thrust is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:forwardPropellerShaftDesignThrust ;
+        sh:node gen:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Forward propeller shaft design thrust is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:backwardPropellerShaftDesignThrust ;
+        sh:node gen:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Backward propeller shaft design thrust is required."
+    ] ;
+
+    sh:property [
+        sh:path nltl:propellerShaftDesignThrust ;
+        sh:node gen:ForceQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Propeller shaft design thrust is required."
+    ] ;
+
+    sh:sparql [
+        sh:message "Calculated thrust values must match the prescribed formulas within a relative tolerance of 1e-6, with an absolute fallback tolerance of 1e-6 kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:forwardBladeForce ?ffNode ;
+                      nltl:backwardBladeForce ?fbNode ;
+                      nltl:hydrodynamicBollardThrust ?tNode ;
+                      nltl:forwardIceThrust ?tfNode ;
+                      nltl:backwardIceThrust ?tbNode ;
+                      nltl:forwardPropellerShaftDesignThrust ?trfNode ;
+                      nltl:backwardPropellerShaftDesignThrust ?trbNode ;
+                      nltl:propellerShaftDesignThrust ?trNode .
+
+                ?ffNode qudt:numericValue ?ff ;
+                        qudt:unit unit:KiloN .
+                ?fbNode qudt:numericValue ?fb ;
+                        qudt:unit unit:KiloN .
+                ?tNode qudt:numericValue ?t ;
+                       qudt:unit unit:KiloN .
+                ?tfNode qudt:numericValue ?tf ;
+                        qudt:unit unit:KiloN .
+                ?tbNode qudt:numericValue ?tb ;
+                        qudt:unit unit:KiloN .
+                ?trfNode qudt:numericValue ?trf ;
+                         qudt:unit unit:KiloN .
+                ?trbNode qudt:numericValue ?trb ;
+                         qudt:unit unit:KiloN .
+                ?trNode qudt:numericValue ?tr ;
+                        qudt:unit unit:KiloN .
+
+                BIND((1.1 * ?ff) AS ?tfExpected)
+                BIND((1.1 * ?fb) AS ?tbExpected)
+                BIND((?t + (2.2 * ?tfExpected)) AS ?trfExpected)
+                BIND((1.5 * ?tbExpected) AS ?trbExpected)
+                BIND(
+                    IF(?trfExpected >= ?trbExpected,
+                       ?trfExpected,
+                       ?trbExpected)
+                    AS ?trExpected
+                )
+
+                FILTER (
+                    (ABS(?tf - ?tfExpected) > 0.000001 &&
+                     ABS(?tf - ?tfExpected) > (ABS(?tfExpected) * 0.000001))
+                    ||
+                    (ABS(?tb - ?tbExpected) > 0.000001 &&
+                     ABS(?tb - ?tbExpected) > (ABS(?tbExpected) * 0.000001))
+                    ||
+                    (ABS(?trf - ?trfExpected) > 0.000001 &&
+                     ABS(?trf - ?trfExpected) > (ABS(?trfExpected) * 0.000001))
+                    ||
+                    (ABS(?trb - ?trbExpected) > 0.000001 &&
+                     ABS(?trb - ?trbExpected) > (ABS(?trbExpected) * 0.000001))
+                    ||
+                    (ABS(?tr - ?trExpected) > 0.000001 &&
+                     ABS(?tr - ?trExpected) > (ABS(?trExpected) * 0.000001))
+                )
+            }
+        """
+    ] .
+<END_SHACL>

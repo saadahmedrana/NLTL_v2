@@ -1,0 +1,103 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF011ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011IceWaterlineShape ;
+        sh:message "The ship must identify its intended ice-operating waterline with profile points."
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011IceWaterlineShape ;
+        sh:message "The ship must identify its upper ice waterline with profile points."
+    ] ;
+    sh:sparql [
+        sh:message "The upper ice waterline must equal, at each longitudinal position, the maximum vertical coordinate among the intended ice-operating waterline points, with no missing or additional positions." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                {
+                    SELECT ?intended ?upper ?position
+                           (MAX(?intendedVertical) AS ?expectedVertical)
+                           (MAX(?upperVertical) AS ?actualVertical)
+                           (COUNT(?intendedPoint) AS ?intendedCount)
+                           (COUNT(?upperPoint) AS ?upperCount)
+                    WHERE {
+                        $this nltl:hasIntendedIceOperatingWaterline ?intended ;
+                              nltl:hasUpperIceWaterline ?upper .
+                        {
+                            ?intended nltl:hasWaterlineProfilePoint ?intendedPoint .
+                            ?intendedPoint nltl:longitudinalPosition/qudt:numericValue ?position ;
+                                           nltl:verticalCoordinate/qudt:numericValue ?intendedVertical .
+                        }
+                        UNION
+                        {
+                            ?upper nltl:hasWaterlineProfilePoint ?upperPoint .
+                            ?upperPoint nltl:longitudinalPosition/qudt:numericValue ?position ;
+                                        nltl:verticalCoordinate/qudt:numericValue ?upperVertical .
+                        }
+                    }
+                    GROUP BY ?intended ?upper ?position
+                }
+                FILTER (
+                    ?intendedCount = 0 ||
+                    ?upperCount = 0 ||
+                    !BOUND(?expectedVertical) ||
+                    !BOUND(?actualVertical) ||
+                    ABS(?expectedVertical - ?actualVertical) >
+                    (1.0e-6 * ABS(?expectedVertical) + 0.000001)
+                )
+            }
+        """
+    ] .
+
+gen:TRF011IceWaterlineShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011ProfilePointShape
+    ] .
+
+gen:TRF011ProfilePointShape a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:node gen:TRF011LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:node gen:TRF011LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF011LengthQuantityShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

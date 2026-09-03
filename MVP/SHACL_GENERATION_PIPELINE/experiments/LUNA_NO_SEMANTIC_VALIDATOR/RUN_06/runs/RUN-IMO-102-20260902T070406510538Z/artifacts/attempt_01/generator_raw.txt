@@ -1,0 +1,247 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO-102-ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceConditionClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceFreeIceCondition
+            nltl:openWaterIceCondition
+            nltl:otherWatersIceCondition
+        ) ;
+        sh:message "The ship must have exactly one controlled ice condition classification."
+    ] ;
+    sh:property [
+        sh:path nltl:polarTrainingShipTypeClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:tankerPolarTrainingShipType
+            nltl:passengerShipPolarTrainingShipType
+            nltl:otherShipPolarTrainingType
+        ) ;
+        sh:message "The ship must have exactly one controlled polar training ship type."
+    ] .
+
+gen:IMO-102-CrewMemberShape a sh:NodeShape ;
+    sh:targetClass nltl:crewMember ;
+    sh:property [
+        sh:path nltl:polarTrainingCrewRoleClassification ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:masterPolarTrainingRole
+            nltl:chiefMatePolarTrainingRole
+            nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+        ) ;
+        sh:message "Each represented crew member must have exactly one controlled polar training role."
+    ] ;
+    sh:sparql [
+        sh:message "Each applicable crew member must have a linked polar training record with a matching required and recorded training level and a valid STCW qualification." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                ?ship a nltl:ship ;
+                    nltl:iceConditionClassification ?ice ;
+                    nltl:polarTrainingShipTypeClassification ?shipType ;
+                    nltl:hasCrewMemberInventory $this .
+                $this a nltl:crewMember ;
+                    nltl:polarTrainingCrewRoleClassification ?role .
+
+                FILTER (
+                    (
+                        ?ice = nltl:openWaterIceCondition &&
+                        ?shipType IN (
+                            nltl:tankerPolarTrainingShipType,
+                            nltl:passengerShipPolarTrainingShipType
+                        ) &&
+                        ?role IN (
+                            nltl:masterPolarTrainingRole,
+                            nltl:chiefMatePolarTrainingRole,
+                            nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                        )
+                    ) ||
+                    (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        ?shipType IN (
+                            nltl:tankerPolarTrainingShipType,
+                            nltl:passengerShipPolarTrainingShipType,
+                            nltl:otherShipPolarTrainingType
+                        ) &&
+                        ?role IN (
+                            nltl:masterPolarTrainingRole,
+                            nltl:chiefMatePolarTrainingRole
+                        )
+                    ) ||
+                    (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        ?shipType IN (
+                            nltl:tankerPolarTrainingShipType,
+                            nltl:passengerShipPolarTrainingShipType,
+                            nltl:otherShipPolarTrainingType
+                        ) &&
+                        ?role = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                    )
+                )
+
+                FILTER NOT EXISTS {
+                    $this nltl:hasCrewTrainingRecord ?record ;
+                        nltl:hasPolarTrainingRecord ?record .
+                    ?record nltl:requiredTrainingLevel ?required ;
+                        nltl:trainingRecordLevel ?recorded ;
+                        nltl:stcwQualificationValid true .
+
+                    FILTER (
+                        ?required = ?recorded &&
+                        (
+                            (
+                                ?ice = nltl:openWaterIceCondition &&
+                                ?shipType IN (
+                                    nltl:tankerPolarTrainingShipType,
+                                    nltl:passengerShipPolarTrainingShipType
+                                ) &&
+                                ?required = nltl:basicPolarTrainingLevel
+                            ) ||
+                            (
+                                ?ice = nltl:otherWatersIceCondition &&
+                                ?role IN (
+                                    nltl:masterPolarTrainingRole,
+                                    nltl:chiefMatePolarTrainingRole
+                                ) &&
+                                ?required = nltl:advancedPolarTrainingLevel
+                            ) ||
+                            (
+                                ?ice = nltl:otherWatersIceCondition &&
+                                ?role = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole &&
+                                ?required = nltl:basicPolarTrainingLevel
+                            )
+                        )
+                    )
+                }
+            }
+        """
+    ] .
+
+gen:IMO-102-TrainingRecordShape a sh:NodeShape ;
+    sh:targetClass nltl:polarTrainingRecord ;
+    sh:property [
+        sh:path nltl:requiredTrainingLevel ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:basicPolarTrainingLevel
+            nltl:advancedPolarTrainingLevel
+            nltl:polarTrainingNotApplicable
+        ) ;
+        sh:message "A polar training record must state exactly one controlled required training level."
+    ] ;
+    sh:property [
+        sh:path nltl:trainingRecordLevel ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:basicPolarTrainingLevel
+            nltl:advancedPolarTrainingLevel
+            nltl:polarTrainingNotApplicable
+        ) ;
+        sh:message "A polar training record must state exactly one controlled recorded training level."
+    ] ;
+    sh:property [
+        sh:path nltl:stcwQualificationValid ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+        sh:message "A represented polar training record must state whether the STCW qualification is valid."
+    ] ;
+    sh:sparql [
+        sh:message "An applicable polar training record must match the 12.3.1 matrix and have a valid STCW qualification." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                ?ship a nltl:ship ;
+                    nltl:iceConditionClassification ?ice ;
+                    nltl:polarTrainingShipTypeClassification ?shipType ;
+                    nltl:hasCrewMemberInventory ?crew .
+                ?crew a nltl:crewMember ;
+                    nltl:polarTrainingCrewRoleClassification ?role .
+                ?crew (nltl:hasCrewTrainingRecord|nltl:hasPolarTrainingRecord) $this .
+
+                $this nltl:requiredTrainingLevel ?required ;
+                    nltl:trainingRecordLevel ?recorded ;
+                    nltl:stcwQualificationValid ?valid .
+
+                FILTER (
+                    (
+                        ?ice = nltl:openWaterIceCondition &&
+                        ?shipType IN (
+                            nltl:tankerPolarTrainingShipType,
+                            nltl:passengerShipPolarTrainingShipType
+                        ) &&
+                        ?role IN (
+                            nltl:masterPolarTrainingRole,
+                            nltl:chiefMatePolarTrainingRole,
+                            nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                        )
+                    ) ||
+                    (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        ?shipType IN (
+                            nltl:tankerPolarTrainingShipType,
+                            nltl:passengerShipPolarTrainingShipType,
+                            nltl:otherShipPolarTrainingType
+                        ) &&
+                        ?role IN (
+                            nltl:masterPolarTrainingRole,
+                            nltl:chiefMatePolarTrainingRole
+                        )
+                    ) ||
+                    (
+                        ?ice = nltl:otherWatersIceCondition &&
+                        ?shipType IN (
+                            nltl:tankerPolarTrainingShipType,
+                            nltl:passengerShipPolarTrainingShipType,
+                            nltl:otherShipPolarTrainingType
+                        ) &&
+                        ?role = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole
+                    )
+                )
+
+                FILTER NOT (
+                    ?required = ?recorded &&
+                    ?valid = true &&
+                    (
+                        (
+                            ?ice = nltl:openWaterIceCondition &&
+                            ?shipType IN (
+                                nltl:tankerPolarTrainingShipType,
+                                nltl:passengerShipPolarTrainingShipType
+                            ) &&
+                            ?required = nltl:basicPolarTrainingLevel
+                        ) ||
+                        (
+                            ?ice = nltl:otherWatersIceCondition &&
+                            ?role IN (
+                                nltl:masterPolarTrainingRole,
+                                nltl:chiefMatePolarTrainingRole
+                            ) &&
+                            ?required = nltl:advancedPolarTrainingLevel
+                        ) ||
+                        (
+                            ?ice = nltl:otherWatersIceCondition &&
+                            ?role = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole &&
+                            ?required = nltl:basicPolarTrainingLevel
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

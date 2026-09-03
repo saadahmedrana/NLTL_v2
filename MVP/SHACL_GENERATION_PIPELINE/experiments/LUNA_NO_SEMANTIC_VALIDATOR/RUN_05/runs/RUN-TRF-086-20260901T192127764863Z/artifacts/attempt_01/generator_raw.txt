@@ -1,0 +1,160 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF_086_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single propeller type is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single pitch-value-known indicator is required to select the applicable rule."
+    ] ;
+    sh:or (
+        [
+            sh:sparql [
+                sh:message "For non-CP propellers, the CP propeller pitch rule is not applicable." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerType ?type .
+                        FILTER (datatype(?type) = xsd:string && STR(?type) != "CP")
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "For a CP propeller with known pitch, the propeller pitch at MCR in bollard condition is required in metres."
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:propellerType ;
+                sh:hasValue "CP" ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:pitchValueKnown ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrFreeRunning ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "The free-running propeller pitch at MCR is required in metres when the CP propeller pitch is not known."
+            ] ;
+            sh:property [
+                sh:path nltl:propellerPitchAtMcrBollard ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "The bollard-condition propeller pitch at MCR is required in metres and must equal 0.7 times the free-running value within the stated tolerance."
+            ] ;
+            sh:sparql [
+                sh:message "For a CP propeller with unknown pitch, the bollard-condition pitch at MCR must equal 0.7 times the free-running pitch at MCR within a relative tolerance of 1e-6 plus an absolute fallback of 1e-6 m." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX unit: <http://qudt.org/vocab/unit/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:propellerType "CP" .
+                        $this nltl:pitchValueKnown false .
+                        $this nltl:propellerPitchAtMcrFreeRunning ?freeQuantity .
+                        ?freeQuantity qudt:numericValue ?freeValue .
+                        ?freeQuantity qudt:unit unit:M .
+                        $this nltl:propellerPitchAtMcrBollard ?bollardQuantity .
+                        ?bollardQuantity qudt:numericValue ?bollardValue .
+                        ?bollardQuantity qudt:unit unit:M .
+                        BIND ("0.7"^^xsd:decimal * ?freeValue AS ?expected)
+                        FILTER (
+                            ABS(?bollardValue - ?expected)
+                            <= ABS(?expected) * "0.000001"^^xsd:decimal
+                               + "0.000001"^^xsd:decimal
+                        )
+                    }
+                """
+            ]
+        ]
+    ) .
+
+</END_SHACL>

@@ -1,0 +1,127 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF_009> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must identify its ice class so the conditional requirement can be assessed."
+    ] ;
+    sh:sparql [
+        sh:message "For a ship of ice class IA or IA Super, a valid construction-stage date is required to determine applicability of the 1 September 2003 condition." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (?iceClass IN (nltl:iceClassIa, nltl:iceClassIaSuper))
+                FILTER NOT EXISTS {
+                    $this nltl:constructionStageDate ?constructionDate .
+                    FILTER (datatype(?constructionDate) = xsd:date)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "When the IA or IA Super construction-stage condition applies, delivery date, assessment date, and one permitted 2017 compliance method are required with the declared datatypes and controlled alternatives." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                $this nltl:constructionStageDate ?constructionDate .
+                FILTER (?iceClass IN (nltl:iceClassIa, nltl:iceClassIaSuper))
+                FILTER (datatype(?constructionDate) = xsd:date)
+                BIND (YEAR(?constructionDate) AS ?constructionYear)
+                BIND (MONTH(?constructionDate) AS ?constructionMonth)
+                BIND (DAY(?constructionDate) AS ?constructionDay)
+                FILTER (
+                    ?constructionYear < 2003 ||
+                    (?constructionYear = 2003 && ?constructionMonth < 9) ||
+                    (?constructionYear = 2003 && ?constructionMonth = 9 && ?constructionDay < 1)
+                )
+                FILTER (
+                    !EXISTS {
+                        $this nltl:deliveryDate ?deliveryDate .
+                    } ||
+                    EXISTS {
+                        $this nltl:deliveryDate ?invalidDeliveryDate .
+                        FILTER (datatype(?invalidDeliveryDate) != xsd:date)
+                    } ||
+                    !EXISTS {
+                        $this nltl:assessmentDate ?assessmentDate .
+                    } ||
+                    EXISTS {
+                        $this nltl:assessmentDate ?invalidAssessmentDate .
+                        FILTER (datatype(?invalidAssessmentDate) != xsd:date)
+                    } ||
+                    !EXISTS {
+                        $this nltl:engineOutputComplianceMethod ?method .
+                        FILTER (
+                            ?method IN (
+                                nltl:traficom2017Section3Point2Point2Method,
+                                nltl:traficom2017Section3Point2Point4Method
+                            )
+                        )
+                    } ||
+                    EXISTS {
+                        $this nltl:engineOutputComplianceMethod ?invalidMethod .
+                        FILTER (
+                            ?invalidMethod NOT IN (
+                                nltl:traficom2017Section3Point2Point2Method,
+                                nltl:traficom2017Section3Point2Point4Method
+                            )
+                        )
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For an applicable IA or IA Super ship, the assessment date must not be later than 1 January in the year twenty years after delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:constructionStageDate ?constructionDate ;
+                      nltl:deliveryDate ?deliveryDate ;
+                      nltl:assessmentDate ?assessmentDate .
+                FILTER (?iceClass IN (nltl:iceClassIa, nltl:iceClassIaSuper))
+                FILTER (
+                    datatype(?constructionDate) = xsd:date &&
+                    datatype(?deliveryDate) = xsd:date &&
+                    datatype(?assessmentDate) = xsd:date
+                )
+                BIND (YEAR(?constructionDate) AS ?constructionYear)
+                BIND (MONTH(?constructionDate) AS ?constructionMonth)
+                BIND (DAY(?constructionDate) AS ?constructionDay)
+                FILTER (
+                    ?constructionYear < 2003 ||
+                    (?constructionYear = 2003 && ?constructionMonth < 9) ||
+                    (?constructionYear = 2003 && ?constructionMonth = 9 && ?constructionDay < 1)
+                )
+                BIND (YEAR(?deliveryDate) + 20 AS ?deadlineYear)
+                BIND (YEAR(?assessmentDate) AS ?assessmentYear)
+                BIND (MONTH(?assessmentDate) AS ?assessmentMonth)
+                BIND (DAY(?assessmentDate) AS ?assessmentDay)
+                FILTER (
+                    ?assessmentYear > ?deadlineYear ||
+                    (
+                        ?assessmentYear = ?deadlineYear &&
+                        (
+                            ?assessmentMonth > 1 ||
+                            (?assessmentMonth = 1 && ?assessmentDay > 1)
+                        )
+                    )
+                )
+            }
+        """
+    ] .

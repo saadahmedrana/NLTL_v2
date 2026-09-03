@@ -1,0 +1,188 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF_052_FrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:property [
+        sh:path nltl:frameAsymmetrical ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:frameWebAngleToShell ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/DEG> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpan ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:equivalentSupportStatusByDirectCalculation ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Equivalent support must be demonstrated for an alternative arrangement."
+            ]
+        ]
+        [
+            sh:node gs:TRF_052_OrdinarySupportShape
+        ]
+    ) .
+
+gs:TRF_052_OrdinarySupportShape
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the frame is asymmetrical or its web angle to the shell is below 90 degrees, antitripping support spacing must be no greater than 1300 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameAsymmetrical ?asym .
+                $this nltl:frameWebAngleToShell ?angle .
+                ?angle qudt:numericValue ?angleValue ;
+                       qudt:unit <http://qudt.org/vocab/unit/DEG> .
+                FILTER (
+                    ?asym = true ||
+                    ?angleValue < 90
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:antitrippingSupportSpacing ?validSpacing .
+                        ?validSpacing qudt:numericValue ?validValue ;
+                                      qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+                        FILTER (
+                            datatype(?validValue) = xsd:decimal &&
+                            ?validValue <= 1300
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:antitrippingSupportSpacing ?spacing .
+                        FILTER NOT EXISTS {
+                            ?spacing qudt:numericValue ?value ;
+                                     qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+                            FILTER (
+                                datatype(?value) = xsd:decimal &&
+                                ?value <= 1300
+                            )
+                        }
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Antitripping support scope must include the required region or regions for the frame span and ice class." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameSpan ?spanNode ;
+                       nltl:iceClass ?ice .
+                ?spanNode qudt:numericValue ?span ;
+                          qudt:unit <http://qudt.org/vocab/unit/M> .
+                FILTER (
+                    (
+                        ?span > 4 &&
+                        NOT EXISTS {
+                            $this nltl:hasAntitrippingSupportRegion ?anyRegion .
+                        }
+                    )
+                    ||
+                    (
+                        ?span <= 4 &&
+                        ?ice = nltl:iceClassIaSuper &&
+                        NOT EXISTS {
+                            $this nltl:hasAntitrippingSupportRegion ?superRegion .
+                        }
+                    )
+                    ||
+                    (
+                        ?span <= 4 &&
+                        ?ice = nltl:iceClassIa &&
+                        (
+                            NOT EXISTS {
+                                $this nltl:hasAntitrippingSupportRegion nltl:bowRegion .
+                            }
+                            ||
+                            NOT EXISTS {
+                                $this nltl:hasAntitrippingSupportRegion nltl:midbodyRegion .
+                            }
+                        )
+                    )
+                    ||
+                    (
+                        ?span <= 4 &&
+                        (
+                            ?ice = nltl:iceClassIb ||
+                            ?ice = nltl:iceClassIc
+                        ) &&
+                        NOT EXISTS {
+                            $this nltl:hasAntitrippingSupportRegion nltl:bowRegion .
+                        }
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

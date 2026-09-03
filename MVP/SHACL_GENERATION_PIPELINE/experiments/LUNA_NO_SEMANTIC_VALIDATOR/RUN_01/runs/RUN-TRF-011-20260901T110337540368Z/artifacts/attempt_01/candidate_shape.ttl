@@ -1,0 +1,127 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF011_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011_IceWaterlineShape ;
+        sh:message "The ship must identify the intended ice-operating waterline and its profile points."
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceWaterline ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011_IceWaterlineShape ;
+        sh:message "The ship must identify the upper ice waterline and its profile points."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline must match, within a relative tolerance of 1e-6 plus an absolute fallback of 1e-9 m, the maximum vertical coordinate of intended ice-operating waterline points at every longitudinal position, with no missing or extra pointwise positions." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT DISTINCT ?this
+WHERE {
+  ?this a nltl:ship ;
+        nltl:hasIntendedIceOperatingWaterline ?intended ;
+        nltl:hasUpperIceWaterline ?upper .
+
+  {
+    SELECT ?x
+           (MAX(?intendedValue) AS ?expectedValue)
+           (MIN(?upperValue) AS ?upperMinimum)
+           (MAX(?upperValue) AS ?upperMaximum)
+    WHERE {
+      {
+        ?this nltl:hasIntendedIceOperatingWaterline ?intendedLine .
+        ?intendedLine nltl:hasWaterlineProfilePoint ?intendedPoint .
+        ?intendedPoint nltl:longitudinalPosition ?intendedPosition ;
+                        nltl:verticalCoordinate ?intendedCoordinate .
+        ?intendedPosition qudt:numericValue ?x .
+        ?intendedCoordinate qudt:numericValue ?intendedValue .
+      }
+      UNION
+      {
+        ?this nltl:hasUpperIceWaterline ?upperLine .
+        ?upperLine nltl:hasWaterlineProfilePoint ?upperPoint .
+        ?upperPoint nltl:longitudinalPosition ?upperPosition ;
+                    nltl:verticalCoordinate ?upperCoordinate .
+        ?upperPosition qudt:numericValue ?x .
+        ?upperCoordinate qudt:numericValue ?upperValue .
+      }
+    }
+    GROUP BY ?x
+  }
+
+  FILTER (
+    !BOUND(?expectedValue) ||
+    !BOUND(?upperMinimum) ||
+    !BOUND(?upperMaximum) ||
+    ABS(?upperMinimum - ?expectedValue) >
+      (1e-6 * ABS(?expectedValue) + 1e-9) ||
+    ABS(?upperMaximum - ?expectedValue) >
+      (1e-6 * ABS(?expectedValue) + 1e-9)
+  )
+}
+"""
+    ] .
+
+gen:TRF011_IceWaterlineShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:iceWaterline ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:minCount 1 ;
+        sh:node gen:TRF011_WaterlineProfilePointShape ;
+        sh:message "Each ice waterline used by this requirement must contain at least one waterline profile point."
+    ] .
+
+gen:TRF011_WaterlineProfilePointShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:waterlineProfilePoint ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011_LengthQuantityShape ;
+        sh:message "Each waterline profile point must provide one longitudinal position in metres."
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TRF011_LengthQuantityShape ;
+        sh:message "Each waterline profile point must provide one vertical coordinate in metres."
+    ] .
+
+gen:TRF011_LengthQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue qudt:M
+    ] .

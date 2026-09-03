@@ -1,0 +1,97 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO_108_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:polarShipCategoryA nltl:polarShipCategoryB nltl:polarShipCategoryC ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship category must be Category A, B, or C."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Category A or B ships must provide a valid construction date and valid oil-fuel capacity measurements." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category .
+                FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:constructionDate ?date .
+                        FILTER (datatype(?date) = xsd:date)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:aggregateOilFuelCapacity ?aggregate .
+                        ?aggregate qudt:numericValue ?aggregateValue ;
+                                   qudt:unit unit:M3 .
+                        FILTER (datatype(?aggregateValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:individualOilFuelTankCapacity ?individual .
+                        ?individual qudt:numericValue ?individualValue ;
+                                   qudt:unit unit:M3 .
+                        FILTER (datatype(?individualValue) = xsd:decimal)
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable ship, every oil-fuel tank must be separated from the outer shell by at least 0.76 m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:aggregateOilFuelCapacity ?aggregate ;
+                      nltl:individualOilFuelTankCapacity ?individual .
+
+                FILTER (?category IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+                FILTER (datatype(?date) = xsd:date)
+                FILTER (YEAR(?date) > 2017 ||
+                        (YEAR(?date) = 2017 && MONTH(?date) > 1) ||
+                        (YEAR(?date) = 2017 && MONTH(?date) = 1 && DAY(?date) >= 1))
+
+                ?aggregate qudt:numericValue ?aggregateValue ;
+                           qudt:unit unit:M3 .
+                ?individual qudt:numericValue ?individualValue ;
+                            qudt:unit unit:M3 .
+
+                FILTER (datatype(?aggregateValue) = xsd:decimal)
+                FILTER (datatype(?individualValue) = xsd:decimal)
+                FILTER (?aggregateValue < 600)
+                FILTER (?individualValue > 30)
+
+                FILTER NOT EXISTS {
+                    $this nltl:oilFuelTankOuterShellSeparation ?separation .
+                    ?separation qudt:numericValue ?separationValue ;
+                                qudt:unit unit:M .
+                    FILTER (datatype(?separationValue) = xsd:decimal)
+                    FILTER (?separationValue >= 0.76)
+                }
+            }
+        """
+    ] .

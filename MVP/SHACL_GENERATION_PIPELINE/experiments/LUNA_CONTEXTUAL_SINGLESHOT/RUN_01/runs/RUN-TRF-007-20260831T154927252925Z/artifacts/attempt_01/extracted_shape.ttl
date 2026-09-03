@@ -1,0 +1,74 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+<urn:nltl:generated-shape:TRF-007-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:message "An ice class is required to determine whether the conditional requirement applies."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an IA or IA Super ship whose construction stage predates 1 September 2003, the applicable 2017 section method, delivery date, and assessment date must show compliance by 1 January of the year twenty years after delivery." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (
+                    ?iceClass IN (
+                        nltl:iceClassIa,
+                        nltl:iceClassIaSuper
+                    )
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:constructionStageDate ?anyConstructionDate .
+                        FILTER (datatype(?anyConstructionDate) = xsd:date)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:constructionStageDate ?earlyConstructionDate .
+                        FILTER (datatype(?earlyConstructionDate) = xsd:date)
+                        FILTER (?earlyConstructionDate < "2003-09-01"^^xsd:date)
+                    }
+                )
+                FILTER NOT EXISTS {
+                    $this nltl:constructionStageDate ?constructionDate ;
+                          nltl:deliveryDate ?deliveryDate ;
+                          nltl:assessmentDate ?assessmentDate ;
+                          nltl:engineOutputComplianceMethod ?method .
+
+                    FILTER (datatype(?constructionDate) = xsd:date)
+                    FILTER (datatype(?deliveryDate) = xsd:date)
+                    FILTER (datatype(?assessmentDate) = xsd:date)
+                    FILTER (?constructionDate < "2003-09-01"^^xsd:date)
+
+                    FILTER (
+                        YEAR(?assessmentDate) < YEAR(?deliveryDate) + 20
+                        ||
+                        (
+                            YEAR(?assessmentDate) = YEAR(?deliveryDate) + 20
+                            &&
+                            MONTH(?assessmentDate) = 1
+                            &&
+                            DAY(?assessmentDate) <= 1
+                        )
+                    )
+
+                    FILTER (
+                        ?method IN (
+                            nltl:traficom2017Section3Point2Point2Method,
+                            nltl:traficom2017Section3Point2Point4Method
+                        )
+                    )
+                }
+            }
+        """
+    ] .

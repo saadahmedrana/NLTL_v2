@@ -1,0 +1,109 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-084> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single propeller type is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:pitchValueKnown ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single pitch-value-known indicator is required to select the applicable rule branch."
+    ] ;
+    sh:sparql [
+        sh:message "For a CP propeller with a known pitch value, propeller pitch at MCR in bollard condition must be supplied as a metre quantity." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType ;
+                      nltl:pitchValueKnown ?known .
+                FILTER ( ?propellerType = "CP"^^xsd:string && ?known = true )
+                FILTER NOT EXISTS {
+                    $this nltl:propellerPitchAtMcrBollard ?pitch .
+                    ?pitch qudt:numericValue ?value ;
+                           qudt:unit unit:M .
+                    FILTER ( datatype(?value) = xsd:decimal )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For a CP propeller with an unknown pitch value, both bollard and free-running MCR pitch quantities are required in metres." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType ;
+                      nltl:pitchValueKnown ?known .
+                FILTER ( ?propellerType = "CP"^^xsd:string && ?known = false )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrBollard ?bollard .
+                        ?bollard qudt:numericValue ?bollardValue ;
+                                 qudt:unit unit:M .
+                        FILTER ( datatype(?bollardValue) = xsd:decimal )
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrFreeRunning ?freeRunning .
+                        ?freeRunning qudt:numericValue ?freeRunningValue ;
+                                     qudt:unit unit:M .
+                        FILTER ( datatype(?freeRunningValue) = xsd:decimal )
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For a CP propeller with an unknown pitch value, bollard pitch must equal 0.7 times free-running pitch within the permitted numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType ;
+                      nltl:pitchValueKnown ?known ;
+                      nltl:propellerPitchAtMcrBollard ?bollard ;
+                      nltl:propellerPitchAtMcrFreeRunning ?freeRunning .
+                ?bollard qudt:numericValue ?bollardValue ;
+                         qudt:unit unit:M .
+                ?freeRunning qudt:numericValue ?freeRunningValue ;
+                             qudt:unit unit:M .
+                FILTER (
+                    ?propellerType = "CP"^^xsd:string &&
+                    ?known = false &&
+                    datatype(?bollardValue) = xsd:decimal &&
+                    datatype(?freeRunningValue) = xsd:decimal
+                )
+                BIND ( 0.7 * ?freeRunningValue AS ?expected )
+                FILTER (
+                    ABS(?bollardValue - ?expected) >
+                    ( ABS(?expected) * 0.000001 + 0.000000001 )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

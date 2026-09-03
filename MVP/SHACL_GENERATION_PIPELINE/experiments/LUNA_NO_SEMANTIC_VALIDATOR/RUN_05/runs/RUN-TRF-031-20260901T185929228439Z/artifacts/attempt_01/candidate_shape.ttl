@@ -1,0 +1,109 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:StressQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF_031_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:yieldPoint ;
+        sh:node gen:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:combinedBendingShearStress ;
+        sh:node gen:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:yieldShearStress ;
+        sh:node gen:StressQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:beamTheoryUsed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:allowableShearStress ;
+                sh:node gen:StressQuantityShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:sparql [
+                sh:message "When beam theory is used, allowable shear stress must be no larger than 0.9 times the yield shear stress." ;
+                sh:select """
+                    SELECT $this
+                    WHERE {
+                        $this <https://w3id.org/nltl/vocab#beamTheoryUsed> true ;
+                              <https://w3id.org/nltl/vocab#allowableShearStress> ?allowableNode ;
+                              <https://w3id.org/nltl/vocab#yieldShearStress> ?yieldShearNode .
+                        ?allowableNode <http://qudt.org/schema/qudt/numericValue> ?allowable .
+                        ?yieldShearNode <http://qudt.org/schema/qudt/numericValue> ?yieldShear .
+                        FILTER (?allowable > (0.9 * ?yieldShear))
+                    }
+                """
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:beamTheoryUsed ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue false ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "Combined bending and shear stress must be lower than the yield point, and yield shear stress must equal yield point divided by sqrt(3) within numerical tolerance." ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                $this <https://w3id.org/nltl/vocab#yieldPoint> ?yieldPointNode ;
+                      <https://w3id.org/nltl/vocab#combinedBendingShearStress> ?combinedNode ;
+                      <https://w3id.org/nltl/vocab#yieldShearStress> ?yieldShearNode .
+                ?yieldPointNode <http://qudt.org/schema/qudt/numericValue> ?yieldPoint .
+                ?combinedNode <http://qudt.org/schema/qudt/numericValue> ?combined .
+                ?yieldShearNode <http://qudt.org/schema/qudt/numericValue> ?yieldShear .
+                BIND ((?yieldPoint / 1.7320508075688772) AS ?expectedYieldShear)
+                FILTER (
+                    (?combined >= ?yieldPoint)
+                    ||
+                    (ABS(?yieldShear - ?expectedYieldShear) >
+                     ((ABS(?expectedYieldShear) * 0.000001) + 0.000000001))
+                )
+            }
+        """
+    ] .

@@ -1,0 +1,103 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:HullAreaValueShape
+    a sh:NodeShape ;
+    sh:targetObjectsOf nltl:hasSpannedHullArea ;
+    sh:class nltl:hullAreaValue ;
+    sh:property [
+        sh:path nltl:hullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] .
+
+gen:SpannedHullAreaFactorShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        sh:message "Each structural member spanning one or more hull areas must have exactly one selected hull area factor." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:hasSpannedHullArea ?area .
+                FILTER NOT EXISTS {
+                    ?member nltl:selectedHullAreaFactor ?selected .
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The selected hull area factor must be a decimal, dimensionless QUDT quantity." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:hasSpannedHullArea ?area ;
+                        nltl:selectedHullAreaFactor ?selected .
+                FILTER NOT EXISTS {
+                    ?selected a qudt:QuantityValue ;
+                             qudt:numericValue ?value ;
+                             qudt:unit unit:UNITLESS .
+                    FILTER (datatype(?value) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The selected hull area factor must equal the maximum hull area factor across all hull areas spanned by the structural member, within a relative tolerance of 1e-6 with a small absolute fallback." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:hasSpannedHullArea ?area ;
+                        nltl:selectedHullAreaFactor ?selected .
+                ?selected qudt:numericValue ?reported ;
+                          qudt:unit unit:UNITLESS .
+                FILTER (datatype(?reported) = xsd:decimal)
+                {
+                    SELECT ?member (MAX(?factorValue) AS ?expected)
+                    WHERE {
+                        ?member nltl:hasSpannedHullArea ?spannedArea .
+                        ?spannedArea nltl:hullAreaFactor ?factor .
+                        ?factor qudt:numericValue ?factorValue ;
+                                qudt:unit unit:UNITLESS .
+                        FILTER (datatype(?factorValue) = xsd:decimal)
+                    }
+                    GROUP BY ?member
+                }
+                FILTER (
+                    ABS(?reported - ?expected) >
+                    (ABS(?expected) * 0.000001 + 0.000000000001)
+                )
+            }
+        """
+    ] .

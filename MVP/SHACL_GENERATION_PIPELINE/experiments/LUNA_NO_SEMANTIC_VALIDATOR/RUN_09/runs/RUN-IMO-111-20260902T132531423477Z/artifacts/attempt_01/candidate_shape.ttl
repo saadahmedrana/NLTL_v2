@@ -1,0 +1,120 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-111> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:polarShipCategoryA nltl:polarShipCategoryB nltl:polarShipCategoryC ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship category is required and must be Category A, B, or C."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A single valid construction date is required."
+    ] ;
+    sh:property [
+        sh:path nltl:tankType ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path nltl:individualTankCapacity ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M3 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:tankOuterShellSeparation ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an applicable Category A or B ship constructed on or after 1 January 2017, each oil residue or oily bilge water holding tank over 30 m3 must have at least 0.76 m separation from the outer shell, with capacity and separation measurements present." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+    $this nltl:shipCategory ?category ;
+          nltl:constructionDate ?constructionDate ;
+          nltl:tankType ?tankType .
+    FILTER (
+        ?category IN (
+            nltl:polarShipCategoryA,
+            nltl:polarShipCategoryB
+        )
+    )
+    FILTER (?constructionDate >= "2017-01-01"^^xsd:date)
+    FILTER (
+        STR(?tankType) IN (
+            "oil_residue_tank",
+            "oily_bilge_water_holding_tank"
+        )
+    )
+    FILTER (
+        NOT EXISTS {
+            $this nltl:individualTankCapacity ?capacity .
+            ?capacity qudt:numericValue ?capacityValue ;
+                      qudt:unit unit:M3 .
+        }
+        ||
+        (
+            EXISTS {
+                $this nltl:individualTankCapacity ?largeCapacity .
+                ?largeCapacity qudt:numericValue ?largeCapacityValue ;
+                               qudt:unit unit:M3 .
+                FILTER (?largeCapacityValue > 30)
+            }
+            &&
+            (
+                NOT EXISTS {
+                    $this nltl:tankOuterShellSeparation ?separation .
+                    ?separation qudt:numericValue ?separationValue ;
+                                qudt:unit unit:M .
+                }
+                ||
+                EXISTS {
+                    $this nltl:tankOuterShellSeparation ?insufficientSeparation .
+                    ?insufficientSeparation qudt:numericValue ?insufficientValue ;
+                                            qudt:unit unit:M .
+                    FILTER (?insufficientValue < 0.76)
+                }
+            )
+        )
+    )
+}
+"""
+    ] .

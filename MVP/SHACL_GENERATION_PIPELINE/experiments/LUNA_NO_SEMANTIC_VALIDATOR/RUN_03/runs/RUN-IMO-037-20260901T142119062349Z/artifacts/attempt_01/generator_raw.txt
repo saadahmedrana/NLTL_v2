@@ -1,0 +1,135 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO037ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:class nltl:polarShipCategoryValue ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        ) ;
+        sh:minCount 1 ;
+        sh:message "A valid ship category is required to determine applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:minInclusive "2017-01-01"^^xsd:date ;
+        sh:message "The construction date is required and must be a valid date."
+    ] ;
+    sh:property [
+        sh:path nltl:hasLoadingConditionCase ;
+        sh:node [
+            sh:class nltl:loadingConditionCase ;
+            sh:property [
+                sh:path nltl:loadingConditionIdentifier ;
+                sh:datatype xsd:string ;
+                sh:minCount 1 ;
+                sh:message "Each loading condition case requires an identifier."
+            ] ;
+            sh:property [
+                sh:path nltl:alternativeInstrumentApplicable ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:message "Each loading condition case must state whether the permitted alternative instrument applies."
+            ] ;
+            sh:property [
+                sh:path nltl:residualStabilityFactorSI ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue qudt:UNITLESS ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:minCount 1 ;
+                sh:message "Each loading condition case requires a dimensionless residual stability factor result."
+            ] ;
+            sh:property [
+                sh:path nltl:alternativeInstrumentResidualStabilityStatus ;
+                sh:datatype xsd:boolean
+            ] ;
+            sh:property [
+                sh:path nltl:hasLoadingConditionResultEvidence ;
+                sh:class nltl:evidenceArtifact ;
+                sh:minCount 1 ;
+                sh:message "Each loading condition case requires evidence for its external result."
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For applicable Category A or B ships constructed on or after 1 January 2017, each loading condition must have residual stability factor s_i equal to one, or a compliant permitted alternative-instrument outcome." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:constructionDate ?date ;
+                      nltl:hasLoadingConditionCase ?case .
+
+                FILTER (
+                    ?category IN (
+                        nltl:polarShipCategoryA,
+                        nltl:polarShipCategoryB
+                    )
+                )
+
+                FILTER (
+                    YEAR(?date) > 2017 ||
+                    (
+                        YEAR(?date) = 2017 &&
+                        (
+                            MONTH(?date) > 1 ||
+                            (
+                                MONTH(?date) = 1 &&
+                                DAY(?date) >= 1
+                            )
+                        )
+                    )
+                )
+
+                ?case nltl:alternativeInstrumentApplicable ?applicable .
+
+                FILTER NOT (
+                    (
+                        ?applicable = true &&
+                        EXISTS {
+                            ?case nltl:alternativeInstrumentResidualStabilityStatus true
+                        }
+                    )
+                    ||
+                    (
+                        ?applicable = false &&
+                        EXISTS {
+                            ?case nltl:residualStabilityFactorSI ?quantity .
+                            ?quantity qudt:numericValue ?value ;
+                                      qudt:unit qudt:UNITLESS .
+                            FILTER (?value >= 1.0 && ?value <= 1.0)
+                        }
+                    )
+                )
+            }
+        """
+    ] .
+<END_SHACL>

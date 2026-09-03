@@ -1,0 +1,114 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-086> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a CP propeller, pitchValueKnown must be present as a boolean." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType "CP" .
+                FILTER NOT EXISTS {
+                    $this nltl:pitchValueKnown ?known .
+                    FILTER (
+                        datatype(?known) = xsd:boolean &&
+                        (?known = true || ?known = false)
+                    )
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a CP propeller with a known pitch value, propellerPitchAtMcrBollard must be a metre quantity." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType "CP" ;
+                      nltl:pitchValueKnown true .
+                FILTER NOT EXISTS {
+                    $this nltl:propellerPitchAtMcrBollard ?bollard .
+                    ?bollard a qudt:QuantityValue ;
+                             qudt:numericValue ?bollardValue ;
+                             qudt:unit unit:M .
+                    FILTER (datatype(?bollardValue) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a CP propeller with an unknown pitch value, propellerPitchAtMcrBollard must equal 0.7 times propellerPitchAtMcrFreeRunning within numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType "CP" ;
+                      nltl:pitchValueKnown false .
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrBollard ?bollard .
+                        ?bollard a qudt:QuantityValue ;
+                                 qudt:numericValue ?bollardValue ;
+                                 qudt:unit unit:M .
+                        FILTER (datatype(?bollardValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrFreeRunning ?freeRunning .
+                        ?freeRunning a qudt:QuantityValue ;
+                                     qudt:numericValue ?freeValue ;
+                                     qudt:unit unit:M .
+                        FILTER (datatype(?freeValue) = xsd:decimal)
+                    }
+                    ||
+                    NOT EXISTS {
+                        $this nltl:propellerPitchAtMcrBollard ?bollard ;
+                              nltl:propellerPitchAtMcrFreeRunning ?freeRunning .
+                        ?bollard a qudt:QuantityValue ;
+                                 qudt:numericValue ?bollardValue ;
+                                 qudt:unit unit:M .
+                        ?freeRunning a qudt:QuantityValue ;
+                                     qudt:numericValue ?freeValue ;
+                                     qudt:unit unit:M .
+                        FILTER (
+                            datatype(?bollardValue) = xsd:decimal &&
+                            datatype(?freeValue) = xsd:decimal
+                        )
+                        BIND (0.7 * ?freeValue AS ?expected)
+                        BIND (
+                            IF(
+                                ?expected * 0.000001 > 0.000000001,
+                                ?expected * 0.000001,
+                                0.000000001
+                            ) AS ?tolerance
+                        )
+                        FILTER (
+                            ?bollardValue >= ?expected - ?tolerance &&
+                            ?bollardValue <= ?expected + ?tolerance
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>

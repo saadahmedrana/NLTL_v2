@@ -1,0 +1,123 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF_007_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:message "The ship shall have exactly one valid Finnish-Swedish ice class."
+    ] ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:maxCount 1 ;
+        sh:message "Any construction stage date shall be an xsd:date and shall not be repeated."
+    ] ;
+    sh:property [
+        sh:path nltl:deliveryDate ;
+        sh:datatype xsd:date ;
+        sh:maxCount 1 ;
+        sh:message "Any delivery date shall be an xsd:date and shall not be repeated."
+    ] ;
+    sh:property [
+        sh:path nltl:assessmentDate ;
+        sh:datatype xsd:date ;
+        sh:maxCount 1 ;
+        sh:message "Any assessment date shall be an xsd:date and shall not be repeated."
+    ] ;
+    sh:property [
+        sh:path nltl:engineOutputComplianceMethod ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:engineOutputComplianceMethodValue ;
+        sh:maxCount 1 ;
+        sh:message "Any engine-output compliance method shall be one IRI-valued method resource."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Ships of ice class IA Super or IA shall provide a valid construction stage date so that applicability of the 2003 cutoff can be determined." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?ic .
+                FILTER (?ic IN (nltl:iceClassIaSuper, nltl:iceClassIa))
+                FILTER NOT EXISTS {
+                    $this nltl:constructionStageDate ?cs .
+                    FILTER (datatype(?cs) = xsd:date)
+                }
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For an IA Super or IA ship whose keel was laid or construction had reached a similar stage before 1 September 2003, the required 2017 compliance method, delivery date, assessment date, and deadline compliance shall be represented." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?ic .
+                FILTER (?ic IN (nltl:iceClassIaSuper, nltl:iceClassIa))
+
+                $this nltl:constructionStageDate ?cs .
+                FILTER (datatype(?cs) = xsd:date)
+                FILTER (
+                    YEAR(?cs) < 2003 ||
+                    (YEAR(?cs) = 2003 && MONTH(?cs) < 9)
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:deliveryDate ?del .
+                        FILTER (datatype(?del) = xsd:date)
+                    } ||
+                    NOT EXISTS {
+                        $this nltl:assessmentDate ?ass .
+                        FILTER (datatype(?ass) = xsd:date)
+                    } ||
+                    NOT EXISTS {
+                        $this nltl:engineOutputComplianceMethod ?method .
+                        FILTER (?method IN (
+                            nltl:traficom2017Section3Point2Point2Method,
+                            nltl:traficom2017Section3Point2Point4Method
+                        ))
+                    } ||
+                    NOT EXISTS {
+                        $this nltl:deliveryDate ?del2 ;
+                              nltl:assessmentDate ?ass2 ;
+                              nltl:engineOutputComplianceMethod ?method2 .
+                        FILTER (datatype(?del2) = xsd:date)
+                        FILTER (datatype(?ass2) = xsd:date)
+                        FILTER (?method2 IN (
+                            nltl:traficom2017Section3Point2Point2Method,
+                            nltl:traficom2017Section3Point2Point4Method
+                        ))
+                        FILTER (
+                            YEAR(?ass2) < YEAR(?del2) + 20 ||
+                            (
+                                YEAR(?ass2) = YEAR(?del2) + 20 &&
+                                MONTH(?ass2) = 1 &&
+                                DAY(?ass2) = 1
+                            )
+                        )
+                    }
+                )
+            }
+        """ ;
+    ] .

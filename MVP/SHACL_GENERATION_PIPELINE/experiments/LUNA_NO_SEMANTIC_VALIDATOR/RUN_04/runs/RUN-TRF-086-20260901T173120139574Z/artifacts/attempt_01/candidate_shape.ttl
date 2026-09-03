@@ -1,0 +1,83 @@
+@prefix nltlgen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+nltlgen:TRF_086_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A propeller type is required to determine whether the CP-propeller condition applies."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a CP propeller, pitchValueKnown must be true with a bollard-condition pitch, or must be false with a bollard pitch equal to 0.7 times the free-running pitch within a relative tolerance of 1e-6 and an absolute fallback of 1e-9 m." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+    $this nltl:propellerType ?propellerType .
+    FILTER (?propellerType = "CP")
+
+    {
+        FILTER NOT EXISTS {
+            $this nltl:pitchValueKnown ?known .
+            FILTER (?known = true)
+        }
+    }
+    UNION
+    {
+        $this nltl:pitchValueKnown ?knownFalse .
+        FILTER (?knownFalse = false)
+
+        {
+            FILTER NOT EXISTS {
+                $this nltl:propellerPitchAtMcrFreeRunning ?freePitch .
+                ?freePitch qudt:numericValue ?freeValue ;
+                           qudt:unit unit:M .
+                FILTER (datatype(?freeValue) = xsd:decimal)
+            }
+        }
+        UNION
+        {
+            FILTER NOT EXISTS {
+                $this nltl:propellerPitchAtMcrBollard ?bollardPitch .
+                ?bollardPitch qudt:numericValue ?bollardValue ;
+                              qudt:unit unit:M .
+                FILTER (datatype(?bollardValue) = xsd:decimal)
+            }
+        }
+        UNION
+        {
+            $this nltl:propellerPitchAtMcrFreeRunning ?freePitch2 .
+            ?freePitch2 qudt:numericValue ?freeValue2 ;
+                        qudt:unit unit:M .
+            $this nltl:propellerPitchAtMcrBollard ?bollardPitch2 .
+            ?bollardPitch2 qudt:numericValue ?bollardValue2 ;
+                           qudt:unit unit:M .
+            FILTER (datatype(?freeValue2) = xsd:decimal)
+            FILTER (datatype(?bollardValue2) = xsd:decimal)
+            BIND (0.7 * ?freeValue2 AS ?expectedValue)
+            BIND ((ABS(?expectedValue) * 0.000001) + 0.000000001 AS ?tolerance)
+            FILTER (?bollardValue2 < (?expectedValue - ?tolerance) ||
+                    ?bollardValue2 > (?expectedValue + ?tolerance))
+        }
+    }
+    UNION
+    {
+        $this nltl:pitchValueKnown ?unknown .
+        FILTER (?unknown != true && ?unknown != false)
+    }
+}
+""" ;
+    ] .

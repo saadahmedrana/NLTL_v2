@@ -1,0 +1,127 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF_018_PowerQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloW> ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF_018_ApplicableShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIb
+            nltl:iceClassIc
+        ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:calculatedRequiredPower ;
+        sh:node gen:TRF_018_PowerQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:node gen:TRF_018_PowerQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TRF_018_NonApplicableShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "The ice class is not one of the classes covered by this power requirement." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (
+                    ?iceClass NOT IN (
+                        nltl:iceClassIaSuper,
+                        nltl:iceClassIa,
+                        nltl:iceClassIb,
+                        nltl:iceClassIc
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:TRF_018_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        gen:TRF_018_ApplicableShape
+        gen:TRF_018_NonApplicableShape
+    ) ;
+    sh:sparql [
+        sh:message "For ice class IA Super, IA, IB, or IC, maximum continuous rating power must be at least the greater of calculated required power and the applicable regulatory minimum." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass ;
+                      nltl:calculatedRequiredPower ?calculatedNode ;
+                      nltl:maximumContinuousRatingPower ?ratingNode .
+                ?calculatedNode qudt:numericValue ?calculatedPower .
+                ?ratingNode qudt:numericValue ?ratingPower .
+                FILTER (
+                    ?iceClass IN (
+                        nltl:iceClassIaSuper,
+                        nltl:iceClassIa,
+                        nltl:iceClassIb,
+                        nltl:iceClassIc
+                    )
+                )
+                BIND(
+                    IF(
+                        ?iceClass = nltl:iceClassIaSuper,
+                        "2800.0"^^xsd:decimal,
+                        "1000.0"^^xsd:decimal
+                    ) AS ?regulatoryMinimum
+                )
+                BIND(
+                    IF(
+                        ?calculatedPower > ?regulatoryMinimum,
+                        ?calculatedPower,
+                        ?regulatoryMinimum
+                    ) AS ?requiredPower
+                )
+                FILTER (?ratingPower < ?requiredPower)
+            }
+        """
+    ] .

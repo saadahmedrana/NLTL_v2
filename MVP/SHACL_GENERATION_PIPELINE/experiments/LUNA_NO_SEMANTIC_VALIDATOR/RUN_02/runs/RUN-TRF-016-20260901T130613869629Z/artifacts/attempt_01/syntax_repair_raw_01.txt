@@ -1,0 +1,182 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-016-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:navigatingInIce ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "navigatingInIce must be provided as a single boolean value."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:navigatingInIce ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:navigatingInIce ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:draughtAmidships ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "draughtAmidships must be a single metre quantity."
+            ] ;
+            sh:property [
+                sh:path nltl:liwlDraughtAmidships ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "liwlDraughtAmidships must be a single metre quantity."
+            ] ;
+            sh:property [
+                sh:path nltl:displacementAtUpperIceWaterline ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/TON_Metric> ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "displacementAtUpperIceWaterline must be a single metric-tonne quantity."
+            ] ;
+            sh:property [
+                sh:path nltl:levelIceThickness ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "levelIceThickness must be a single metre quantity."
+            ] ;
+            sh:property [
+                sh:path nltl:forwardDraught ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ] ;
+                sh:message "forwardDraught must be a single metre quantity."
+            ] ;
+            sh:property [
+                sh:path nltl:propellerHighestPointSubmerged ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:hasValue true ;
+                sh:message "The highest point of the propeller must be submerged."
+            ] ;
+            sh:sparql [
+                sh:message "Draught amidships must be at least the LIWL draught, and forward draught must be at least the applicable level-ice-thickness-based minimum." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:draughtAmidships/qudt:numericValue ?draught ;
+                              nltl:liwlDraughtAmidships/qudt:numericValue ?liwl ;
+                              nltl:displacementAtUpperIceWaterline/qudt:numericValue ?displacement ;
+                              nltl:levelIceThickness/qudt:numericValue ?iceThickness ;
+                              nltl:forwardDraught/qudt:numericValue ?forward .
+
+                        BIND ((2 + (0.00025 * ?displacement)) * ?iceThickness AS ?uncappedMinimum)
+                        BIND (4 * ?iceThickness AS ?maximum)
+                        BIND (IF(?uncappedMinimum < ?maximum, ?uncappedMinimum, ?maximum) AS ?requiredForward)
+
+                        FILTER (?draught < ?liwl || ?forward < ?requiredForward)
+                    }
+                """
+            ] ;
+            sh:sparql [
+                sh:message "A ballast tank situated above the LIWL and needed to reach the LIWL must have freezing prevention." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                    SELECT $this
+                    WHERE {
+                        $this nltl:hasBallastTank ?tank .
+                        ?tank nltl:situatedAboveLowerIceWaterline ?above ;
+                              nltl:usedToReachLowerIceWaterline ?needed .
+
+                        FILTER (?above = true && ?needed = true)
+
+                        FILTER NOT EXISTS {
+                            ?tank nltl:freezingPreventionPresent true
+                        }
+                    }
+                """
+            ]
+        ]
+    ) .
+<END_SHACL>

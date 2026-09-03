@@ -1,0 +1,112 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:IMO26_002_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "A ship type is required to determine Chapter 9-1 applicability."
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeChapter9Dash1Applicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:message "Chapter 9-1 applicability shall be recorded as a boolean."
+    ] ;
+    sh:sparql [
+        sh:message "Chapter 9-1 applicability, including the required type-specific inputs and units, does not match the regulatory applicability rule." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipType ?type .
+                $this nltl:polarCodeChapter9Dash1Applicable ?app .
+
+                OPTIONAL {
+                    $this nltl:lengthOverall ?lengthQuantity .
+                    ?lengthQuantity qudt:numericValue ?lengthValue ;
+                                     qudt:unit ?lengthUnit .
+                }
+
+                OPTIONAL {
+                    $this nltl:grossTonnage ?tonnageQuantity .
+                    ?tonnageQuantity qudt:numericValue ?tonnageValue ;
+                                     qudt:unit ?tonnageUnit .
+                }
+
+                OPTIONAL {
+                    $this nltl:engagedInTrade ?trade .
+                }
+
+                BIND(
+                    IF(
+                        ?type = "fishing_vessel" &&
+                        BOUND(?lengthValue) &&
+                        ?lengthValue >= "24"^^xsd:decimal,
+                        true,
+                        IF(
+                            ?type = "pleasure_yacht" &&
+                            BOUND(?tonnageValue) &&
+                            ?tonnageValue >= "300"^^xsd:decimal &&
+                            BOUND(?trade) &&
+                            ?trade = false,
+                            true,
+                            IF(
+                                ?type = "cargo_ship" &&
+                                BOUND(?tonnageValue) &&
+                                ?tonnageValue >= "300"^^xsd:decimal &&
+                                ?tonnageValue < "500"^^xsd:decimal,
+                                true,
+                                false
+                            )
+                        )
+                    ) AS ?expected
+                )
+
+                FILTER(
+                    (
+                        ?type = "fishing_vessel" &&
+                        (
+                            !BOUND(?lengthQuantity) ||
+                            !BOUND(?lengthValue) ||
+                            datatype(?lengthValue) != xsd:decimal ||
+                            !BOUND(?lengthUnit) ||
+                            ?lengthUnit != <http://qudt.org/vocab/unit/M>
+                        )
+                    ) ||
+                    (
+                        (
+                            ?type = "pleasure_yacht" ||
+                            ?type = "cargo_ship"
+                        ) &&
+                        (
+                            !BOUND(?tonnageQuantity) ||
+                            !BOUND(?tonnageValue) ||
+                            datatype(?tonnageValue) != xsd:decimal ||
+                            !BOUND(?tonnageUnit) ||
+                            ?tonnageUnit != <http://qudt.org/vocab/unit/UNITLESS>
+                        )
+                    ) ||
+                    (
+                        ?type = "pleasure_yacht" &&
+                        (
+                            !BOUND(?trade) ||
+                            datatype(?trade) != xsd:boolean
+                        )
+                    ) ||
+                    ?app != ?expected
+                )
+            }
+        """
+    ] .
+<END_SHACL>

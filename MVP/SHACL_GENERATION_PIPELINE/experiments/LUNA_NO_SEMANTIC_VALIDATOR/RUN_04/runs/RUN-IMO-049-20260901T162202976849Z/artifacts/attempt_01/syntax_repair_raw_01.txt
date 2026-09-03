@@ -1,0 +1,118 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-049-ShipShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:minCount 1 ;
+        sh:in (
+            nltl:polarShipCategoryA
+            nltl:polarShipCategoryB
+            nltl:polarShipCategoryC
+        )
+    ] ;
+    sh:property [
+        sh:path nltl:shipIceStrengthened ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:machineryComponentType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:hasValue nltl:polarShipCategoryA
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:hasValue nltl:polarShipCategoryB
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipCategory ;
+                sh:hasValue nltl:polarShipCategoryC
+            ] ;
+            sh:property [
+                sh:path nltl:shipIceStrengthened ;
+                sh:hasValue true
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each linked machinery component requires an approved A/B scantling approval record with an authorized authority and an acceptable or equivalent-safety standard." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory ?category ;
+                      nltl:hasComponent ?component .
+                FILTER (?category IN (
+                    nltl:polarShipCategoryA,
+                    nltl:polarShipCategoryB
+                ))
+                FILTER NOT EXISTS {
+                    ?component nltl:hasApprovalRecord ?record .
+                    ?record nltl:scantlingApprovalStatus nltl:evidenceStateApproved ;
+                            nltl:approvingAuthority ?authority ;
+                            nltl:approvalStandard ?standard .
+                    FILTER (?authority IN (
+                        "Administration",
+                        "recognized organization accepted by the Administration"
+                    ))
+                    FILTER (?standard IN (
+                        "standard acceptable to the Organization",
+                        "another standard offering an equivalent level of safety"
+                    ))
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Each linked machinery component requires an approved Category C scantling approval record with an authorized authority, an adequate acceptable standard, and operating ice type and concentration." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipCategory nltl:polarShipCategoryC ;
+                      nltl:shipIceStrengthened true ;
+                      nltl:hasComponent ?component .
+                FILTER NOT EXISTS {
+                    ?component nltl:hasApprovalRecord ?record .
+                    ?record nltl:scantlingApprovalStatus nltl:evidenceStateApproved ;
+                            nltl:approvingAuthority ?authority ;
+                            nltl:approvalStandard ?standard ;
+                            nltl:operatingIceType ?iceType ;
+                            nltl:operatingIceConcentration ?concentration .
+                    FILTER (?authority IN (
+                        "Administration",
+                        "recognized organization accepted by the Administration"
+                    ))
+                    FILTER (?standard =
+                        "acceptable standard adequate for operating ice type and concentration")
+                    ?concentration qudt:numericValue ?numericValue ;
+                                   qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                    FILTER (datatype(?numericValue) = xsd:decimal)
+                }
+            }
+        """
+    ] .
+<END_SHACL>

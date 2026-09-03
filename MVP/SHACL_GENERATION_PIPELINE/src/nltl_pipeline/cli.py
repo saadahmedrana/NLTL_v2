@@ -11,6 +11,8 @@ from .config import PIPELINE_ROOT, PipelineConfig
 from .errors import PipelineError
 from .evaluator.bulk import BulkRdfEvaluator, EvaluationManifest
 from .orchestration.runner import PipelineRunner, identifier
+from .orchestration.singleshot import ContextualSingleShotRunner
+from .orchestration.no_semantic_validator import NoSemanticValidatorRunner
 from .reporting.costs import terminal_cost_summary, write_cost_ledger
 from .retrieval.context import VocabularyRepository
 from .retrieval.fewshot import FewShotSelector
@@ -77,6 +79,34 @@ def make_parser() -> argparse.ArgumentParser:
     batch = sub.add_parser("generate-batch", help="Run a live requirement queue sequentially")
     batch.add_argument("--queue", type=Path, required=True)
     batch.add_argument("--allow-deferred", action="store_true")
+
+    single = sub.add_parser(
+        "contextual-single-shot",
+        help="Run exactly one contextual generator call followed by read-only diagnostics",
+    )
+    single.add_argument("--requirement", required=True)
+    single.add_argument("--allow-deferred", action="store_true")
+
+    single_batch = sub.add_parser(
+        "contextual-single-shot-batch",
+        help="Run a queue with exactly one generator call per requirement and no LLM repair",
+    )
+    single_batch.add_argument("--queue", type=Path, required=True)
+    single_batch.add_argument("--allow-deferred", action="store_true")
+
+    no_validator = sub.add_parser(
+        "no-semantic-validator",
+        help="Run one normal generator call with syntax repair but no semantic validator",
+    )
+    no_validator.add_argument("--requirement", required=True)
+    no_validator.add_argument("--allow-deferred", action="store_true")
+
+    no_validator_batch = sub.add_parser(
+        "no-semantic-validator-batch",
+        help="Run a queue with syntax repair retained and semantic validation removed",
+    )
+    no_validator_batch.add_argument("--queue", type=Path, required=True)
+    no_validator_batch.add_argument("--allow-deferred", action="store_true")
 
     evaluate = sub.add_parser("evaluate", help="Run frozen SHACL shapes against RDF graphs without an LLM")
     evaluate.add_argument("--manifest", type=Path, required=True)
@@ -156,7 +186,12 @@ def main(argv: list[str] | None = None) -> None:
             print(json.dumps({"status": "PASS", "output": str(result)}, indent=2))
             return
 
-        runner = PipelineRunner(config, live_progress=True)
+        if args.command in {"contextual-single-shot", "contextual-single-shot-batch"}:
+            runner = ContextualSingleShotRunner(config, live_progress=True)
+        elif args.command in {"no-semantic-validator", "no-semantic-validator-batch"}:
+            runner = NoSemanticValidatorRunner(config, live_progress=True)
+        else:
+            runner = PipelineRunner(config, live_progress=True)
         if args.command == "offline-smoke":
             client = ScriptedResponsesClient(offline_smoke_responses(args.requirement))
             result = runner.run_requirement(args.requirement, client)
@@ -165,6 +200,22 @@ def main(argv: list[str] | None = None) -> None:
             return
 
         client = AaltoResponsesClient(config)
+        if args.command == "contextual-single-shot":
+            result = runner.run_requirement(
+                args.requirement,
+                client,
+                allow_deferred=args.allow_deferred,
+            )
+            print(json.dumps(result.to_dict(), indent=2, ensure_ascii=True))
+            return
+        if args.command == "no-semantic-validator":
+            result = runner.run_requirement(
+                args.requirement,
+                client,
+                allow_deferred=args.allow_deferred,
+            )
+            print(json.dumps(result.to_dict(), indent=2, ensure_ascii=True))
+            return
         if args.command == "generate":
             result = runner.run_requirement(
                 args.requirement,
@@ -181,7 +232,15 @@ def main(argv: list[str] | None = None) -> None:
             queue,
             str(runner.vocabulary.lock_info.get("lock_id", "")),
         )
-        session_id = identifier("SESSION-BATCH")
+        single_shot_batch = args.command == "contextual-single-shot-batch"
+        no_validator_batch = args.command == "no-semantic-validator-batch"
+        if single_shot_batch:
+            session_prefix = "SESSION-SINGLESHOT-BATCH"
+        elif no_validator_batch:
+            session_prefix = "SESSION-NO-SEMANTIC-VALIDATOR-BATCH"
+        else:
+            session_prefix = "SESSION-BATCH"
+        session_id = identifier(session_prefix)
         results = []
         total_items = repetitions * len(requirements)
         print(
@@ -230,40 +289,71 @@ def main(argv: list[str] | None = None) -> None:
                         flush=True,
                     )
         accepted_count = sum(1 for item in results if item.get("accepted") is True)
+        deterministic_valid_count = sum(
+            1 for item in results if item.get("deterministic_valid") is True
+        )
         session_directory = config.path("outputs") / "sessions" / session_id
         session_directory.mkdir(parents=True, exist_ok=True)
         session_result = session_directory / "batch_result.json"
+        batch_payload = {
+            "session_id": session_id,
+            "pipeline_version": config.raw["pipeline_version"],
+            "vocabulary_lock_id": str(runner.vocabulary.lock_info.get("lock_id", "")),
+            "queue": str(queue_path),
+            "requirements": len(requirements),
+            "repetitions": repetitions,
+            "total_items": total_items,
+            "accepted": accepted_count,
+            "results": results,
+        }
+        if single_shot_batch:
+            batch_payload["deterministic_valid"] = deterministic_valid_count
+            batch_payload["execution_mode"] = "LUNA_CONTEXTUAL_SINGLESHOT"
+        elif no_validator_batch:
+            batch_payload["deterministic_valid"] = deterministic_valid_count
+            batch_payload["execution_mode"] = "LUNA_NO_SEMANTIC_VALIDATOR"
+            batch_payload["input_tokens"] = sum(int(item.get("input_tokens") or 0) for item in results)
+            batch_payload["output_tokens"] = sum(int(item.get("output_tokens") or 0) for item in results)
+            batch_payload["total_tokens"] = sum(int(item.get("total_tokens") or 0) for item in results)
+            batch_payload["estimated_cost_usd"] = sum(
+                float(item.get("estimated_cost_usd") or 0.0) for item in results
+            )
         session_result.write_text(
             json.dumps(
-                {
-                    "session_id": session_id,
-                    "pipeline_version": config.raw["pipeline_version"],
-                    "vocabulary_lock_id": str(runner.vocabulary.lock_info.get("lock_id", "")),
-                    "queue": str(queue_path),
-                    "requirements": len(requirements),
-                    "repetitions": repetitions,
-                    "total_items": total_items,
-                    "accepted": accepted_count,
-                    "results": results,
-                },
+                batch_payload,
                 indent=2,
                 ensure_ascii=True,
             ) + "\n",
             encoding="utf-8",
         )
-        print(
-            f"[BATCH] FINISH session={session_id} accepted={accepted_count}/{total_items}",
-            file=sys.stderr,
-            flush=True,
-        )
+        if single_shot_batch or no_validator_batch:
+            print(
+                f"[BATCH] FINISH session={session_id} captured={len(results)}/{total_items} "
+                f"deterministic_valid={deterministic_valid_count}",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(
+                f"[BATCH] FINISH session={session_id} accepted={accepted_count}/{total_items}",
+                file=sys.stderr,
+                flush=True,
+            )
         print(f"[BATCH] RESULT FILE {session_result}", file=sys.stderr, flush=True)
-        report_project_cost(config)
+        if not single_shot_batch and not no_validator_batch:
+            report_project_cost(config)
         print(json.dumps({"session_id": session_id, "results": results}, indent=2, ensure_ascii=True))
     except KeyboardInterrupt:
-        try:
-            report_project_cost(config)
-        except Exception as cost_exc:
-            print(f"[COST] WARNING could not refresh ledger: {type(cost_exc).__name__}: {cost_exc}", file=sys.stderr)
+        if args.command not in {
+            "contextual-single-shot",
+            "contextual-single-shot-batch",
+            "no-semantic-validator",
+            "no-semantic-validator-batch",
+        }:
+            try:
+                report_project_cost(config)
+            except Exception as cost_exc:
+                print(f"[COST] WARNING could not refresh ledger: {type(cost_exc).__name__}: {cost_exc}", file=sys.stderr)
         print("Run interrupted safely; completed JSONL events remain in the run folder.", file=sys.stderr)
         raise SystemExit(130)
     except (PipelineError, ValueError, OSError, json.JSONDecodeError) as exc:

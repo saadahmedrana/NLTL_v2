@@ -1,0 +1,207 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:TRF052FrameShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:frame ;
+    sh:property [
+        sh:path nltl:frameAsymmetrical ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpan ;
+        sh:node gen:FrameSpanQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:frameWebAngleToShell ;
+        sh:node gen:FrameWebAngleQuantityShape ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentSupportStatusByDirectCalculation ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "When frame asymmetry is false, a valid frame web angle to shell is required to determine tripping-support applicability." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameAsymmetrical ?asym .
+                FILTER (?asym = false)
+                FILTER NOT EXISTS {
+                    $this nltl:frameWebAngleToShell ?angleNode .
+                    ?angleNode qudt:numericValue ?angleValue ;
+                               qudt:unit qudt:DEG .
+                    FILTER (datatype(?angleValue) = xsd:decimal)
+                }
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For an asymmetrical frame, antitripping support spacing must be present and must not exceed 1300 mm unless equivalent support is demonstrated." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameAsymmetrical ?asym ;
+                       nltl:equivalentSupportStatusByDirectCalculation ?equivalent .
+                FILTER (?asym = true && ?equivalent != true)
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:antitrippingSupportSpacing ?spacingNode .
+                        ?spacingNode qudt:numericValue ?spacingValue ;
+                                     qudt:unit qudt:MilliM .
+                        FILTER (datatype(?spacingValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:antitrippingSupportSpacing ?spacingNode2 .
+                        ?spacingNode2 qudt:numericValue ?spacingValue2 ;
+                                      qudt:unit qudt:MilliM .
+                        FILTER (datatype(?spacingValue2) = xsd:decimal && ?spacingValue2 > 1300)
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "For a frame with a web angle below 90 degrees, antitripping support spacing must be present and must not exceed 1300 mm unless equivalent support is demonstrated." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameAsymmetrical ?asym ;
+                       nltl:equivalentSupportStatusByDirectCalculation ?equivalent ;
+                       nltl:frameWebAngleToShell ?angleNode .
+                ?angleNode qudt:numericValue ?angleValue ;
+                           qudt:unit qudt:DEG .
+                FILTER (
+                    ?asym = false &&
+                    ?equivalent != true &&
+                    datatype(?angleValue) = xsd:decimal &&
+                    ?angleValue < 90
+                )
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:antitrippingSupportSpacing ?spacingNode .
+                        ?spacingNode qudt:numericValue ?spacingValue ;
+                                     qudt:unit qudt:MilliM .
+                        FILTER (datatype(?spacingValue) = xsd:decimal)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:antitrippingSupportSpacing ?spacingNode2 .
+                        ?spacingNode2 qudt:numericValue ?spacingValue2 ;
+                                      qudt:unit qudt:MilliM .
+                        FILTER (datatype(?spacingValue2) = xsd:decimal && ?spacingValue2 > 1300)
+                    }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The antitripping support region scope does not satisfy the applicable frame-span and ice-class requirement unless equivalent support is demonstrated." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:frameSpan ?spanNode ;
+                       nltl:iceClass ?ice ;
+                       nltl:equivalentSupportStatusByDirectCalculation ?equivalent .
+                ?spanNode qudt:numericValue ?spanValue ;
+                          qudt:unit qudt:M .
+                FILTER (datatype(?spanValue) = xsd:decimal && ?equivalent != true)
+                FILTER (
+                    (
+                        ?spanValue > 4 &&
+                        (
+                            NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:bowRegion } ||
+                            NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:midbodyRegion } ||
+                            NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:sternRegion }
+                        )
+                    )
+                    ||
+                    (
+                        ?spanValue <= 4 &&
+                        ?ice = nltl:iceClassIaSuper &&
+                        (
+                            NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:bowRegion } ||
+                            NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:midbodyRegion } ||
+                            NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:sternRegion }
+                        )
+                    )
+                    ||
+                    (
+                        ?spanValue <= 4 &&
+                        ?ice = nltl:iceClassIa &&
+                        (
+                            NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:bowRegion } ||
+                            NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:midbodyRegion }
+                        )
+                    )
+                    ||
+                    (
+                        ?spanValue <= 4 &&
+                        (
+                            ?ice = nltl:iceClassIb ||
+                            ?ice = nltl:iceClassIc
+                        ) &&
+                        NOT EXISTS { $this nltl:hasAntitrippingSupportRegion nltl:bowRegion }
+                    )
+                )
+            }
+        """
+    ] .
+
+gen:FrameSpanQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:FrameWebAngleQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue qudt:DEG ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

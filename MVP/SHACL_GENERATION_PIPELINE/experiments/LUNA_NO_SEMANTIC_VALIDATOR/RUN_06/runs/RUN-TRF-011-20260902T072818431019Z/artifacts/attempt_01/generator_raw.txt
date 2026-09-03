@@ -1,0 +1,125 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF011ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasIntendedIceOperatingWaterline ;
+        sh:nodeKind sh:BlankNodeOrIRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:TRF011IceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "The ship must identify the intended ice-operating waterline." ;
+    ] ;
+    sh:property [
+        sh:path nltl:hasUpperIceWaterline ;
+        sh:nodeKind sh:BlankNodeOrIRI ;
+        sh:class nltl:iceWaterline ;
+        sh:node gen:TRF011IceWaterlineShape ;
+        sh:minCount 1 ;
+        sh:message "The ship must identify an upper ice waterline." ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The upper ice waterline must equal, pointwise, the envelope of the highest intended ice-operating waterline points." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  {
+    SELECT ?x
+           (MAX(?iv) AS ?maxIv)
+           (COUNT(?iv) AS ?intCount)
+    WHERE {
+      {
+        $this nltl:hasIntendedIceOperatingWaterline ?intWaterline .
+        ?intWaterline nltl:hasWaterlineProfilePoint ?intPoint .
+        ?intPoint nltl:longitudinalPosition/qudt:numericValue ?x .
+        ?intPoint nltl:verticalCoordinate/qudt:numericValue ?iv .
+      }
+      UNION
+      {
+        $this nltl:hasUpperIceWaterline ?upperWaterline .
+        ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+        ?upperPoint nltl:longitudinalPosition/qudt:numericValue ?x .
+      }
+    }
+    GROUP BY ?x
+  }
+
+  {
+    FILTER(?intCount = 0)
+  }
+  UNION
+  {
+    FILTER(?intCount > 0)
+    FILTER NOT EXISTS {
+      $this nltl:hasUpperIceWaterline ?upperWaterline1 .
+      ?upperWaterline1 nltl:hasWaterlineProfilePoint ?upperPoint1 .
+      ?upperPoint1 nltl:longitudinalPosition/qudt:numericValue ?x .
+    }
+  }
+  UNION
+  {
+    FILTER(?intCount > 0)
+    $this nltl:hasUpperIceWaterline ?upperWaterline2 .
+    ?upperWaterline2 nltl:hasWaterlineProfilePoint ?upperPoint2 .
+    ?upperPoint2 nltl:longitudinalPosition/qudt:numericValue ?x .
+    ?upperPoint2 nltl:verticalCoordinate/qudt:numericValue ?uv .
+    FILTER(ABS(?uv - ?maxIv) > (0.000000001 + (ABS(?maxIv) * 0.000001)))
+  }
+}
+""" ;
+    ] .
+
+gen:TRF011IceWaterlineShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:hasWaterlineProfilePoint ;
+        sh:nodeKind sh:BlankNodeOrIRI ;
+        sh:class nltl:waterlineProfilePoint ;
+        sh:node gen:TRF011ProfilePointShape ;
+        sh:minCount 1 ;
+    ] .
+
+gen:TRF011ProfilePointShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:longitudinalPosition ;
+        sh:nodeKind sh:BlankNodeOrIRI ;
+        sh:node gen:TRF011LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:verticalCoordinate ;
+        sh:nodeKind sh:BlankNodeOrIRI ;
+        sh:node gen:TRF011LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+gen:TRF011LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+<END_SHACL>

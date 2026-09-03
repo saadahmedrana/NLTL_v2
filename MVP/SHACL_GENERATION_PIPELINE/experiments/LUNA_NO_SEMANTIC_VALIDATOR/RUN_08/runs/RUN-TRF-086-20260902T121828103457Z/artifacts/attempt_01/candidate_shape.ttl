@@ -1,0 +1,76 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-086-PropellerPitch>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship shall have exactly one propeller type."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a CP propeller, pitchValueKnown shall be a single boolean. If the pitch is known, propellerPitchAtMcrBollard shall be a single metre quantity. If it is not known, propellerPitchAtMcrBollard shall equal 0.7 times propellerPitchAtMcrFreeRunning within the permitted numerical tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:propellerType ?propellerType .
+                FILTER (?propellerType = "CP")
+
+                FILTER NOT EXISTS {
+                    $this nltl:pitchValueKnown ?known .
+                    FILTER (datatype(?known) = xsd:boolean)
+
+                    FILTER (
+                        (?known = true &&
+                         EXISTS {
+                             $this nltl:propellerPitchAtMcrBollard ?bollard .
+                             ?bollard rdf:type qudt:QuantityValue ;
+                                      qudt:numericValue ?bollardValue ;
+                                      qudt:unit unit:M .
+                             FILTER (datatype(?bollardValue) = xsd:decimal)
+                         })
+                        ||
+                        (?known = false &&
+                         EXISTS {
+                             $this nltl:propellerPitchAtMcrFreeRunning ?freeRunning .
+                             ?freeRunning rdf:type qudt:QuantityValue ;
+                                          qudt:numericValue ?freeValue ;
+                                          qudt:unit unit:M .
+                             FILTER (datatype(?freeValue) = xsd:decimal)
+
+                             $this nltl:propellerPitchAtMcrBollard ?bollard .
+                             ?bollard rdf:type qudt:QuantityValue ;
+                                      qudt:numericValue ?bollardValue ;
+                                      qudt:unit unit:M .
+                             FILTER (datatype(?bollardValue) = xsd:decimal)
+
+                             BIND (0.7 * ?freeValue AS ?expectedValue)
+                             FILTER (
+                                 ABS(?bollardValue - ?expectedValue)
+                                 <=
+                                 (
+                                     0.000001 * ABS(?expectedValue)
+                                     +
+                                     0.000000001
+                                 )
+                             )
+                         })
+                    )
+                }
+            }
+        """ ;
+    ] .

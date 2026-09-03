@@ -1,0 +1,160 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:I2-064> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class nltl:calculationCase ;
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:hasValue nltl:linearCalculationMethodValue ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:message "A linear calculation case with the prescribed linear calculation method is required."
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:message "Yield strength in MPa is required for the applicable structural calculation."
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node [
+            sh:class nltl:structuralMember ;
+            sh:property [
+                sh:path nltl:bucklingCriteriaSatisfied ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "The applicable buckling criteria must be confirmed as satisfied."
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberWeb ;
+                sh:node [
+                    sh:class nltl:structuralMemberWeb ;
+                    sh:property [
+                        sh:path nltl:nominalShearStress ;
+                        sh:minCount 1 ;
+                        sh:node [
+                            sh:class qudt:QuantityValue ;
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ] ;
+                            sh:property [
+                                sh:path qudt:unit ;
+                                sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ]
+                        ] ;
+                        sh:message "Nominal shear stress in the web is required in MPa."
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberFlange ;
+                sh:node [
+                    sh:class nltl:structuralMemberFlange ;
+                    sh:property [
+                        sh:path nltl:nominalFlangeVonMisesStress ;
+                        sh:minCount 1 ;
+                        sh:node [
+                            sh:class qudt:QuantityValue ;
+                            sh:property [
+                                sh:path qudt:numericValue ;
+                                sh:datatype xsd:decimal ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ] ;
+                            sh:property [
+                                sh:path qudt:unit ;
+                                sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+                                sh:minCount 1 ;
+                                sh:maxCount 1
+                            ]
+                        ] ;
+                        sh:message "Nominal flange von Mises stress is required in MPa."
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Nominal shear stress in every represented member web must be less than yield strength divided by sqrt(3)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasCalculationCase ?case ;
+                      nltl:yieldStrength ?yield ;
+                      nltl:hasStructuralMember ?member .
+                ?case nltl:calculationMethod nltl:linearCalculationMethodValue .
+                ?member nltl:hasStructuralMemberWeb ?web .
+                ?web nltl:nominalShearStress ?shear .
+                ?yield qudt:numericValue ?yieldValue .
+                ?shear qudt:numericValue ?shearValue .
+                FILTER (
+                    datatype(?yieldValue) = xsd:decimal &&
+                    datatype(?shearValue) = xsd:decimal &&
+                    ?shearValue >= (?yieldValue / 1.7320508075688772)
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Nominal von Mises stress in every represented member flange must be less than 1.15 times yield strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:hasCalculationCase ?case ;
+                      nltl:yieldStrength ?yield ;
+                      nltl:hasStructuralMember ?member .
+                ?case nltl:calculationMethod nltl:linearCalculationMethodValue .
+                ?member nltl:hasStructuralMemberFlange ?flange .
+                ?flange nltl:nominalFlangeVonMisesStress ?stress .
+                ?yield qudt:numericValue ?yieldValue .
+                ?stress qudt:numericValue ?stressValue .
+                FILTER (
+                    datatype(?yieldValue) = xsd:decimal &&
+                    datatype(?stressValue) = xsd:decimal &&
+                    ?stressValue >= (1.15 * ?yieldValue)
+                )
+            }
+        """
+    ] .
+<END_SHACL>

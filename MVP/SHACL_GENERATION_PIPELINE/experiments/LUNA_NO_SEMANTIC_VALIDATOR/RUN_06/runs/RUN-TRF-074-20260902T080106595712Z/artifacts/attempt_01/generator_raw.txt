@@ -1,0 +1,111 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qdt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qdt:QuantityValue ;
+    sh:property [
+        sh:path qdt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A length quantity must have one decimal numeric value."
+    ] ;
+    sh:property [
+        sh:path qdt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:nodeKind sh:IRI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A length quantity must use metres."
+    ] .
+
+gen:TRF074NonApplicableShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:in (
+            nltl:iceClassIaSuper
+            nltl:iceClassIa
+            nltl:iceClassIi
+            nltl:iceClassIii
+        ) ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:message "The ship ice class must be a non-applicable ice class for this condition."
+    ] .
+
+gen:TRF074ApplicableShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:in (
+            nltl:iceClassIb
+            nltl:iceClassIc
+        ) ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:message "The ship ice class must be IB or IC for this conditional rule."
+    ] ;
+    sh:property [
+        sh:path nltl:ballastConditionPropellerTopDepth ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "For ice class IB or IC, the ballast-condition propeller top depth is required."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredPropellerSubmersionDepthHi ;
+        sh:node gen:LengthQuantityShape ;
+        sh:minCount 1 ;
+        sh:message "For ice class IB or IC, the required propeller submersion depth hi is required."
+    ] .
+
+gen:TRF074ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:class nltl:iceClassValue ;
+        sh:minCount 1 ;
+        sh:message "The ship must specify an ice class."
+    ] ;
+    sh:or (
+        gen:TRF074NonApplicableShape
+        gen:TRF074ApplicableShape
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For ice class IB or IC, if the propeller top is not at least hi below the water surface in ballast condition, the propulsion system must be designed for ice class IA." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qdt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?iceClass .
+                FILTER (
+                    ?iceClass IN (
+                        nltl:iceClassIb,
+                        nltl:iceClassIc
+                    )
+                )
+                $this nltl:ballastConditionPropellerTopDepth ?depthQuantity .
+                ?depthQuantity qdt:numericValue ?depth .
+                $this nltl:requiredPropellerSubmersionDepthHi ?hiQuantity .
+                ?hiQuantity qdt:numericValue ?hi .
+                FILTER (?depth < ?hi)
+                FILTER NOT EXISTS {
+                    $this nltl:propulsionSystemDesignedForIceClass nltl:iceClassIa .
+                }
+            }
+        """
+    ] .
+<END_SHACL>

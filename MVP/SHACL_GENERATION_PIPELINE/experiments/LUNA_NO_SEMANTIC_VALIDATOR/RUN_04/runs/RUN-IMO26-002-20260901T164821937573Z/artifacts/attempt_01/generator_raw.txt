@@ -1,0 +1,152 @@
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix q: <http://qudt.org/schema/qudt/> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:IMO26_002_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:shipType ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "fishing_vessel" "pleasure_yacht" "cargo_ship" )
+    ] ;
+    sh:property [
+        sh:path nltl:polarCodeChapter9Dash1Applicable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:shipType ;
+                sh:hasValue "fishing_vessel"
+            ] ;
+            sh:property [
+                sh:path nltl:lengthOverall ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipType ;
+                sh:hasValue "pleasure_yacht"
+            ] ;
+            sh:property [
+                sh:path nltl:grossTonnage ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:engagedInTrade ;
+                sh:datatype xsd:boolean ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:shipType ;
+                sh:hasValue "cargo_ship"
+            ] ;
+            sh:property [
+                sh:path nltl:grossTonnage ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Chapter 9-1 applicability does not match the ship type, dimensions, gross tonnage, and trade status." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX q: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:shipType ?type .
+                $this nltl:polarCodeChapter9Dash1Applicable ?actual .
+
+                BIND(EXISTS {
+                    $this nltl:shipType "fishing_vessel" .
+                    $this nltl:lengthOverall ?lengthNode .
+                    ?lengthNode q:numericValue ?lengthValue .
+                    FILTER(?lengthValue >= 24)
+                } AS ?fishingApplicable)
+
+                BIND(EXISTS {
+                    $this nltl:shipType "pleasure_yacht" .
+                    $this nltl:grossTonnage ?tonnageNode .
+                    ?tonnageNode q:numericValue ?tonnageValue .
+                    $this nltl:engagedInTrade false .
+                    FILTER(?tonnageValue >= 300)
+                } AS ?yachtApplicable)
+
+                BIND(EXISTS {
+                    $this nltl:shipType "cargo_ship" .
+                    $this nltl:grossTonnage ?cargoTonnageNode .
+                    ?cargoTonnageNode q:numericValue ?cargoTonnageValue .
+                    FILTER(?cargoTonnageValue >= 300 && ?cargoTonnageValue < 500)
+                } AS ?cargoApplicable)
+
+                BIND((?fishingApplicable || ?yachtApplicable || ?cargoApplicable) AS ?expected)
+
+                FILTER(
+                    (?actual = true && ?expected = false) ||
+                    (?actual = false && ?expected = true)
+                )
+            }
+        """
+    ] .
+</END_SHACL>

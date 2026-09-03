@@ -1,0 +1,68 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF006Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:message "A construction-stage date is required to determine whether the 1985 Ice Class Rules apply."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For ships whose construction stage began on or after 1986-11-01 and before 2003-09-01, the applicable ice-class edition must be 1985, the ice class must be represented, and engine-output edition 2008 is permitted only when requested by the owner." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:constructionStageDate ?date .
+                FILTER (
+                    ?date >= "1986-11-01"^^xsd:date &&
+                    ?date < "2003-09-01"^^xsd:date
+                )
+
+                FILTER (
+                    NOT EXISTS {
+                        $this nltl:applicableIceClassRegulationEdition
+                            nltl:iceClassRuleEdition1985 .
+                        $this nltl:iceClass ?iceClass .
+                        FILTER (isIRI(?iceClass))
+                        $this nltl:ownerRequested2008EngineOutputRequirements ?requested .
+                        $this nltl:engineOutputRegulationEdition ?engineEdition .
+                        FILTER (
+                            (?requested = true &&
+                             ?engineEdition = nltl:iceClassRegulationEdition2008) ||
+                            (?requested = false &&
+                             ?engineEdition = nltl:iceClassRuleEdition1985)
+                        )
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:applicableIceClassRegulationEdition ?appEdition .
+                        FILTER (?appEdition != nltl:iceClassRuleEdition1985)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:ownerRequested2008EngineOutputRequirements ?requestValue .
+                        FILTER (?requestValue != true && ?requestValue != false)
+                    }
+                    ||
+                    EXISTS {
+                        $this nltl:engineOutputRegulationEdition ?outputEdition .
+                        FILTER (
+                            ?outputEdition != nltl:iceClassRuleEdition1985 &&
+                            ?outputEdition != nltl:iceClassRegulationEdition2008
+                        )
+                    }
+                )
+            }
+        """
+    ] .
+<END_SHACL>
