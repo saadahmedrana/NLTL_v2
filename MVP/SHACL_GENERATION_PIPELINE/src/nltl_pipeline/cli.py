@@ -54,8 +54,7 @@ gen:IMO26_014 a sh:NodeShape ;
     return {
         "generator": [wrong_shape, correct_shape],
         "validator": [
-            '{"accept":false,"activate_variable_matcher":true,"feedback":"Replace visualIceDetectionLightCount with the verified canonical property for the number of illumination means used for visual ice detection."}',
-            '{"accept":true,"activate_variable_matcher":false,"feedback":"The conditional minimum-count logic, target, datatype, and canonical vocabulary are suitable for later RDF evaluation."}',
+            '{"accept":true,"activate_variable_matcher":false,"currentIssues":[]}',
         ],
         "vocabulary_matcher": [
             '{"match_found":true,"canonical_local_name":"visualIceDetectionIlluminationMeansCount","canonical_iri":"https://w3id.org/nltl/vocab#visualIceDetectionIlluminationMeansCount","feedback_appendix":"This indexed integer property exactly represents the number of illumination means for visual ice detection."}'

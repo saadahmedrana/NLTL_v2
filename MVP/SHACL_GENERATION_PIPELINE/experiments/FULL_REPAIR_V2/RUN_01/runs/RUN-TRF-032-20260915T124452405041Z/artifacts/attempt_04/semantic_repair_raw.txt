@@ -1,0 +1,238 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF032Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceStrengtheningStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:or (
+        gs:TRF032IceStrengthenedBranch
+        gs:TRF032NotIceStrengthenedBranch
+    ) ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the ship is not ice strengthened and the regulation-required scantling is less than the classification-society-required scantling, the selected design scantling must equal the classification-society-required scantling after unit normalization. Unit normalization must use identical units or complete, quantity-kind-compatible conversion metadata." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:iceStrengtheningStatus false ;
+                      nltl:regulationRequiredScantling ?regulationScantling ;
+                      nltl:classificationSocietyRequiredScantling ?classificationScantling .
+
+                ?regulationScantling qudt:numericValue ?regulationValue ;
+                                     qudt:unit ?regulationUnit .
+                ?classificationScantling qudt:numericValue ?classificationValue ;
+                                          qudt:unit ?classificationUnit .
+
+                OPTIONAL {
+                    ?regulationUnit qudt:hasQuantityKind ?regulationKind .
+                }
+                OPTIONAL {
+                    ?regulationUnit qudt:conversionMultiplier ?regulationMultiplier .
+                }
+                OPTIONAL {
+                    ?regulationUnit qudt:conversionOffset ?regulationOffset .
+                }
+                OPTIONAL {
+                    ?classificationUnit qudt:hasQuantityKind ?classificationKind .
+                }
+                OPTIONAL {
+                    ?classificationUnit qudt:conversionMultiplier ?classificationMultiplier .
+                }
+                OPTIONAL {
+                    ?classificationUnit qudt:conversionOffset ?classificationOffset .
+                }
+
+                FILTER (
+                    datatype(?regulationValue) = xsd:decimal &&
+                    datatype(?classificationValue) = xsd:decimal
+                )
+
+                BIND((?regulationUnit = ?classificationUnit) AS ?sameRequiredUnit)
+
+                BIND((
+                    ?sameRequiredUnit ||
+                    (
+                        BOUND(?regulationKind) &&
+                        BOUND(?classificationKind) &&
+                        ?regulationKind = ?classificationKind &&
+                        BOUND(?regulationMultiplier) &&
+                        BOUND(?regulationOffset) &&
+                        BOUND(?classificationMultiplier) &&
+                        BOUND(?classificationOffset)
+                    )
+                ) AS ?requiredNormalizationValid)
+
+                BIND(
+                    IF(
+                        ?sameRequiredUnit,
+                        ?regulationValue,
+                        ?regulationValue * ?regulationMultiplier + ?regulationOffset
+                    )
+                    AS ?regulationNormalized
+                )
+                BIND(
+                    IF(
+                        ?sameRequiredUnit,
+                        ?classificationValue,
+                        ?classificationValue * ?classificationMultiplier + ?classificationOffset
+                    )
+                    AS ?classificationNormalized
+                )
+
+                OPTIONAL {
+                    $this nltl:selectedDesignScantling ?selectedScantling .
+                    ?selectedScantling qudt:numericValue ?selectedValue ;
+                                        qudt:unit ?selectedUnit .
+
+                    FILTER (datatype(?selectedValue) = xsd:decimal)
+
+                    OPTIONAL {
+                        ?selectedUnit qudt:hasQuantityKind ?selectedKind .
+                    }
+                    OPTIONAL {
+                        ?selectedUnit qudt:conversionMultiplier ?selectedMultiplier .
+                    }
+                    OPTIONAL {
+                        ?selectedUnit qudt:conversionOffset ?selectedOffset .
+                    }
+
+                    BIND((?selectedUnit = ?classificationUnit) AS ?sameSelectedUnit)
+
+                    BIND((
+                        ?sameSelectedUnit ||
+                        (
+                            BOUND(?selectedKind) &&
+                            BOUND(?classificationKind) &&
+                            ?selectedKind = ?classificationKind &&
+                            BOUND(?selectedMultiplier) &&
+                            BOUND(?selectedOffset) &&
+                            BOUND(?classificationMultiplier) &&
+                            BOUND(?classificationOffset)
+                        )
+                    ) AS ?selectedNormalizationValid)
+
+                    FILTER (?selectedNormalizationValid)
+
+                    BIND(
+                        IF(
+                            ?sameSelectedUnit,
+                            ?selectedValue,
+                            ?selectedValue * ?selectedMultiplier + ?selectedOffset
+                        )
+                        AS ?selectedNormalized
+                    )
+
+                    FILTER NOT EXISTS {
+                        $this nltl:selectedDesignScantling ?otherSelectedScantling .
+                        FILTER (?otherSelectedScantling != ?selectedScantling)
+                    }
+                }
+
+                FILTER (
+                    !?requiredNormalizationValid ||
+                    (
+                        BOUND(?regulationNormalized) &&
+                        BOUND(?classificationNormalized) &&
+                        ?regulationNormalized < ?classificationNormalized &&
+                        (
+                            !BOUND(?selectedScantling) ||
+                            !BOUND(?selectedValue) ||
+                            !BOUND(?selectedUnit) ||
+                            !BOUND(?selectedNormalized) ||
+                            ?selectedNormalized != ?classificationNormalized
+                        )
+                    )
+                )
+            }
+        """
+    ] .
+
+gs:TRF032IceStrengthenedBranch a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceStrengtheningStatus ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gs:TRF032NotIceStrengthenedBranch a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:iceStrengtheningStatus ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue false ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:regulationRequiredScantling ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:nodeKind sh:IRI ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:classificationSocietyRequiredScantling ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:nodeKind sh:IRI ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:selectedDesignScantling ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:nodeKind sh:IRI ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] .
+<END_SHACL>

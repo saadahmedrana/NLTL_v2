@@ -55,7 +55,7 @@ class BehavioralExperimentRunnerTests(unittest.TestCase):
         shape = root / "shape.ttl"
         shape.write_text(SHAPE, encoding="utf-8")
         generated = {
-            "manifest_id": "M1", "configuration": "FULL", "requirement_id": requirement,
+            "manifest_id": "M1", "generation_run": "RUN_01", "configuration": "FULL", "requirement_id": requirement,
             "source_id": "SRC", "generated_shacl_path": "shape.ttl",
             "generated_shacl_sha256": sha256(shape), "generation_status": status,
             "pipeline_final_status": "OK", "run_id": "G1", "generation_config_identifier": "CFG",
@@ -69,7 +69,7 @@ class BehavioralExperimentRunnerTests(unittest.TestCase):
     def test_05_missing_generated_shape(self) -> None:
         with tempfile.TemporaryDirectory() as name:
             root = Path(name); case = self._case(root); generated, _ = self._generated(root, status="NOT_GENERATED")
-            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), configuration="FULL", case=case, generated=generated, shape_graph=None, ontology_graph=Graph())
+            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), generation_run="RUN_01", configuration="FULL", case=case, generated=generated, shape_graph=None, ontology_graph=Graph())
             self.assertEqual(row["outcome_class"], "SHAPE_MISSING")
             self.assertIsNone(row["actual_conforms"])
 
@@ -83,28 +83,28 @@ class BehavioralExperimentRunnerTests(unittest.TestCase):
     def test_07_identity_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as name:
             root = Path(name); case = self._case(root); generated, graph = self._generated(root, requirement="R-2")
-            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), configuration="FULL", case=case, generated=generated, shape_graph=graph, ontology_graph=Graph())
+            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), generation_run="RUN_01", configuration="FULL", case=case, generated=generated, shape_graph=graph, ontology_graph=Graph())
             self.assertEqual(row["outcome_class"], "IDENTITY_MISMATCH")
 
     def test_08_duplicate_generated_rule(self) -> None:
         with tempfile.TemporaryDirectory() as name:
             path = Path(name) / "manifest.jsonl"
-            row = {"configuration": "FULL", "requirement_id": "R-1"}
+            row = {"generation_run": "RUN_01", "configuration": "FULL", "requirement_id": "R-1"}
             path.write_text(json.dumps(row) + "\n" + json.dumps(row) + "\n", encoding="utf-8")
-            with self.assertRaises(PreflightError): load_generated_manifest(path, "FULL")
+            with self.assertRaises(PreflightError): load_generated_manifest(path, "FULL", "RUN_01")
 
     def test_09_pyshacl_execution_exception(self) -> None:
         with tempfile.TemporaryDirectory() as name:
             root = Path(name); case = self._case(root); generated, graph = self._generated(root)
             def fail(*args, **kwargs): raise RuntimeError("synthetic execution failure")
-            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), configuration="FULL", case=case, generated=generated, shape_graph=graph, ontology_graph=Graph(), validate_fn=fail)
+            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), generation_run="RUN_01", configuration="FULL", case=case, generated=generated, shape_graph=graph, ontology_graph=Graph(), validate_fn=fail)
             self.assertEqual(row["outcome_class"], "PYSHACL_EXECUTION_ERROR")
             self.assertTrue((root / "out" / row["traceback_path"]).exists())
 
     def test_10_report_graph_capture(self) -> None:
         with tempfile.TemporaryDirectory() as name:
             root = Path(name); case = self._case(root); generated, graph = self._generated(root)
-            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), configuration="FULL", case=case, generated=generated, shape_graph=graph, ontology_graph=Graph())
+            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), generation_run="RUN_01", configuration="FULL", case=case, generated=generated, shape_graph=graph, ontology_graph=Graph())
             self.assertEqual(row["execution_status"], "EXECUTED")
             self.assertTrue((root / "out" / row["report_graph_path"]).exists())
 
@@ -120,7 +120,7 @@ class BehavioralExperimentRunnerTests(unittest.TestCase):
             called = False
             def validator(*args, **kwargs):
                 nonlocal called; called = True; return True, Graph(), ""
-            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), configuration="FULL", case=case, generated=generated, shape_graph=graph, ontology_graph=Graph(), validate_fn=validator)
+            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), generation_run="RUN_01", configuration="FULL", case=case, generated=generated, shape_graph=graph, ontology_graph=Graph(), validate_fn=validator)
             self.assertFalse(called); self.assertEqual(row["failure_stage"], "IDENTITY_CHECK")
 
     def test_13_duplicate_result_row_detection(self) -> None:
@@ -134,15 +134,31 @@ class BehavioralExperimentRunnerTests(unittest.TestCase):
             path = Path(name) / "ledger.jsonl"; row = {"configuration":"FULL","requirement_id":"R-1","case_id":"C-1"}
             path.write_text(json.dumps(row) + "\n", encoding="utf-8")
             rows, keys = load_ledger(path)
-            self.assertEqual(len(rows), 1); self.assertIn(("FULL", "R-1", "C-1"), keys)
+            self.assertEqual(len(rows), 1); self.assertIn(("RUN_01", "FULL", "R-1", "C-1"), keys)
 
     def test_15_final_expected_row_count_check(self) -> None:
-        rows = [{"configuration":"FULL","requirement_id":"R-1","case_id":"C-1"}]
-        validate_expected_keys(rows, {("FULL", "R-1", "C-1")})
+        rows = [{"generation_run":"RUN_01","configuration":"FULL","requirement_id":"R-1","case_id":"C-1"}]
+        validate_expected_keys(rows, {("RUN_01", "FULL", "R-1", "C-1")})
         with self.assertRaises(PreflightError):
-            validate_expected_keys(rows, {("FULL", "R-1", "C-1"), ("FULL", "R-1", "C-2")})
+            validate_expected_keys(rows, {("RUN_01", "FULL", "R-1", "C-1"), ("RUN_02", "FULL", "R-1", "C-1")})
+
+    def test_16_generation_run_identity_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name); case = self._case(root); generated, graph = self._generated(root)
+            row = evaluate_case(repo=root, output_dir=root / "out", run_context=self._context(), generation_run="RUN_02", configuration="FULL", case=case, generated=generated, shape_graph=graph, ontology_graph=Graph())
+            self.assertEqual(row["outcome_class"], "IDENTITY_MISMATCH")
+            self.assertEqual(row["failure_stage"], "GENERATION_RUN_CHECK")
+
+    def test_17_generation_run_participates_in_ledger_uniqueness(self) -> None:
+        rows = [
+            {"generation_run":"RUN_01","configuration":"FULL","requirement_id":"R-1","case_id":"C-1"},
+            {"generation_run":"RUN_02","configuration":"FULL","requirement_id":"R-1","case_id":"C-1"},
+        ]
+        validate_expected_keys(rows, {
+            ("RUN_01", "FULL", "R-1", "C-1"),
+            ("RUN_02", "FULL", "R-1", "C-1"),
+        })
 
 
 if __name__ == "__main__":
     unittest.main()
-

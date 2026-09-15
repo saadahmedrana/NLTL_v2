@@ -63,7 +63,11 @@ def analyze(ledger_path: Path) -> Path:
     output = ledger_path.parent / "summaries"
     output.mkdir(parents=True, exist_ok=True)
     dimensions = {
+        "generation_run": lambda row: row["generation_run"],
         "configuration": lambda row: row["configuration"],
+        "generation_run_and_configuration": lambda row: f"{row['generation_run']}|{row['configuration']}",
+        "generation_run_configuration_source_family": lambda row: f"{row['generation_run']}|{row['configuration']}|{row['source_family']}",
+        "generation_run_configuration_verification_mode": lambda row: f"{row['generation_run']}|{row['configuration']}|{row['verification_mode']}",
         "source_family": lambda row: row["source_family"],
         "verification_mode": lambda row: row["verification_mode"],
         "configuration_and_source_family": lambda row: f"{row['configuration']}|{row['source_family']}",
@@ -82,11 +86,11 @@ def analyze(ledger_path: Path) -> Path:
     summary["by_explicit_test_pattern"] = {key: summarize_rows(value) for key, value in sorted(patterns.items())}
 
     requirement_rows: list[dict[str, Any]] = []
-    grouped_requirements: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    grouped_requirements: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped_requirements[(row["configuration"], row["requirement_id"])].append(row)
-    for (configuration, requirement_id), values in sorted(
-        grouped_requirements.items(), key=lambda item: (item[0][0], requirement_sort_key(item[0][1]))
+        grouped_requirements[(row["generation_run"], row["configuration"], row["requirement_id"])].append(row)
+    for (generation_run, configuration, requirement_id), values in sorted(
+        grouped_requirements.items(), key=lambda item: (item[0][0], item[0][1], requirement_sort_key(item[0][2]))
     ):
         semantic = [row for row in values if row["execution_status"] == "EXECUTED"]
         correct = sum(row.get("behavioral_match") is True for row in values)
@@ -104,6 +108,7 @@ def analyze(ledger_path: Path) -> Path:
         else:
             defect = "NONE"
         requirement_rows.append({
+            "generation_run": generation_run,
             "configuration": configuration,
             "source_family": values[0]["source_family"],
             "requirement_id": requirement_id,
@@ -121,13 +126,13 @@ def analyze(ledger_path: Path) -> Path:
             "infrastructure_failures": len(values) - len(semantic),
             "defect_profile": defect,
         })
-    summary["requirement_level"] = {
+    summary["requirement_run_instance_level"] = {
         configuration: {
-            "requirements_total": len([r for r in requirement_rows if r["configuration"] == configuration]),
-            "requirements_generated": sum(r["requirement_generated"] for r in requirement_rows if r["configuration"] == configuration),
-            "requirements_parseable": sum(r["requirement_parseable"] for r in requirement_rows if r["configuration"] == configuration),
-            "requirements_usable": sum(r["requirement_usable"] for r in requirement_rows if r["configuration"] == configuration),
-            "requirements_exact": sum(r["end_to_end_requirement_exact_success"] for r in requirement_rows if r["configuration"] == configuration),
+            "requirement_run_instances_total": len([r for r in requirement_rows if r["configuration"] == configuration]),
+            "requirement_run_instances_generated": sum(r["requirement_generated"] for r in requirement_rows if r["configuration"] == configuration),
+            "requirement_run_instances_parseable": sum(r["requirement_parseable"] for r in requirement_rows if r["configuration"] == configuration),
+            "requirement_run_instances_usable": sum(r["requirement_usable"] for r in requirement_rows if r["configuration"] == configuration),
+            "requirement_run_instances_exact": sum(r["end_to_end_requirement_exact_success"] for r in requirement_rows if r["configuration"] == configuration),
         }
         for configuration in sorted({r["configuration"] for r in requirement_rows})
     }
@@ -135,45 +140,79 @@ def analyze(ledger_path: Path) -> Path:
     _write_csv(output / "requirement_summary.csv", requirement_rows)
     architecture_rows = []
     for configuration, values in summary["by_configuration"].items():
-        req = summary["requirement_level"][configuration]
+        req = summary["requirement_run_instance_level"][configuration]
         architecture_rows.append({"configuration": configuration, **{k: v for k, v in values.items() if k != "outcome_counts"}, **req})
     _write_csv(output / "configuration_summary.csv", architecture_rows)
+    run_configuration_rows = []
+    for key, values in summary["by_generation_run_and_configuration"].items():
+        generation_run, configuration = key.split("|", 1)
+        run_configuration_rows.append({
+            "generation_run": generation_run,
+            "configuration": configuration,
+            **{name: value for name, value in values.items() if name != "outcome_counts"},
+        })
+    _write_csv(output / "generation_run_configuration_summary.csv", run_configuration_rows)
     configurations = sorted({row["configuration"] for row in rows})
     pairwise_rows: list[dict[str, Any]] = []
-    requirement_lookup = {(row["configuration"], row["requirement_id"]): row for row in requirement_rows}
-    for left_index, left in enumerate(configurations):
-        for right in configurations[left_index + 1:]:
-            shared = sorted(
-                {req for config, req in requirement_lookup if config == left}
-                & {req for config, req in requirement_lookup if config == right},
-                key=requirement_sort_key,
-            )
-            left_exact = sum(requirement_lookup[(left, req)]["end_to_end_requirement_exact_success"] for req in shared)
-            right_exact = sum(requirement_lookup[(right, req)]["end_to_end_requirement_exact_success"] for req in shared)
-            pairwise_rows.append({
-                "left_configuration": left,
-                "right_configuration": right,
-                "shared_requirements": len(shared),
-                "left_exact_requirements": left_exact,
-                "right_exact_requirements": right_exact,
-                "left_only_exact": sum(
-                    requirement_lookup[(left, req)]["end_to_end_requirement_exact_success"]
-                    and not requirement_lookup[(right, req)]["end_to_end_requirement_exact_success"] for req in shared
-                ),
-                "right_only_exact": sum(
-                    requirement_lookup[(right, req)]["end_to_end_requirement_exact_success"]
-                    and not requirement_lookup[(left, req)]["end_to_end_requirement_exact_success"] for req in shared
-                ),
-                "both_exact": sum(
-                    requirement_lookup[(left, req)]["end_to_end_requirement_exact_success"]
-                    and requirement_lookup[(right, req)]["end_to_end_requirement_exact_success"] for req in shared
-                ),
-                "neither_exact": sum(
-                    not requirement_lookup[(left, req)]["end_to_end_requirement_exact_success"]
-                    and not requirement_lookup[(right, req)]["end_to_end_requirement_exact_success"] for req in shared
-                ),
-            })
+    requirement_lookup = {
+        (row["generation_run"], row["configuration"], row["requirement_id"]): row
+        for row in requirement_rows
+    }
+    generation_runs = sorted({row["generation_run"] for row in rows})
+    for generation_run in generation_runs:
+        for left_index, left in enumerate(configurations):
+            for right in configurations[left_index + 1:]:
+                shared = sorted(
+                    {req for run, config, req in requirement_lookup if run == generation_run and config == left}
+                    & {req for run, config, req in requirement_lookup if run == generation_run and config == right},
+                    key=requirement_sort_key,
+                )
+                left_exact = sum(requirement_lookup[(generation_run, left, req)]["end_to_end_requirement_exact_success"] for req in shared)
+                right_exact = sum(requirement_lookup[(generation_run, right, req)]["end_to_end_requirement_exact_success"] for req in shared)
+                pairwise_rows.append({
+                    "generation_run": generation_run,
+                    "left_configuration": left,
+                    "right_configuration": right,
+                    "shared_requirements": len(shared),
+                    "left_exact_requirements": left_exact,
+                    "right_exact_requirements": right_exact,
+                    "left_only_exact": sum(
+                        requirement_lookup[(generation_run, left, req)]["end_to_end_requirement_exact_success"]
+                        and not requirement_lookup[(generation_run, right, req)]["end_to_end_requirement_exact_success"] for req in shared
+                    ),
+                    "right_only_exact": sum(
+                        requirement_lookup[(generation_run, right, req)]["end_to_end_requirement_exact_success"]
+                        and not requirement_lookup[(generation_run, left, req)]["end_to_end_requirement_exact_success"] for req in shared
+                    ),
+                    "both_exact": sum(
+                        requirement_lookup[(generation_run, left, req)]["end_to_end_requirement_exact_success"]
+                        and requirement_lookup[(generation_run, right, req)]["end_to_end_requirement_exact_success"] for req in shared
+                    ),
+                    "neither_exact": sum(
+                        not requirement_lookup[(generation_run, left, req)]["end_to_end_requirement_exact_success"]
+                        and not requirement_lookup[(generation_run, right, req)]["end_to_end_requirement_exact_success"] for req in shared
+                    ),
+                })
+
+    across_run_rows: list[dict[str, Any]] = []
+    across: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in requirement_rows:
+        across[(row["configuration"], row["requirement_id"])].append(row)
+    for (configuration, requirement_id), values in sorted(
+        across.items(), key=lambda item: (item[0][0], requirement_sort_key(item[0][1]))
+    ):
+        across_run_rows.append({
+            "configuration": configuration,
+            "source_family": values[0]["source_family"],
+            "requirement_id": requirement_id,
+            "generation_runs_present": len(values),
+            "generation_runs_generated": sum(row["requirement_generated"] for row in values),
+            "generation_runs_usable": sum(row["requirement_usable"] for row in values),
+            "generation_runs_exact": sum(row["end_to_end_requirement_exact_success"] for row in values),
+            "all_selected_runs_exact": all(row["end_to_end_requirement_exact_success"] for row in values),
+        })
     summary["pairwise_requirement_comparisons"] = pairwise_rows
     atomic_json(output / "behavioral_summary.json", summary)
     _write_csv(output / "pairwise_requirement_comparison.csv", pairwise_rows)
+    _write_csv(output / "requirement_across_runs.csv", across_run_rows)
     return output

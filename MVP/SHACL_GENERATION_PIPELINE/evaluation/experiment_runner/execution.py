@@ -78,9 +78,9 @@ def append_jsonl(path: Path, row: dict[str, Any]) -> None:
         os.fsync(stream.fileno())
 
 
-def load_ledger(path: Path) -> tuple[list[dict[str, Any]], set[tuple[str, str, str]]]:
+def load_ledger(path: Path) -> tuple[list[dict[str, Any]], set[tuple[str, str, str, str]]]:
     rows: list[dict[str, Any]] = []
-    keys: set[tuple[str, str, str]] = set()
+    keys: set[tuple[str, str, str, str]] = set()
     if not path.exists():
         return rows, keys
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -90,7 +90,10 @@ def load_ledger(path: Path) -> tuple[list[dict[str, Any]], set[tuple[str, str, s
             row = json.loads(line)
         except json.JSONDecodeError as exc:
             raise PreflightError(f"Malformed resume ledger at line {line_number}: {exc}") from exc
-        key = (row["configuration"], row["requirement_id"], row["case_id"])
+        # Read-only compatibility for ledgers produced by runner 1.0.0, whose
+        # only possible generation run was RUN_01.
+        row.setdefault("generation_run", "RUN_01")
+        key = (row["generation_run"], row["configuration"], row["requirement_id"], row["case_id"])
         if key in keys:
             raise PreflightError(f"Duplicate result row in ledger: {key}")
         keys.add(key)
@@ -184,11 +187,12 @@ def infrastructure_row(
 
 
 def case_base(
-    run_context: dict[str, Any], configuration: str, case: BenchmarkCase, generated: dict[str, Any]
+    run_context: dict[str, Any], generation_run: str, configuration: str, case: BenchmarkCase, generated: dict[str, Any]
 ) -> dict[str, Any]:
     return {
         "run_id": run_context["run_id"],
         "run_timestamp_utc": run_context["run_timestamp_utc"],
+        "generation_run": generation_run,
         "configuration": configuration,
         "source_family": case.source_family,
         "source_id": case.source_id,
@@ -226,6 +230,7 @@ def evaluate_case(
     repo: Path,
     output_dir: Path,
     run_context: dict[str, Any],
+    generation_run: str,
     configuration: str,
     case: BenchmarkCase,
     generated: dict[str, Any],
@@ -233,16 +238,18 @@ def evaluate_case(
     ontology_graph: Graph,
     validate_fn: Callable[..., Any] = pyshacl.validate,
 ) -> dict[str, Any]:
-    base = case_base(run_context, configuration, case, generated)
+    base = case_base(run_context, generation_run, configuration, case, generated)
+    if generated.get("generation_run") != generation_run:
+        return infrastructure_row(base, "IDENTITY_MISMATCH", "GENERATION_RUN_CHECK", "Generated rule and requested generation runs differ")
     if generated.get("requirement_id") != case.requirement_id:
         return infrastructure_row(base, "IDENTITY_MISMATCH", "IDENTITY_CHECK", "Generated rule and case requirement IDs differ")
-    if generated.get("source_id") != case.source_id:
-        return infrastructure_row(base, "IDENTITY_MISMATCH", "SOURCE_ID_CHECK", "Generated rule and case source IDs differ")
     if generated.get("generation_status") != "GENERATED":
         outcome = "SHAPE_MISSING" if generated.get("generation_status") == "NOT_GENERATED" else "GENERATION_ERROR"
         return infrastructure_row(
             base, outcome, str(generated.get("failure_stage") or "GENERATION"), str(generated.get("failure_detail") or "No usable generated SHACL")
         )
+    if generated.get("source_id") != case.source_id:
+        return infrastructure_row(base, "IDENTITY_MISMATCH", "SOURCE_ID_CHECK", "Generated rule and case source IDs differ")
     if shape_graph is None:
         return infrastructure_row(base, "SHAPE_LOAD_ERROR", "SHAPE_LOAD", "Usable generation record has no parsed shape")
     rdf_path = repo / "MVP/SHACL_GENERATION_PIPELINE/evaluation/BEHAVIORAL_RDF_R13" / case.rdf_path
@@ -272,7 +279,7 @@ def evaluate_case(
             raise TypeError(f"pySHACL returned no report graph: {report_text}")
         results = extract_validation_results(report_graph)
         outcome, match = semantic_outcome(case.expected_outcome, bool(conforms))
-        report_dir = output_dir / "reports" / configuration / case.requirement_id
+        report_dir = output_dir / "reports" / generation_run / configuration / case.requirement_id
         report_dir.mkdir(parents=True, exist_ok=True)
         graph_path = report_dir / f"{safe_component(case.case_id)}.ttl"
         text_path = report_dir / f"{safe_component(case.case_id)}.txt"
@@ -303,7 +310,7 @@ def evaluate_case(
             "runtime_ms": round((time.perf_counter() - started) * 1000, 3),
         }
     except Exception as exc:
-        trace_dir = output_dir / "tracebacks" / configuration / case.requirement_id
+        trace_dir = output_dir / "tracebacks" / generation_run / configuration / case.requirement_id
         trace_dir.mkdir(parents=True, exist_ok=True)
         trace_path = trace_dir / f"{safe_component(case.case_id)}.txt"
         trace_path.write_text(traceback.format_exc(), encoding="utf-8")
@@ -358,6 +365,7 @@ def validation_results_ledger(rows: list[dict[str, Any]], path: Path) -> None:
             for index, result in enumerate(row.get("validation_results_json", []), 1):
                 stream.write(json.dumps({
                     "run_id": row["run_id"],
+                    "generation_run": row["generation_run"],
                     "configuration": row["configuration"],
                     "requirement_id": row["requirement_id"],
                     "case_id": row["case_id"],
@@ -368,9 +376,12 @@ def validation_results_ledger(rows: list[dict[str, Any]], path: Path) -> None:
 
 
 def validate_expected_keys(
-    rows: list[dict[str, Any]], expected_keys: set[tuple[str, str, str]]
+    rows: list[dict[str, Any]], expected_keys: set[tuple[str, str, str, str]]
 ) -> None:
-    actual = {(row["configuration"], row["requirement_id"], row["case_id"]) for row in rows}
+    actual = {
+        (row["generation_run"], row["configuration"], row["requirement_id"], row["case_id"])
+        for row in rows
+    }
     if len(rows) != len(actual):
         raise PreflightError("Raw ledger contains duplicate experiment keys")
     if actual != expected_keys:
@@ -384,9 +395,10 @@ def execute(
     repo: Path,
     benchmark: Benchmark,
     cases: list[BenchmarkCase],
+    generation_runs: list[str],
     configurations: list[str],
-    generated_by_config: dict[str, dict[str, dict[str, Any]]],
-    generated_manifest_paths: dict[str, Path],
+    generated_by_run_config: dict[str, dict[str, dict[str, dict[str, Any]]]],
+    generated_manifest_paths: dict[str, dict[str, Path]],
     output_dir: Path,
     run_id: str,
     command_line: list[str],
@@ -403,7 +415,12 @@ def execute(
     if ledger_path.exists() and not resume:
         raise PreflightError(f"Output run already exists; use --resume: {output_dir}")
     existing_rows, completed_keys = load_ledger(ledger_path)
-    expected_keys = {case.key(config) for config in configurations for case in cases}
+    expected_keys = {
+        case.key(generation_run, config)
+        for generation_run in generation_runs
+        for config in generated_by_run_config[generation_run]
+        for case in cases
+    }
     if not completed_keys.issubset(expected_keys):
         raise PreflightError("Resume ledger contains rows outside this run's selected key set")
     commit, dirty = git_state(repo)
@@ -421,10 +438,15 @@ def execute(
     if resume and not manifest_path.exists():
         raise PreflightError(f"Resume run manifest does not exist: {manifest_path}")
     prior_manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if resume else {}
-    current_generated_hashes = {key: sha256(path) for key, path in generated_manifest_paths.items()}
+    current_generated_hashes = {
+        f"{generation_run}:{configuration}": sha256(path)
+        for generation_run, paths in generated_manifest_paths.items()
+        for configuration, path in paths.items()
+    }
     if prior_manifest:
         resume_invariants = {
             "run_id": run_id,
+            "generation_runs": generation_runs,
             "configurations": configurations,
             "benchmark_integrity_hash": benchmark.integrity_hash,
             "expected_result_rows": len(expected_keys),
@@ -445,6 +467,7 @@ def execute(
         "runner_version": RUNNER_VERSION,
         "status": "IN_PROGRESS",
         "configurations": configurations,
+        "generation_runs": generation_runs,
         "benchmark_integrity_status": integrity_result["status"],
         "benchmark_integrity_command": integrity_result["command"],
         "benchmark_integrity_output": integrity_result["output"],
@@ -473,41 +496,43 @@ def execute(
     for case in cases:
         grouped[case.requirement_id].append(case)
 
-    for configuration in configurations:
-        for requirement_id in sorted(grouped, key=requirement_sort_key):
-            generated = generated_by_config[configuration][requirement_id]
-            shape_graph, shape_error, shape_message = parse_shape(repo, generated)
-            for case in sorted(grouped[requirement_id], key=lambda item: item.case_id):
-                key = case.key(configuration)
-                if key in completed_keys:
-                    continue
-                if shape_error:
-                    row = infrastructure_row(
-                        case_base(context, configuration, case, generated),
-                        shape_error,
-                        "SHAPE_PARSE" if shape_error == "SHAPE_SYNTAX_ERROR" else "SHAPE_LOAD",
-                        str(shape_message),
+    for generation_run in generation_runs:
+        for configuration in generated_by_run_config[generation_run]:
+            for requirement_id in sorted(grouped, key=requirement_sort_key):
+                generated = generated_by_run_config[generation_run][configuration][requirement_id]
+                shape_graph, shape_error, shape_message = parse_shape(repo, generated)
+                for case in sorted(grouped[requirement_id], key=lambda item: item.case_id):
+                    key = case.key(generation_run, configuration)
+                    if key in completed_keys:
+                        continue
+                    if shape_error:
+                        row = infrastructure_row(
+                            case_base(context, generation_run, configuration, case, generated),
+                            shape_error,
+                            "SHAPE_PARSE" if shape_error == "SHAPE_SYNTAX_ERROR" else "SHAPE_LOAD",
+                            str(shape_message),
+                        )
+                    else:
+                        row = evaluate_case(
+                            repo=repo,
+                            output_dir=output_dir,
+                            run_context=context,
+                            generation_run=generation_run,
+                            configuration=configuration,
+                            case=case,
+                            generated=generated,
+                            shape_graph=shape_graph,
+                            ontology_graph=ontology_graph,
+                        )
+                    append_jsonl(ledger_path, row)
+                    completed_keys.add(key)
+                    existing_rows.append(row)
+                    manifest["number_completed"] = len(existing_rows)
+                    manifest["number_infrastructure_failures"] = sum(
+                        r.get("outcome_class") in INFRASTRUCTURE_OUTCOMES for r in existing_rows
                     )
-                else:
-                    row = evaluate_case(
-                        repo=repo,
-                        output_dir=output_dir,
-                        run_context=context,
-                        configuration=configuration,
-                        case=case,
-                        generated=generated,
-                        shape_graph=shape_graph,
-                        ontology_graph=ontology_graph,
-                    )
-                append_jsonl(ledger_path, row)
-                completed_keys.add(key)
-                existing_rows.append(row)
-                manifest["number_completed"] = len(existing_rows)
-                manifest["number_infrastructure_failures"] = sum(
-                    r.get("outcome_class") in INFRASTRUCTURE_OUTCOMES for r in existing_rows
-                )
-                manifest["number_semantic_results"] = sum(r.get("execution_status") == "EXECUTED" for r in existing_rows)
-                atomic_json(manifest_path, manifest)
+                    manifest["number_semantic_results"] = sum(r.get("execution_status") == "EXECUTED" for r in existing_rows)
+                    atomic_json(manifest_path, manifest)
 
     validate_expected_keys(existing_rows, expected_keys)
     ending_hash = composite_hash(benchmark.locked_paths, repo)

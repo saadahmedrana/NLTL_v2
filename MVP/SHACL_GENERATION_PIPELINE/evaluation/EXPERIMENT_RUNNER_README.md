@@ -1,7 +1,7 @@
 # Frozen R13 behavioral experiment runner
 
-This runner evaluates RUN01 generated SHACL against the frozen 268-requirement,
-2,186-case systematic benchmark. Pilot 02 is not loaded: systematic input is an
+This runner evaluates RUN_01 through RUN_10 generated SHACL against the frozen
+268-requirement, 2,186-case systematic benchmark. Pilot 02 is not loaded: systematic input is an
 explicit list of family/batch manifests, never a wildcard over every manifest.
 
 ## Scientific identity boundary
@@ -12,7 +12,8 @@ requirements have no `verification_mode` field in their frozen manifest rows;
 for those rows only, the runner reads `verificationMode` from the frozen R13
 dependency contract and records `verification_mode_source` accordingly.
 
-Generated-rule identity is not inferred from a filename, directory name, RDF
+`generation_run` is part of every manifest and ledger identity. Generated-rule
+identity is not inferred from a filename, directory name, RDF
 URI, or order. A deterministic manifest builder joins and verifies:
 
 1. the configuration's frozen 268-requirement queue;
@@ -28,6 +29,11 @@ The source sheet is deterministically mapped to the benchmark's canonical
 diagnostic-pass `single_shot_extracted_shape`. Non-accepted pipeline outcomes
 remain explicit generation errors for every affected case.
 
+FULL and NO_SEMANTIC have populated RUN_01 through RUN_10. SINGLESHOT has a
+populated RUN_01 only; RUN_02 through RUN_10 are empty placeholder directories
+with no run-specific configuration files. Those absent generations are emitted
+as 268 `NOT_GENERATED` manifest rows per run, never skipped or substituted.
+
 ## Commands
 
 Run from the repository root with the project environment:
@@ -40,17 +46,37 @@ MVP/.venv/bin/python3 MVP/SHACL_GENERATION_PIPELINE/evaluation/run_behavioral_ev
 MVP/.venv/bin/python3 MVP/SHACL_GENERATION_PIPELINE/evaluation/run_behavioral_evaluation.py --all
 ```
 
+Those commands remain RUN_01-compatible. Select another run with
+`--generation-run RUN_05`. Build all 30 run/configuration manifests without
+executing SHACL:
+
+```bash
+MVP/.venv/bin/python3 MVP/SHACL_GENERATION_PIPELINE/evaluation/run_behavioral_evaluation.py \
+  --build-manifests-only --all-generation-runs
+```
+
+Execute the complete ten-run experiment (65,580 ledger rows, including explicit
+SINGLESHOT missing-generation rows):
+
+```bash
+MVP/.venv/bin/python3 MVP/SHACL_GENERATION_PIPELINE/evaluation/run_behavioral_evaluation.py \
+  --all --all-generation-runs --run-id BEHAVIORAL-R13-RUN01-RUN10
+```
+
 A development smoke run still performs the complete frozen-benchmark and
 generated-manifest preflight:
 
 ```bash
-MVP/.venv/bin/python3 MVP/SHACL_GENERATION_PIPELINE/evaluation/run_behavioral_evaluation.py --all --requirement I2-021 --smoke
+MVP/.venv/bin/python3 MVP/SHACL_GENERATION_PIPELINE/evaluation/run_behavioral_evaluation.py \
+  --all --all-generation-runs --requirement I2-021 --smoke
 ```
 
-Resume requires the original run ID and identical selection:
+Resume requires the original run ID and identical generation-run,
+configuration, and case selection:
 
 ```bash
-MVP/.venv/bin/python3 MVP/SHACL_GENERATION_PIPELINE/evaluation/run_behavioral_evaluation.py --all --run-id BEHAVIORAL-R13-... --resume
+MVP/.venv/bin/python3 MVP/SHACL_GENERATION_PIPELINE/evaluation/run_behavioral_evaluation.py \
+  --all --all-generation-runs --run-id BEHAVIORAL-R13-RUN01-RUN10-... --resume
 ```
 
 Optional development filters are `--requirement`, `--family`, and `--case` and
@@ -62,6 +88,9 @@ MVP/.venv/bin/python3 MVP/SHACL_GENERATION_PIPELINE/evaluation/analyze_behaviora
   MVP/SHACL_GENERATION_PIPELINE/evaluation/experiment_results/<run_id>/raw_case_results.jsonl
 ```
 
+For the named complete run above, replace `<run_id>` with
+`BEHAVIORAL-R13-RUN01-RUN10`.
+
 Run the synthetic harness tests:
 
 ```bash
@@ -70,20 +99,26 @@ MVP/.venv/bin/python3 -m unittest MVP/SHACL_GENERATION_PIPELINE/tests/test_behav
 
 ## Outputs and interruption safety
 
-Generated manifests are written under `evaluation/generated_rule_manifests/RUN_01/`.
+Generated manifests are written under `evaluation/generated_rule_manifests/RUN_NN/`.
 Each evaluation has `evaluation/experiment_results/<run_id>/` containing:
 
 - `run_manifest.json`: environment, hashes, exact command and progress;
 - `raw_case_results.jsonl`: authoritative append-only case ledger;
 - `raw_case_results.csv`: derived convenience export;
 - `validation_results.jsonl`: one expanded row per pySHACL validation result;
-- `reports/<configuration>/<requirement>/<case>.ttl` and `.txt`: complete
+- `reports/<generation_run>/<configuration>/<requirement>/<case>.ttl` and `.txt`: complete
   pySHACL report graphs and report text for every executed case;
 - `tracebacks/`: retained execution exceptions;
 - `summaries/`: derived configuration and requirement summaries.
 
-Each JSONL append is flushed and fsynced. Resume loads all existing keys and
-refuses duplicates or keys outside the selected experiment. Finalization proves
+Multi-run summaries include aggregate configuration metrics, per-generation-run
+configuration metrics, per-run requirement results, requirement stability across
+runs, and within-run pairwise configuration comparisons. No inferential
+statistics are introduced.
+
+Each JSONL append is flushed and fsynced. Resume loads all existing
+`generation_run + configuration + requirement_id + case_id` keys and refuses
+duplicates or keys outside the selected experiment. Finalization proves
 the exact expected key set and re-hashes all locked benchmark inputs.
 
 Infrastructure outcomes have null `actual_conforms` and null

@@ -16,10 +16,27 @@ class ApiCallResult:
 
 
 @dataclass(slots=True)
+class ValidatorIssue:
+    category: str
+    location: str
+    problem: str
+    required_change: str
+    regression_guard: str
+    blocking: bool
+    needs_vocabulary_resolution: bool
+    source: str = "SEMANTIC"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload.pop("source", None)
+        return payload
+
+
+@dataclass(slots=True)
 class ValidatorDecision:
     accept: bool
     activate_variable_matcher: bool
-    feedback: str
+    current_issues: list[ValidatorIssue]
 
 
 @dataclass(slots=True)
@@ -84,4 +101,3 @@ class PipelineRunResult:
         payload["run_directory"] = str(self.run_directory)
         payload["final_shape"] = str(self.final_shape) if self.final_shape else None
         return payload
-

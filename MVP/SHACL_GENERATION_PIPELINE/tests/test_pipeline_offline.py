@@ -1,161 +1,88 @@
 from __future__ import annotations
-
 import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
-
 from nltl_pipeline.api.client import ScriptedResponsesClient
 from nltl_pipeline.cli import offline_smoke_responses
 from nltl_pipeline.config import PipelineConfig
 from nltl_pipeline.errors import ConfigurationError
 from nltl_pipeline.orchestration.runner import PipelineRunner
-from nltl_pipeline.retrieval.context import VocabularyRepository
 
+ACCEPT = '{"accept":true,"activate_variable_matcher":false,"currentIssues":[]}'
+ISSUE = '{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"APPLICABILITY","location":"main shape","problem":"The applicability branch is inverted.","required_change":"Invert only the applicability comparison.","regression_guard":"Preserve the corrected applicability branch.","blocking":true,"needs_vocabulary_resolution":false}]}'
 
 class OfflinePipelineTests(unittest.TestCase):
-    def test_syntax_repair_does_not_consume_semantic_attempt_or_call_validator_early(self) -> None:
-        base = PipelineConfig.load()
-        with tempfile.TemporaryDirectory() as temp_name:
-            raw = copy.deepcopy(base.raw)
-            raw["paths"]["outputs"] = str(Path(temp_name) / "outputs")
-            raw["reporting"]["excel_enabled"] = False
-            raw["generation"]["maximum_semantic_attempts"] = 1
-            raw["generation"]["maximum_syntax_repairs_per_semantic_attempt"] = 1
-            config = PipelineConfig(raw=raw, config_path=base.config_path)
-            vocabulary = VocabularyRepository(config)
-            runner = PipelineRunner(config, vocabulary)
-            correct = offline_smoke_responses("IMO26-014")["generator"][1]
-            invalid = correct.replace("FILTER (?daylight = false)", "BIND( AS ?broken) FILTER (?daylight = false)")
-            client = ScriptedResponsesClient({
-                "generator": [invalid],
-                "syntax_repair": [correct],
-                "validator": ['{"accept":true,"activate_variable_matcher":false,"feedback":"Syntax repaired; semantics preserved."}'],
-            })
-            result = runner.run_requirement("IMO26-014", client)
+    def config(self, temp_name, attempts=4):
+        base=PipelineConfig.load(); raw=copy.deepcopy(base.raw)
+        raw["paths"]["outputs"]=str(Path(temp_name)/"FULL_REPAIR_V2"/"RUN_01")
+        raw["reporting"]["excel_enabled"]=False; raw["generation"]["maximum_semantic_attempts"]=attempts
+        raw["generation_run"]="RUN_01"; return PipelineConfig(raw=raw,config_path=base.config_path)
+
+    def test_syntax_repair_propagates_repaired_ttl_and_accepts(self):
+        with tempfile.TemporaryDirectory() as name:
+            config=self.config(name,2); correct=offline_smoke_responses("IMO26-014")["generator"][1]
+            invalid=correct.replace("FILTER (?daylight = false)","BIND( AS ?broken) FILTER (?daylight = false)")
+            client=ScriptedResponsesClient({"generator":[invalid],"syntax_repair":[correct],"validator":[ACCEPT]})
+            result=PipelineRunner(config).run_requirement("IMO26-014",client)
+            self.assertTrue(result.accepted); self.assertEqual([c["role"] for c in client.calls],["generator","syntax_repair","validator"])
+
+    def test_semantic_repair_uses_only_immediately_previous_candidate(self):
+        with tempfile.TemporaryDirectory() as name:
+            config=self.config(name,2); shape=offline_smoke_responses("IMO26-014")["generator"][1]
+            client=ScriptedResponsesClient({"generator":[shape,shape],"validator":[ISSUE,ACCEPT]})
+            result=PipelineRunner(config).run_requirement("IMO26-014",client)
             self.assertTrue(result.accepted)
-            self.assertEqual(result.attempts, 1)
-            self.assertEqual(["generator", "syntax_repair", "validator"], [call["role"] for call in client.calls])
-            events = (result.run_directory / "events.jsonl").read_text(encoding="utf-8")
-            self.assertIn('"semantic_attempt_consumed":false', events)
+            repair=json.loads([c for c in client.calls if "previousCandidateShacl" in c["user"]][0]["user"])
+            self.assertEqual(repair["previousCandidateShacl"],shape.split("<BEGIN_SHACL>\n",1)[1].split("<END_SHACL>",1)[0].strip()+"\n")
+            self.assertNotIn("fewShotExamples",repair); self.assertNotIn("priorFeedbackHistory",repair)
 
-    def test_validator_feedback_reversal_heuristic_keeps_explicit_explanation_support(self) -> None:
-        self.assertTrue(PipelineRunner._feedback_reverses_without_explanation(
-            ["Require hasComponent on every branch."],
-            "Remove hasComponent from every branch.",
-        ))
-        self.assertFalse(PipelineRunner._feedback_reverses_without_explanation(
-            ["Require hasComponent on every branch."],
-            "REVERSAL: Remove hasComponent because the corrected contract makes the property ship-owned.",
-        ))
+    def test_static_invalid_skips_validator_and_preserves_candidate(self):
+        with tempfile.TemporaryDirectory() as name:
+            config=self.config(name,1); responses=offline_smoke_responses("IMO26-014")
+            client=ScriptedResponsesClient({"generator":[responses["generator"][0]],"vocabulary_matcher":responses["vocabulary_matcher"]})
+            result=PipelineRunner(config).run_requirement("IMO26-014",client)
+            self.assertFalse(result.accepted); self.assertNotIn("validator",[c["role"] for c in client.calls])
+            self.assertTrue((result.run_directory/"artifacts/attempt_01/candidate_shape.ttl").is_file())
+            metadata=json.loads((result.run_directory/"diagnostics/last_candidate_metadata.json").read_text())
+            self.assertFalse(metadata["official_final_shape"]); self.assertFalse((result.run_directory/"final/final_shape.ttl").exists())
 
-    def test_history_guard_does_not_confuse_unrelated_or_preserved_directives(self) -> None:
-        self.assertFalse(PipelineRunner._feedback_reverses_without_explanation(
-            ["Remove sh:minCount 1 from nltl:hasMemberSupport."],
-            "Require simpleFrameSupport when no trigger exists; do not add sh:minCount 1 to nltl:hasMemberSupport.",
-        ))
-        self.assertFalse(PipelineRunner._feedback_reverses_without_explanation(
-            ["Retarget validation to the ship; do not use structuralMember as an independent target."],
-            "Add nltl:frameProfileType on the ship; do not relocate it to structuralMember.",
-        ))
+    def test_offline_full_repair_smoke(self):
+        with tempfile.TemporaryDirectory() as name:
+            result=PipelineRunner(self.config(name)).run_requirement("IMO26-014",ScriptedResponsesClient(offline_smoke_responses("IMO26-014")))
+            self.assertTrue(result.accepted); self.assertEqual(result.attempts,2)
+            repair=(result.run_directory/"artifacts/attempt_02/semantic_repair_prompt.txt").read_text()
+            self.assertIn("previousCandidateShacl",repair); self.assertIn("currentIssues",repair)
+            self.assertNotIn("fewShotExamples",repair); self.assertNotIn("priorFeedbackHistory",repair)
 
-    def test_i2_030_style_refinement_is_non_blocking_and_uses_no_response_retry(self) -> None:
-        base = PipelineConfig.load()
-        with tempfile.TemporaryDirectory() as temp_name:
-            raw = copy.deepcopy(base.raw)
-            raw["paths"]["outputs"] = str(Path(temp_name) / "outputs")
-            raw["reporting"]["excel_enabled"] = False
-            raw["generation"]["maximum_semantic_attempts"] = 2
-            raw["api"]["validator_response_retries"] = 1
-            config = PipelineConfig(raw=raw, config_path=base.config_path)
-            correct = offline_smoke_responses("IMO26-014")["generator"][1]
-            client = ScriptedResponsesClient({
-                "generator": [correct, correct],
-                "validator": [
-                    '{"accept":false,"activate_variable_matcher":false,"feedback":"validate the member inputs"}',
-                    '{"accept":true,"activate_variable_matcher":false,"feedback":"do not validate all ship members; validate the case-linked member"}',
-                ],
-            })
-            result = PipelineRunner(config).run_requirement("IMO26-014", client)
-            self.assertTrue(result.accepted)
-            self.assertEqual(result.attempts, 2)
-            self.assertEqual(
-                ["generator", "validator", "generator", "validator"],
-                [call["role"] for call in client.calls],
-            )
-            events = (result.run_directory / "events.jsonl").read_text(encoding="utf-8")
-            self.assertNotIn('"event_type":"validator_reconciliation_required"', events)
+    def test_matcher_no_match_continues_until_repair_budget(self):
+        with tempfile.TemporaryDirectory() as name:
+            responses=offline_smoke_responses("IMO26-014"); no_match='{"match_found":false,"canonical_local_name":"","canonical_iri":"","feedback_appendix":"No defensible locked match."}'
+            client=ScriptedResponsesClient({"generator":responses["generator"],"vocabulary_matcher":[no_match],"validator":[ACCEPT]})
+            result=PipelineRunner(self.config(name,2)).run_requirement("IMO26-014",client)
+            self.assertTrue(result.accepted); self.assertEqual(result.attempts,2)
+            first=json.loads((result.run_directory/"artifacts/attempt_01/attempt_metadata.json").read_text())
+            self.assertEqual(first["matcher_status"],"MATCHER_NO_MATCH")
 
-    def test_imo_057_style_true_oscillation_is_diagnostic_not_blocking(self) -> None:
-        base = PipelineConfig.load()
-        with tempfile.TemporaryDirectory() as temp_name:
-            raw = copy.deepcopy(base.raw)
-            raw["paths"]["outputs"] = str(Path(temp_name) / "outputs")
-            raw["reporting"]["excel_enabled"] = False
-            raw["generation"]["maximum_semantic_attempts"] = 2
-            raw["api"]["validator_response_retries"] = 1
-            config = PipelineConfig(raw=raw, config_path=base.config_path)
-            correct = offline_smoke_responses("IMO26-014")["generator"][1]
-            client = ScriptedResponsesClient({
-                "generator": [correct, correct],
-                "validator": [
-                    '{"accept":false,"activate_variable_matcher":false,"feedback":"remove the xsd:decimal-only constraint"}',
-                    '{"accept":true,"activate_variable_matcher":false,"feedback":"require xsd:decimal"}',
-                ],
-            })
-            result = PipelineRunner(config).run_requirement("IMO26-014", client)
-            self.assertTrue(result.accepted)
-            self.assertEqual(result.attempts, 2)
-            self.assertEqual(
-                ["generator", "validator", "generator", "validator"],
-                [call["role"] for call in client.calls],
-            )
-            events = (result.run_directory / "events.jsonl").read_text(encoding="utf-8")
-            self.assertIn('"event_type":"validator_feedback_possible_reversal"', events)
-            self.assertIn('"blocking":false', events)
-            self.assertIn('"semantic_attempt_consumed":false', events)
-            self.assertNotIn('"event_type":"validator_reconciliation_required"', events)
+    def test_stall_and_oscillation_enable_only_final_escape_hatch(self):
+        with tempfile.TemporaryDirectory() as name:
+            a=offline_smoke_responses("IMO26-014")["generator"][1]
+            b=a.replace("Two means of illumination are required", "At least two illumination means are required")
+            client=ScriptedResponsesClient({"generator":[a,b,a,a],"validator":[ISSUE,ISSUE,ISSUE,ACCEPT]})
+            result=PipelineRunner(self.config(name,4)).run_requirement("IMO26-014",client)
+            self.assertTrue(result.accepted); self.assertEqual(result.attempts,4)
+            m3=json.loads((result.run_directory/"artifacts/attempt_03/attempt_metadata.json").read_text())
+            m4=json.loads((result.run_directory/"artifacts/attempt_04/attempt_metadata.json").read_text())
+            self.assertTrue(m3["oscillation_detected"]); self.assertEqual(m4["mode"],"FRESH_REGENERATION_ESCAPE_HATCH")
+            self.assertEqual(sum("Fresh regeneration escape hatch" in c["user"] for c in client.calls),1)
 
-    def test_full_matcher_repair_route_without_api_or_excel(self) -> None:
-        base = PipelineConfig.load()
-        with tempfile.TemporaryDirectory() as temp_name:
-            raw = copy.deepcopy(base.raw)
-            raw["paths"]["outputs"] = str(Path(temp_name) / "outputs")
-            raw["reporting"]["excel_enabled"] = False
-            config = PipelineConfig(raw=raw, config_path=base.config_path)
-            vocabulary = VocabularyRepository(config)
-            runner = PipelineRunner(config, vocabulary)
-            client = ScriptedResponsesClient(offline_smoke_responses("IMO26-014"))
-            result = runner.run_requirement("IMO26-014", client)
-            self.assertTrue(result.accepted)
-            self.assertEqual(result.attempts, 2)
-            self.assertTrue(result.final_shape and result.final_shape.is_file())
-            events = (result.run_directory / "events.jsonl").read_text(encoding="utf-8")
-            self.assertIn('"event_type":"matcher_decision"', events)
-            self.assertIn('"status":"GENERATION_ACCEPTED"', events)
-            validator_prompt = (
-                result.run_directory / "artifacts/attempt_01/validator_prompt_01.txt"
-            ).read_text(encoding="utf-8")
-            self.assertNotIn("fullCanonicalVocabularyIndex", validator_prompt)
-            self.assertIn("retrievedRelevantVocabulary", validator_prompt)
-            self.assertIn("candidateUsedCanonicalTerms", validator_prompt)
-            self.assertIn("mismatchCandidates", validator_prompt)
-            self.assertLess(len(validator_prompt.encode("utf-8")), 50_000)
+    def test_r9_source_blocked_before_llm(self):
+        config_path=Path(__file__).resolve().parents[1]/"config/pipeline.dev-r9.json"
+        with tempfile.TemporaryDirectory() as name:
+            base=PipelineConfig.load(config_path); raw=copy.deepcopy(base.raw); raw["paths"]["outputs"]=str(Path(name)/"o")
+            config=PipelineConfig(raw=raw,config_path=base.config_path); client=ScriptedResponsesClient({})
+            with self.assertRaisesRegex(ConfigurationError,"BLOCKED_SOURCE_OR_MODEL_DEPENDENCY"):
+                PipelineRunner(config).run_requirement("I2-053",client,allow_deferred=True)
 
-    def test_r9_source_blocked_requirement_stops_before_any_llm_call(self) -> None:
-        config_path = Path(__file__).resolve().parents[1] / "config/pipeline.dev-r9.json"
-        base = PipelineConfig.load(config_path)
-        with tempfile.TemporaryDirectory() as temp_name:
-            raw = copy.deepcopy(base.raw)
-            raw["paths"]["outputs"] = str(Path(temp_name) / "outputs")
-            raw["reporting"]["excel_enabled"] = False
-            config = PipelineConfig(raw=raw, config_path=base.config_path)
-            runner = PipelineRunner(config)
-            client = ScriptedResponsesClient({})
-            with self.assertRaisesRegex(ConfigurationError, "BLOCKED_SOURCE_OR_MODEL_DEPENDENCY"):
-                runner.run_requirement("I2-053", client, allow_deferred=True)
-            self.assertFalse(Path(raw["paths"]["outputs"]).exists())
-
-
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()

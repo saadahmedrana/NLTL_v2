@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-CONFIGURATIONS = ("FULL", "NO_SEMANTIC", "SINGLESHOT")
+CONFIGURATIONS = ("FULL_REPAIR_V2", "FULL", "NO_SEMANTIC", "SINGLESHOT")
+GENERATION_RUNS = tuple(f"RUN_{number:02d}" for number in range(1, 11))
 EXPECTED_REQUIREMENTS = 268
 EXPECTED_CASES = 2186
 FAMILY_ORDER = {"I2": 0, "TRAFICOM": 1, "IMO": 2, "IMO26": 3}
@@ -34,24 +35,31 @@ FAMILY_BATCHES = {
     "IMO26": ("imo26", "ab"),
 }
 EXPERIMENTS = {
+    "FULL_REPAIR_V2": {
+        "directory": "FULL_REPAIR_V2",
+        "queue": "../../FINAL_LUNA_MAIN/QUEUES/luna_main_268_frozen.json",
+        "config_template": "pipeline.full-repair-v2-run{number:02d}.json",
+        "artifact_type": "final_accepted_shape",
+        "usable_statuses": {"GENERATION_ACCEPTED"},
+    },
     "FULL": {
         "directory": "FINAL_LUNA_MAIN",
         "queue": "luna_main_268_frozen.json",
-        "config": "pipeline.final-luna-main-run01.json",
+        "config_template": "pipeline.final-luna-main-run{number:02d}.json",
         "artifact_type": "final_accepted_shape",
         "usable_statuses": {"GENERATION_ACCEPTED"},
     },
     "NO_SEMANTIC": {
         "directory": "LUNA_NO_SEMANTIC_VALIDATOR",
         "queue": "luna_no_semantic_validator_268_frozen.json",
-        "config": "pipeline.luna-no-semantic-validator-run01.json",
+        "config_template": "pipeline.luna-no-semantic-validator-run{number:02d}.json",
         "artifact_type": "no_semantic_validator_candidate_shape",
         "usable_statuses": {"NO_SEMANTIC_VALIDATOR_DETERMINISTIC_PASS"},
     },
     "SINGLESHOT": {
         "directory": "LUNA_CONTEXTUAL_SINGLESHOT",
         "queue": "luna_contextual_singleshot_268_frozen.json",
-        "config": "pipeline.luna-contextual-singleshot-run01.json",
+        "config_template": "pipeline.luna-contextual-singleshot-run{number:02d}.json",
         "artifact_type": "single_shot_extracted_shape",
         "usable_statuses": {"SINGLESHOT_CAPTURED_DIAGNOSTIC_PASS"},
     },
@@ -115,8 +123,8 @@ class BenchmarkCase:
     source_oracle_rationale: str
     test_pattern: str
 
-    def key(self, configuration: str) -> tuple[str, str, str]:
-        return configuration, self.requirement_id, self.case_id
+    def key(self, generation_run: str, configuration: str) -> tuple[str, str, str, str]:
+        return generation_run, configuration, self.requirement_id, self.case_id
 
 
 @dataclass
@@ -258,22 +266,35 @@ def _artifact_rows(path: Path, artifact_type: str, run_id: str, requirement_id: 
     return [row for row in rows if row["ARTIFACT_TYPE"] == artifact_type]
 
 
-def build_generated_manifest(repo: Path, configuration: str, output_path: Path) -> list[dict[str, Any]]:
+def generation_run_number(generation_run: str) -> int:
+    if generation_run not in GENERATION_RUNS:
+        raise PreflightError(f"Unknown generation run: {generation_run}")
+    return int(generation_run.split("_", 1)[1])
+
+
+def build_generated_manifest(
+    repo: Path, configuration: str, generation_run: str, output_path: Path
+) -> list[dict[str, Any]]:
     if configuration not in CONFIGURATIONS:
         raise PreflightError(f"Unknown configuration: {configuration}")
+    run_number = generation_run_number(generation_run)
     policy = EXPERIMENTS[configuration]
     experiment_root = repo / "MVP/SHACL_GENERATION_PIPELINE/experiments" / policy["directory"]
     queue_path = experiment_root / "QUEUES" / policy["queue"]
-    config_path = experiment_root / "CONFIGS" / policy["config"]
+    config_path = experiment_root / "CONFIGS" / str(policy["config_template"]).format(number=run_number)
     queue = json.loads(queue_path.read_text(encoding="utf-8"))
-    config = json.loads(config_path.read_text(encoding="utf-8"))
     expected_requirements = list(queue["requirements"])
     if len(expected_requirements) != EXPECTED_REQUIREMENTS or len(set(expected_requirements)) != EXPECTED_REQUIREMENTS:
         raise PreflightError(f"{configuration} queue is not a unique 268-requirement queue")
 
     run_records: dict[str, list[tuple[Path, dict[str, str]]]] = defaultdict(list)
-    runs_root = experiment_root / "RUN_01/runs"
-    for run_dir in sorted(path for path in runs_root.iterdir() if path.is_dir()):
+    generation_root = experiment_root / generation_run
+    runs_root = generation_root / "runs"
+    run_directories = sorted(path for path in runs_root.iterdir() if path.is_dir()) if runs_root.is_dir() else []
+    if run_directories and not config_path.is_file():
+        raise PreflightError(f"Populated generation run has no run-specific config: {config_path}")
+    config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.is_file() else {}
+    for run_dir in run_directories:
         row = _one_csv_row(run_dir / "tables/runs.csv")
         if row["RUN_ID"] != run_dir.name:
             raise PreflightError(f"Run directory/table ID mismatch: {run_dir}")
@@ -286,22 +307,23 @@ def build_generated_manifest(repo: Path, configuration: str, output_path: Path) 
             raise PreflightError(f"Duplicate generated rules/runs for {configuration} {requirement_id}")
         if not candidates:
             records.append({
-                "manifest_id": f"RUN01-{configuration}-{requirement_id}",
+                "manifest_id": f"{generation_run}-{configuration}-{requirement_id}",
+                "generation_run": generation_run,
                 "configuration": configuration,
                 "requirement_id": requirement_id,
-                "source_id": FAMILY_SOURCES[source_family(requirement_id)],
+                "source_id": None,
                 "source_identity_locator": None,
                 "source_clause": None,
                 "generated_shacl_path": None,
                 "generated_shacl_sha256": None,
                 "generation_status": "NOT_GENERATED",
-                "failure_stage": "RUN_DISCOVERY",
-                "failure_detail": "No RUN01 metadata record exists",
+                "failure_stage": "GENERATION_RUN_EMPTY" if generation_root.is_dir() else "GENERATION_RUN_MISSING",
+                "failure_detail": f"No {generation_run} metadata record exists for this requirement",
                 "run_id": None,
                 "generation_timestamp": None,
-                "model_identifier": config["models"]["generator"],
-                "generation_config_identifier": config["pipeline_version"],
-                "prompt_config_identifier": config["paths"]["prompt_directory"],
+                "model_identifier": config.get("models", {}).get("generator"),
+                "generation_config_identifier": config.get("pipeline_version"),
+                "prompt_config_identifier": config.get("paths", {}).get("prompt_directory"),
                 "r13_contract_identifier": queue["development_vocabulary_id"],
                 "queue_identifier": queue["queue_id"],
             })
@@ -346,12 +368,13 @@ def build_generated_manifest(repo: Path, configuration: str, output_path: Path) 
             generation_status = "GENERATION_ERROR"
             failure_stage = "SHAPE_MISSING"
             failure_detail = f"No {policy['artifact_type']} artifact record"
-        if configuration == "FULL" and usable_status:
+        if configuration in {"FULL", "FULL_REPAIR_V2"} and usable_status:
             final_ref = run.get("FINAL_SHAPE", "")
             if not final_ref or shape_path is None or (run_dir / final_ref).resolve() != shape_path.resolve():
-                raise PreflightError(f"FULL final-shape records disagree for {requirement_id}")
+                raise PreflightError(f"{configuration} final-shape records disagree for {requirement_id}")
         records.append({
-            "manifest_id": f"RUN01-{configuration}-{requirement_id}",
+            "manifest_id": f"{generation_run}-{configuration}-{requirement_id}",
+            "generation_run": generation_run,
             "configuration": configuration,
             "requirement_id": requirement_id,
             "source_id": generated_source_id,
@@ -386,18 +409,25 @@ def build_generated_manifest(repo: Path, configuration: str, output_path: Path) 
     return records
 
 
-def load_generated_manifest(path: Path, configuration: str) -> list[dict[str, Any]]:
+def load_generated_manifest(path: Path, configuration: str, generation_run: str) -> list[dict[str, Any]]:
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     keys = [row["requirement_id"] for row in rows]
     if len(keys) != len(set(keys)):
         raise PreflightError(f"Duplicate requirement IDs in generated manifest: {path}")
     if any(row.get("configuration") != configuration for row in rows):
         raise PreflightError(f"Configuration mismatch in generated manifest: {path}")
+    if any(row.get("generation_run") != generation_run for row in rows):
+        raise PreflightError(f"Generation-run mismatch in generated manifest: {path}")
     return rows
 
 
 def validate_generated_manifest(
-    repo: Path, benchmark: Benchmark, configuration: str, rows: list[dict[str, Any]], strict_counts: bool = True
+    repo: Path,
+    benchmark: Benchmark,
+    configuration: str,
+    generation_run: str,
+    rows: list[dict[str, Any]],
+    strict_counts: bool = True,
 ) -> dict[str, dict[str, Any]]:
     benchmark_sources = {c.requirement_id: c.source_id for c in benchmark.cases}
     by_requirement = {row["requirement_id"]: row for row in rows}
@@ -406,7 +436,9 @@ def validate_generated_manifest(
         extra = sorted(set(by_requirement) - set(benchmark.requirement_ids))
         raise PreflightError(f"Generated manifest coverage mismatch for {configuration}; missing={missing}, extra={extra}")
     for requirement_id, row in by_requirement.items():
-        if row.get("source_id") != benchmark_sources.get(requirement_id):
+        if row.get("generation_run") != generation_run:
+            raise PreflightError(f"Generation-run mismatch for {configuration} {requirement_id}")
+        if row.get("generation_status") != "NOT_GENERATED" and row.get("source_id") != benchmark_sources.get(requirement_id):
             raise PreflightError(
                 f"Generated/benchmark source identity mismatch for {configuration} {requirement_id}: "
                 f"{row.get('source_id')} != {benchmark_sources.get(requirement_id)}"

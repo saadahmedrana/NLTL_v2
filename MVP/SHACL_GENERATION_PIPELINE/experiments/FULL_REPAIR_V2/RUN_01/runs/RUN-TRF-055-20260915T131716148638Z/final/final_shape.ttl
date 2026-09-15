@@ -1,0 +1,199 @@
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix qudtunit: <http://qudt.org/vocab/unit/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:TRF055NarrowDeckStripShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:narrowDeckStrip ;
+    sh:property [
+        sh:path nltl:abreastOfHatch ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+        sh:message "If applicable, the narrow deck strip must be recorded as abreast of a hatch."
+    ] ;
+    sh:property [
+        sh:path nltl:servesAsIceStringer ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+        sh:message "If applicable, the narrow deck strip must be recorded as serving as an ice stringer."
+    ] ;
+    sh:property [
+        sh:path nltl:veryLongHatchOpening ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:actualSectionModulus ;
+        sh:maxCount 1 ;
+        sh:node gs:SectionModulusQuantityShape ;
+        sh:message "An actual section modulus with the required unit is required when the applicability conditions hold."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredSectionModulus ;
+        sh:maxCount 1 ;
+        sh:node gs:SectionModulusQuantityShape ;
+        sh:message "A required section modulus with the required unit is required when the applicability conditions hold."
+    ] ;
+    sh:property [
+        sh:path nltl:actualShearArea ;
+        sh:maxCount 1 ;
+        sh:node gs:ShearAreaQuantityShape ;
+        sh:message "An actual shear area with the required unit is required when the applicability conditions hold."
+    ] ;
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:maxCount 1 ;
+        sh:node gs:ShearAreaQuantityShape ;
+        sh:message "A required shear area with the required unit is required when the applicability conditions hold."
+    ] ;
+    sh:property [
+        sh:path nltl:permittedReducedLineLoad ;
+        sh:maxCount 1 ;
+        sh:node gs:ReducedLineLoadQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:reducedLineLoadApprovedByClassificationSociety ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the strip is abreast of a hatch and serves as an ice stringer, the actual and required section modulus and shear area values are required." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:abreastOfHatch true ;
+                      nltl:servesAsIceStringer true .
+
+                FILTER (
+                    NOT EXISTS { $this nltl:actualSectionModulus ?actualZ } ||
+                    NOT EXISTS { $this nltl:requiredSectionModulus ?requiredZ } ||
+                    NOT EXISTS { $this nltl:actualShearArea ?actualA } ||
+                    NOT EXISTS { $this nltl:requiredShearArea ?requiredA }
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "The actual section modulus and actual shear area must each be at least their corresponding required value when the applicability conditions hold." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX qudtunit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:abreastOfHatch true ;
+                      nltl:servesAsIceStringer true ;
+                      nltl:actualSectionModulus ?actualZ ;
+                      nltl:requiredSectionModulus ?requiredZ ;
+                      nltl:actualShearArea ?actualA ;
+                      nltl:requiredShearArea ?requiredA .
+
+                ?actualZ qudt:numericValue ?actualZValue ;
+                         qudt:unit qudtunit:CentiM3 .
+                ?requiredZ qudt:numericValue ?requiredZValue ;
+                            qudt:unit qudtunit:CentiM3 .
+                ?actualA qudt:numericValue ?actualAValue ;
+                         qudt:unit qudtunit:CentiM2 .
+                ?requiredA qudt:numericValue ?requiredAValue ;
+                            qudt:unit qudtunit:CentiM2 .
+
+                FILTER (
+                    ?actualZValue < ?requiredZValue ||
+                    ?actualAValue < ?requiredAValue
+                )
+            }
+        """
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A permitted reduced line load is valid only for a very long hatch, must be approved by the classification society, and must satisfy 0.10 <= p*h < 0.15 kN/m." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX qudtunit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:abreastOfHatch true ;
+                      nltl:servesAsIceStringer true ;
+                      nltl:permittedReducedLineLoad ?reducedLoad .
+
+                OPTIONAL {
+                    $this nltl:veryLongHatchOpening ?veryLong .
+                }
+                OPTIONAL {
+                    $this nltl:reducedLineLoadApprovedByClassificationSociety ?approved .
+                }
+
+                OPTIONAL {
+                    ?reducedLoad qudt:numericValue ?reducedValue ;
+                                 qudt:unit qudtunit:KiloN-PER-M .
+                }
+
+                FILTER (
+                    !BOUND(?veryLong) ||
+                    ?veryLong != true ||
+                    !BOUND(?approved) ||
+                    ?approved != true ||
+                    !BOUND(?reducedValue) ||
+                    ?reducedValue < "0.10"^^xsd:decimal ||
+                    ?reducedValue >= "0.15"^^xsd:decimal
+                )
+            }
+        """
+    ] .
+
+gs:SectionModulusQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue qudtunit:CentiM3
+    ] .
+
+gs:ShearAreaQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue qudtunit:CentiM2
+    ] .
+
+gs:ReducedLineLoadQuantityShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue qudtunit:KiloN-PER-M
+    ] .
