@@ -32,7 +32,11 @@ def parser() -> argparse.ArgumentParser:
     selection = result.add_mutually_exclusive_group(required=True)
     selection.add_argument("--config", choices=CONFIGURATIONS)
     selection.add_argument("--all", action="store_true", help="Evaluate FULL_REPAIR_V2, FULL, NO_SEMANTIC, and available SINGLESHOT runs")
-    selection.add_argument("--build-manifests-only", action="store_true")
+    result.add_argument(
+        "--build-manifests-only",
+        action="store_true",
+        help="Build only the manifests selected by --config/--all and --generation-run/--all-generation-runs",
+    )
     result.add_argument("--requirement")
     result.add_argument("--family", choices=("I2", "TRF", "TRAFICOM", "IMO", "IMO26"))
     result.add_argument("--case")
@@ -51,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     repo = find_repo_root()
     evaluation_root = repo / "MVP/SHACL_GENERATION_PIPELINE/evaluation"
     generation_runs = list(GENERATION_RUNS) if args.all_generation_runs else [args.generation_run]
-    configurations = list(CONFIGURATIONS) if args.all or args.build_manifests_only else [args.config]
+    configurations = list(CONFIGURATIONS) if args.all else [args.config]
     try:
         integrity = run_integrity_check(repo)
         benchmark = load_benchmark(repo, strict_counts=True)

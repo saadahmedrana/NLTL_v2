@@ -15,6 +15,7 @@ if str(EVALUATION) not in sys.path:
     sys.path.insert(0, str(EVALUATION))
 
 from experiment_runner.core import BenchmarkCase, PreflightError, load_generated_manifest, sha256
+from experiment_runner.cli import parser
 from experiment_runner.execution import (
     evaluate_case,
     extract_validation_results,
@@ -158,6 +159,18 @@ class BehavioralExperimentRunnerTests(unittest.TestCase):
             ("RUN_01", "FULL", "R-1", "C-1"),
             ("RUN_02", "FULL", "R-1", "C-1"),
         })
+
+    def test_18_manifest_only_can_be_scoped_to_one_configuration_and_run(self) -> None:
+        args = parser().parse_args([
+            "--config", "FULL_REPAIR_V2",
+            "--generation-run", "RUN_01",
+            "--build-manifests-only",
+        ])
+        self.assertEqual(args.config, "FULL_REPAIR_V2")
+        self.assertEqual(args.generation_run, "RUN_01")
+        self.assertTrue(args.build_manifests_only)
+        self.assertFalse(args.all)
+        self.assertFalse(args.all_generation_runs)
 
 
 if __name__ == "__main__":

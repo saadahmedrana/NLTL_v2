@@ -20,6 +20,7 @@ import rdflib
 from rdflib import Graph
 
 from . import RUNNER_VERSION
+from .analysis import analyze, summarize_rows
 from .core import (
     GENERATION_RUNS,
     SOURCE_IDS,
@@ -39,10 +40,12 @@ from .execution import (
     atomic_json,
     extract_validation_results,
     git_state,
+    ledger_csv,
     register_project_math_functions,
     safe_component,
     semantic_outcome,
     utc_now,
+    validation_results_ledger,
 )
 
 
@@ -102,14 +105,20 @@ def unavailable_attempts(available: list[int]) -> list[int]:
     return [number for number in range(1, max(available) + 1) if number not in present]
 
 
-def _artifact_map(rows: list[dict[str, str]], artifact_type: str) -> dict[int, dict[str, str]]:
+def _artifact_map(
+    rows: list[dict[str, str]], artifact_type: str, *, allow_retries: bool = False
+) -> dict[int, dict[str, str]]:
     result: dict[int, dict[str, str]] = {}
     for row in rows:
         if row.get("ARTIFACT_TYPE") != artifact_type:
             continue
         iteration = int(row["ITERATION"])
-        if iteration in result:
+        if iteration in result and not allow_retries:
             raise PreflightError(f"Duplicate {artifact_type} artifact at iteration {iteration}")
+        # Validator calls may be retried within one generation attempt.  Their
+        # artifact table order is chronological, so the last preserved response
+        # is the attempt's final validator record.  Generated candidate shapes
+        # and all other artifact types remain strictly unique per attempt.
         result[iteration] = row
     return result
 
@@ -151,8 +160,8 @@ def discover_candidates(repo: Path, generation_runs: list[str], configuration: s
                     raise PreflightError(f"Artifact identity mismatch in {run_dir / 'tables/artifacts.csv'}")
             candidate_artifacts = _artifact_map(artifacts, "candidate_shape")
             deterministic_artifacts = _artifact_map(artifacts, "deterministic_validation")
-            validator_raw_artifacts = _artifact_map(artifacts, "validator_raw_response")
-            validator_prompt_artifacts = _artifact_map(artifacts, "validator_prompt")
+            validator_raw_artifacts = _artifact_map(artifacts, "validator_raw_response", allow_retries=True)
+            validator_prompt_artifacts = _artifact_map(artifacts, "validator_prompt", allow_retries=True)
             attempt_metadata_artifacts = _artifact_map(artifacts, "attempt_metadata")
             repair_diff_artifacts = _artifact_map(artifacts, "repair_diff")
             final_artifacts = [row for row in artifacts if row["ARTIFACT_TYPE"] == "final_accepted_shape"]
@@ -244,6 +253,10 @@ def discover_candidates(repo: Path, generation_runs: list[str], configuration: s
                     "candidate_path": str(candidate_path.relative_to(repo)),
                     "candidate_sha256": actual_hash,
                     "candidate_artifact_recorded_sha256": artifact["SHA256"],
+                    "candidate_artifact_type": artifact["ARTIFACT_TYPE"],
+                    "candidate_artifact_iteration": int(artifact["ITERATION"]),
+                    "artifact_metadata_path": str((run_dir / "tables/artifacts.csv").relative_to(repo)),
+                    "run_metadata_path": str((run_dir / "tables/runs.csv").relative_to(repo)),
                     "deterministic_validation_path": str(deterministic_path.relative_to(repo)) if deterministic_path else None,
                     "deterministic_validation_status": (
                         "PASS" if _boolean(deterministic.get("valid", validation.get("VALID"))) is True
@@ -312,9 +325,9 @@ def _append_jsonl(path: Path, row: dict[str, Any]) -> None:
         os.fsync(stream.fileno())
 
 
-def _load_case_ledger(path: Path) -> tuple[list[dict[str, Any]], set[tuple[str, str, int, str]]]:
+def _load_case_ledger(path: Path) -> tuple[list[dict[str, Any]], set[tuple[str, str, str, int, str]]]:
     rows: list[dict[str, Any]] = []
-    keys: set[tuple[str, str, int, str]] = set()
+    keys: set[tuple[str, str, str, int, str]] = set()
     if not path.exists():
         return rows, keys
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -324,7 +337,13 @@ def _load_case_ledger(path: Path) -> tuple[list[dict[str, Any]], set[tuple[str, 
             row = json.loads(line)
         except json.JSONDecodeError as exc:
             raise PreflightError(f"Malformed candidate ledger line {line_number}: {exc}") from exc
-        key = (row["generation_run"], row["requirement_id"], int(row["attempt_number"]), row["case_id"])
+        key = (
+            row["generation_run"],
+            row.get("configuration", "FULL_CANDIDATE_DIAGNOSTIC"),
+            row["requirement_id"],
+            int(row["attempt_number"]),
+            row["case_id"],
+        )
         if key in keys:
             raise PreflightError(f"Duplicate candidate diagnostic key: {key}")
         keys.add(key)
@@ -340,16 +359,26 @@ def _case_result_base(
     diagnostic_id: str, candidate: dict[str, Any], case: BenchmarkCase
 ) -> dict[str, Any]:
     return {
+        "run_id": diagnostic_id,
         "diagnostic_run_id": diagnostic_id,
-        "configuration": "FULL_CANDIDATE_DIAGNOSTIC",
+        "configuration": candidate.get("diagnostic_configuration", "FULL_CANDIDATE_DIAGNOSTIC"),
+        "parent_configuration": candidate.get("parent_configuration", candidate.get("configuration")),
         "generation_run": candidate["generation_run"],
         "requirement_id": candidate["requirement_id"],
         "source_id": candidate["source_id"],
+        "source_family": case.source_family,
         "source_clause": case.source_clause,
         "attempt_number": candidate["attempt_number"],
+        "candidate_attempt": candidate.get("candidate_attempt", candidate["attempt_number"]),
         "candidate_manifest_id": candidate["candidate_manifest_id"],
         "candidate_path": candidate["candidate_path"],
         "candidate_sha256": candidate["candidate_sha256"],
+        "generated_shape_path": candidate["candidate_path"],
+        "generated_shape_sha256": candidate["candidate_sha256"],
+        "generation_status": candidate.get("generation_status", "GENERATED"),
+        "original_final_status": candidate.get("original_final_status", candidate["overall_final_status"]),
+        "diagnostic_only": candidate.get("diagnostic_only", True),
+        "official_final_shape": candidate.get("official_final_shape", False),
         "deterministic_parse_status": candidate["deterministic_parse_status"],
         "deterministic_validation_status": candidate["deterministic_validation_status"],
         "deterministic_turtle_valid": candidate["deterministic_turtle_valid"],
@@ -367,6 +396,7 @@ def _case_result_base(
         "rdf_path": case.rdf_path,
         "rdf_sha256": case.rdf_sha256,
         "expected_behavioral_result": case.expected_outcome,
+        "expected_outcome": case.expected_outcome,
         "source_oracle_rationale": case.source_oracle_rationale,
         "verification_mode": case.verification_mode,
         "pyshacl_options": PYSHACL_OPTIONS,
@@ -617,14 +647,19 @@ def execute_diagnostic(
     command_line: list[str],
     integrity: dict[str, Any],
     resume: bool,
+    candidate_manifest_filename: str = "full_candidate_manifest.jsonl",
+    inventory_filename: str = "requirement_candidate_inventory.jsonl",
+    ledger_filename: str = "full_candidate_case_results.jsonl",
+    run_manifest_filename: str = "diagnostic_run_manifest.json",
+    standard_outputs: bool = False,
 ) -> Path:
     if resume and not output_dir.is_dir():
         raise PreflightError(f"Diagnostic resume directory does not exist: {output_dir}")
     if not resume and output_dir.exists():
         raise PreflightError(f"Diagnostic output already exists: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=resume)
-    candidate_manifest_path = output_dir / "full_candidate_manifest.jsonl"
-    inventory_path = output_dir / "requirement_candidate_inventory.jsonl"
+    candidate_manifest_path = output_dir / candidate_manifest_filename
+    inventory_path = output_dir / inventory_filename
     candidate_payload = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n" for row in candidates)
     inventory_payload = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n" for row in inventory)
     if resume:
@@ -639,16 +674,22 @@ def execute_diagnostic(
     for case in cases:
         case_by_requirement[case.requirement_id].append(case)
     expected_keys = {
-        (candidate["generation_run"], candidate["requirement_id"], candidate["attempt_number"], case.case_id)
+        (
+            candidate["generation_run"],
+            candidate.get("diagnostic_configuration", "FULL_CANDIDATE_DIAGNOSTIC"),
+            candidate["requirement_id"],
+            candidate["attempt_number"],
+            case.case_id,
+        )
         for candidate in candidates
         for case in case_by_requirement[candidate["requirement_id"]]
     }
-    ledger_path = output_dir / "full_candidate_case_results.jsonl"
+    ledger_path = output_dir / ledger_filename
     rows, completed = _load_case_ledger(ledger_path)
     if not completed.issubset(expected_keys):
         raise PreflightError("Candidate resume ledger contains out-of-scope keys")
     commit, dirty = git_state(repo)
-    manifest_path = output_dir / "diagnostic_run_manifest.json"
+    manifest_path = output_dir / run_manifest_filename
     prior = json.loads(manifest_path.read_text(encoding="utf-8")) if resume and manifest_path.is_file() else {}
     invariants = {
         "diagnostic_run_id": diagnostic_id,
@@ -665,7 +706,10 @@ def execute_diagnostic(
     manifest = {
         **invariants,
         "diagnostic_only": True,
+        "configurations": sorted({candidate.get("diagnostic_configuration", "FULL_CANDIDATE_DIAGNOSTIC") for candidate in candidates}),
+        "parent_configurations": sorted({candidate.get("parent_configuration", candidate.get("configuration")) for candidate in candidates}),
         "official_full_metric_affected": False,
+        "official_parent_metric_affected": False,
         "official_artifact_substitution_permitted": False,
         "status": "IN_PROGRESS",
         "started_utc": prior.get("started_utc", utc_now()),
@@ -690,22 +734,74 @@ def execute_diagnostic(
     for candidate in candidates:
         shape_graph, shape_error = _parse_candidate(repo, candidate)
         for case in sorted(case_by_requirement[candidate["requirement_id"]], key=lambda item: item.case_id):
-            key = (candidate["generation_run"], candidate["requirement_id"], candidate["attempt_number"], case.case_id)
+            key = (
+                candidate["generation_run"],
+                candidate.get("diagnostic_configuration", "FULL_CANDIDATE_DIAGNOSTIC"),
+                candidate["requirement_id"],
+                candidate["attempt_number"],
+                case.case_id,
+            )
             if key in completed:
                 continue
             row = evaluate_candidate_case(repo=repo, output_dir=output_dir, diagnostic_id=diagnostic_id, candidate=candidate, case=case, shape_graph=shape_graph, shape_error=shape_error, ontology_graph=ontology)
+            row["shape_parse_status"] = row["candidate_parse_status"]
+            row["end_to_end_success"] = row.get("behavioral_match") is True
             _append_jsonl(ledger_path, row)
             rows.append(row)
             completed.add(key)
             manifest["completed_case_rows"] = len(rows)
             atomic_json(manifest_path, manifest)
-    actual = {(r["generation_run"], r["requirement_id"], int(r["attempt_number"]), r["case_id"]) for r in rows}
+    actual = {
+        (r["generation_run"], r["configuration"], r["requirement_id"], int(r["attempt_number"]), r["case_id"])
+        for r in rows
+    }
     if len(rows) != len(actual) or actual != expected_keys:
         raise PreflightError("Candidate diagnostic final key-set validation failed")
     if composite_hash(benchmark.locked_paths, repo) != benchmark.integrity_hash:
         raise PreflightError("Frozen benchmark changed during candidate diagnostic")
     post = run_integrity_check(repo)
     summarize(output_dir, candidates, inventory, rows)
+    if standard_outputs:
+        ledger_csv(ledger_path, output_dir / "raw_case_results.csv")
+        validation_results_ledger(rows, output_dir / "validation_results.jsonl")
+        analyze(ledger_path)
+        grouped_dimensions = {
+            "original_final_status": lambda row: row["original_final_status"],
+            "source_family": lambda row: row["source_family"],
+            "verification_mode": lambda row: row["verification_mode"],
+        }
+        diagnostic_summary: dict[str, Any] = {
+            "diagnostic_only": True,
+            "configuration": sorted({row["configuration"] for row in rows}),
+            "selected_rejected_attempt4_requirements": len({row["requirement_id"] for row in rows}),
+            "expected_diagnostic_case_rows": len(expected_keys),
+            "overall": summarize_rows(rows),
+        }
+        for dimension, key_fn in grouped_dimensions.items():
+            grouped_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+            for row in rows:
+                grouped_rows[str(key_fn(row))].append(row)
+            diagnostic_summary[f"by_{dimension}"] = {
+                key: summarize_rows(values) for key, values in sorted(grouped_rows.items())
+            }
+        requirement_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            requirement_groups[row["requirement_id"]].append(row)
+        executable_requirements = sum(
+            all(row["execution_status"] == "EXECUTED" for row in values)
+            for values in requirement_groups.values()
+        )
+        exact_requirements = sum(
+            all(row["execution_status"] == "EXECUTED" and row["behavioral_match"] is True for row in values)
+            for values in requirement_groups.values()
+        )
+        diagnostic_summary.update({
+            "executable_rejected_attempt4_requirements": executable_requirements,
+            "behaviorally_exact_rejected_attempt4_requirements": exact_requirements,
+            "exact_among_executable_rejected_attempt4_requirements": _ratio(exact_requirements, executable_requirements),
+            "p_behaviorally_exact_given_rejected_final_attempt4_candidate": _ratio(exact_requirements, len(requirement_groups)),
+        })
+        atomic_json(output_dir / "summaries/diagnostic_summary.json", diagnostic_summary)
     manifest.update({"status": "COMPLETE", "finished_utc": utc_now(), "benchmark_integrity_status_after": post["status"], "benchmark_modified": False})
     atomic_json(manifest_path, manifest)
     return ledger_path
