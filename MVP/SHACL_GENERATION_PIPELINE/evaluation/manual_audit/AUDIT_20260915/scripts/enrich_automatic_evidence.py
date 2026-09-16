@@ -13,6 +13,7 @@ import csv
 import hashlib
 import json
 import os
+import platform
 import posixpath
 import shutil
 import sys
@@ -28,6 +29,9 @@ from rdflib import BNode, Graph, Literal, RDF, RDFS, URIRef
 from rdflib.collection import Collection
 from rdflib.namespace import OWL, SH
 
+import pyshacl
+import rdflib
+
 
 ARCHITECTURES = ("V2_FALLBACK25", "NO_SEMANTIC", "SINGLESHOT")
 SHEET_BY_ARCHITECTURE = {
@@ -40,15 +44,31 @@ EXPECTED_AVAILABILITY = {
     "NO_SEMANTIC": 263,
     "SINGLESHOT": 254,
 }
+EXPECTED_SELECTED_TURTLE_PARSE_VALID = {
+    "V2_FALLBACK25": 262,
+    "NO_SEMANTIC": 260,
+    "SINGLESHOT": 237,
+}
 INPUT_WORKBOOK_NAME = "NLTL_Manual_Audit_ready_v2.xlsx"
-OUTPUT_WORKBOOK_NAME = "NLTL_Manual_Audit_ready_v2_enriched.xlsx"
+OUTPUT_WORKBOOK_NAME = "NLTL_Manual_Audit_ready_v2_enriched_r2.xlsx"
 SELECTION_NAME = "audit_selection.json"
-EVIDENCE_NAME = "automatic_evidence.jsonl"
-SUMMARY_NAME = "automatic_summary.json"
-DISCREPANCIES_NAME = "automatic_evidence_discrepancies.csv"
+EVIDENCE_NAME = "automatic_evidence_r2.jsonl"
+SUMMARY_NAME = "automatic_summary_r2.json"
+DISCREPANCIES_NAME = "automatic_evidence_discrepancies_r2.csv"
+ARCHIVED_OUTPUT_NAMES = (
+    "NLTL_Manual_Audit_ready_v2_enriched.xlsx",
+    "automatic_evidence.jsonl",
+    "automatic_summary.json",
+    "automatic_evidence_discrepancies.csv",
+)
+EVALUATOR_ONTOLOGY_PATH = "MVP/BENCHMARK_VOCABULARY/FINAL_LOCK_R13/ontology/nltl_benchmark_vocabulary.ttl"
+ACTIVATION_INFERENCE_MODE = "rdfs"
+ACTIVATION_UNRESOLVED_REASON = "ONTOLOGY_OR_INFERENCE_CONTEXT_UNRESOLVED"
 
+INPUT_OPERATIONAL_HEADER = "SHACL specification validity"
+OUTPUT_OPERATIONAL_HEADER = "Operational SHACL validity"
 AUTOMATIC_HEADERS = (
-    "SHACL specification validity",
+    INPUT_OPERATIONAL_HEADER,
     "SHACL vocabulary validity",
     "Selected-case target activation",
     "Node-shape count",
@@ -59,6 +79,7 @@ AUTOMATIC_HEADERS = (
     "Maximum property-path depth",
     "Maximum logical nesting depth",
 )
+OUTPUT_AUTOMATIC_HEADERS = (OUTPUT_OPERATIONAL_HEADER, *AUTOMATIC_HEADERS[1:])
 IDENTITY_HEADERS = (
     "Requirement ID",
     "Selected generation run",
@@ -76,6 +97,7 @@ IDENTITY_HEADERS = (
     "Recorded outcome 2",
 )
 REQUIRED_HEADERS = IDENTITY_HEADERS + AUTOMATIC_HEADERS
+OUTPUT_REQUIRED_HEADERS = IDENTITY_HEADERS + OUTPUT_AUTOMATIC_HEADERS
 
 # SHACL Core constraint parameters.  Metadata, targets, severity, messages,
 # prefix declarations, and SHACL-SPARQL's sh:sparql predicate are excluded.
@@ -123,6 +145,17 @@ class Discrepancy:
     source_value: str = ""
     source_path: str = ""
     message: str = ""
+
+
+@dataclass(frozen=True)
+class ActivationContext:
+    resolved: bool
+    ontology_path: str | None
+    ontology_sha256: str | None
+    inference_mode: str | None
+    ontology_graph: Graph | None
+    provenance: tuple[str, ...]
+    unresolved_reason: str | None = None
 
 
 def sha256_file(path: Path) -> str:
@@ -297,6 +330,22 @@ class WorkbookXML:
             return False, current
         if current not in (None, ""):
             return False, current
+        self.set_cell_value(sheet_name, row_number, column, value)
+        return True, current
+
+    def set_cell_value(
+        self,
+        sheet_name: str,
+        row_number: int,
+        column: int,
+        value: Any,
+    ) -> None:
+        """Set one cell while retaining its existing style and other attributes."""
+        rows = self._rows(sheet_name)
+        row = next((item for item in rows if int(item.attrib["r"]) == row_number), None)
+        if row is None:
+            raise EnrichmentError(f"Missing row {row_number} in {sheet_name}")
+        cell = self._cells_by_column(row).get(column)
         if cell is None:
             reference = f"{column_letters(column)}{row_number}"
             cell = ET.Element(f"{{{NS_MAIN}}}c", {"r": reference})
@@ -322,7 +371,6 @@ class WorkbookXML:
             inline = ET.SubElement(cell, f"{{{NS_MAIN}}}is")
             text = ET.SubElement(inline, f"{{{NS_MAIN}}}t")
             text.text = "" if value is None else str(value)
-        return True, current
 
     def save(self, path: Path, changed_sheets: Iterable[str]) -> None:
         replacements = {
@@ -336,13 +384,18 @@ class WorkbookXML:
                 output.writestr(name, replacements.get(name, payload))
 
 
-def load_supported_shacl_vocabulary() -> set[URIRef]:
-    import pyshacl
-
+def shacl_vocabulary_resources() -> list[dict[str, str]]:
     assets = Path(pyshacl.__file__).resolve().parent / "assets"
+    return [
+        {"path": str(assets / name), "sha256": sha256_file(assets / name)}
+        for name in ("shacl.ttl", "shacl-shacl.ttl")
+    ]
+
+
+def load_supported_shacl_vocabulary() -> set[URIRef]:
     allowed: set[URIRef] = set()
-    for name in ("shacl.ttl", "shacl-shacl.ttl"):
-        graph = Graph().parse(assets / name, format="turtle")
+    for resource in shacl_vocabulary_resources():
+        graph = Graph().parse(resource["path"], format="turtle")
         for triple in graph:
             for term in triple:
                 if isinstance(term, URIRef) and str(term).startswith(str(SH)):
@@ -435,7 +488,79 @@ def logical_nesting_depth(graph: Graph, node: Any, visiting: frozenset[Any] = fr
     return best
 
 
-def target_activation(shape_graph: Graph, data_graph: Graph) -> tuple[str, list[str], list[str]]:
+def unresolved_activation_context(reason: str = ACTIVATION_UNRESOLVED_REASON) -> ActivationContext:
+    return ActivationContext(False, None, None, None, None, (), reason)
+
+
+def resolve_activation_context(
+    repo_root: Path,
+    selected_records: Mapping[tuple[str, str], Mapping[str, Any]],
+) -> ActivationContext:
+    ontology_path = (repo_root / EVALUATOR_ONTOLOGY_PATH).resolve()
+    provenance = {
+        "MVP/SHACL_GENERATION_PIPELINE/evaluation/experiment_runner/execution.py",
+        "MVP/SHACL_GENERATION_PIPELINE/evaluation/experiment_runner/candidate_diagnostics.py",
+    }
+    if not ontology_path.is_file():
+        return unresolved_activation_context()
+    actual_sha = sha256_file(ontology_path)
+    asserted_hashes: set[str] = set()
+    for record in selected_records.values():
+        ledger_path = _resolve_repo_path(repo_root, record.get("source_ledger_path"))
+        if ledger_path is None:
+            return unresolved_activation_context()
+        manifest_path = ledger_path.parent / "run_manifest.json"
+        if not manifest_path.is_file():
+            return unresolved_activation_context()
+        provenance.add(str(manifest_path.relative_to(repo_root)))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        options = manifest.get("pyshacl_options", {})
+        if options.get("inference") != ACTIVATION_INFERENCE_MODE or options.get("ontology_graph_usage") is not True:
+            return unresolved_activation_context()
+        manifest_ontology = manifest.get("ontology_path")
+        manifest_sha = manifest.get("ontology_sha256")
+        if manifest_ontology is not None and manifest_ontology != EVALUATOR_ONTOLOGY_PATH:
+            return unresolved_activation_context()
+        if manifest_sha is not None:
+            asserted_hashes.add(manifest_sha)
+    if not asserted_hashes or asserted_hashes != {actual_sha}:
+        return unresolved_activation_context()
+    try:
+        ontology_graph = Graph().parse(ontology_path, format="turtle")
+    except Exception:
+        return unresolved_activation_context()
+    return ActivationContext(
+        True,
+        EVALUATOR_ONTOLOGY_PATH,
+        actual_sha,
+        ACTIVATION_INFERENCE_MODE,
+        ontology_graph,
+        tuple(sorted(provenance)),
+        None,
+    )
+
+
+def prepare_inferred_activation_graph(data_graph: Graph, context: ActivationContext) -> Graph | None:
+    if not context.resolved or context.ontology_graph is None or context.inference_mode != "rdfs":
+        return None
+    from pyshacl.rdfutil import inoculate
+    from pyshacl.run_type import PySHACLRunType
+
+    inferred = Graph(identifier=data_graph.identifier)
+    for prefix, namespace in data_graph.namespace_manager.namespaces():
+        inferred.bind(prefix, namespace)
+    for triple in data_graph:
+        inferred.add(triple)
+    inoculate(inferred, context.ontology_graph)
+    PySHACLRunType._run_pre_inference(inferred, "rdfs")
+    return inferred
+
+
+def target_activation(
+    shape_graph: Graph,
+    data_graph: Graph,
+    inferred_data_graph: Graph | None = None,
+) -> tuple[str, list[str], list[str]]:
     warnings: list[str] = []
     if any(True for _ in shape_graph.triples((None, OWL.imports, None))) or any(
         True for _ in data_graph.triples((None, OWL.imports, None))
@@ -451,18 +576,17 @@ def target_activation(shape_graph: Graph, data_graph: Graph) -> tuple[str, list[
         declared = True
         if target in graph_nodes:
             focus_nodes.add(target)
-    for target_class in shape_graph.objects(None, SH.targetClass):
+    target_classes = list(shape_graph.objects(None, SH.targetClass))
+    unresolved_target_class = False
+    for target_class in target_classes:
         declared = True
-        classes = {target_class}
-        changed = True
-        while changed:
-            changed = False
-            for subclass, _, superclass in data_graph.triples((None, RDFS.subClassOf, None)):
-                if superclass in classes and subclass not in classes:
-                    classes.add(subclass)
-                    changed = True
-        for class_iri in classes:
-            focus_nodes.update(data_graph.subjects(RDF.type, class_iri))
+        direct = set(data_graph.subjects(RDF.type, target_class))
+        focus_nodes.update(direct)
+        if not direct:
+            if inferred_data_graph is None:
+                unresolved_target_class = True
+            else:
+                focus_nodes.update(inferred_data_graph.subjects(RDF.type, target_class))
     for predicate in shape_graph.objects(None, SH.targetSubjectsOf):
         declared = True
         focus_nodes.update(data_graph.subjects(predicate, None))
@@ -471,12 +595,14 @@ def target_activation(shape_graph: Graph, data_graph: Graph) -> tuple[str, list[
         focus_nodes.update(data_graph.objects(None, predicate))
     if focus_nodes:
         return "ACTIVATED", sorted(str(node) for node in focus_nodes), warnings
+    if unresolved_target_class:
+        return "NOT_EVALUATED", [], [ACTIVATION_UNRESOLVED_REASON]
     if not declared:
         warnings.append("no supported standard target declaration was found")
     return "NOT_ACTIVATED", [], warnings
 
 
-def derive_meta_shacl_from_rows(rows: Sequence[Mapping[str, Any]], artifact_sha256: str) -> tuple[str, str] | None:
+def derive_operational_shacl_from_rows(rows: Sequence[Mapping[str, Any]], artifact_sha256: str) -> tuple[str, str] | None:
     for row in rows:
         if (
             row.get("generated_shape_sha256") == artifact_sha256
@@ -488,14 +614,46 @@ def derive_meta_shacl_from_rows(rows: Sequence[Mapping[str, Any]], artifact_sha2
     return None
 
 
-def standalone_meta_shacl(graph: Graph) -> tuple[str, str]:
+def standalone_operational_shacl(graph: Graph) -> tuple[str, str]:
+    """Mirror the pipeline's composite meta-SHACL plus activated smoke check."""
     try:
-        from pyshacl.entrypoints import meta_validate
-
-        conforms, _, report_text = meta_validate(graph, inference="rdfs", advanced=True)
-        return ("VALID" if conforms else "INVALID"), str(report_text)
+        conforms, _, report_text = pyshacl.validate(
+            Graph(), shacl_graph=graph, meta_shacl=True, inference="none", advanced=True
+        )
+        reports = [f"meta_shacl_conforms={conforms}\n{report_text}"]
+        if not conforms:
+            return "INVALID", "\n".join(reports)
     except Exception as exc:
-        return "ERROR", f"{type(exc).__name__}: {exc}"
+        return "INVALID", f"Meta-SHACL execution error: {type(exc).__name__}: {exc}"
+    try:
+        smoke_data = Graph()
+        smoke_focus = URIRef("urn:nltl:static-smoke:focus")
+        smoke_aux = URIRef("urn:nltl:static-smoke:aux")
+        for target_class in graph.objects(None, SH.targetClass):
+            if isinstance(target_class, URIRef):
+                smoke_data.add((smoke_focus, RDF.type, target_class))
+        for target_node in graph.objects(None, SH.targetNode):
+            if isinstance(target_node, URIRef):
+                smoke_data.add((target_node, RDF.type, OWL.Thing))
+        for target_property in graph.objects(None, SH.targetSubjectsOf):
+            if isinstance(target_property, URIRef):
+                smoke_data.add((smoke_focus, target_property, smoke_aux))
+        for target_property in graph.objects(None, SH.targetObjectsOf):
+            if isinstance(target_property, URIRef):
+                smoke_data.add((smoke_aux, target_property, smoke_focus))
+        _smoke_conforms, smoke_report_graph, smoke_report_text = pyshacl.validate(
+            smoke_data,
+            shacl_graph=graph,
+            meta_shacl=True,
+            inference="none",
+            advanced=True,
+        )
+        reports.append(f"runtime_smoke_report={smoke_report_text}")
+        if not isinstance(smoke_report_graph, Graph):
+            return "INVALID", "\n".join(reports)
+        return "VALID", "\n".join(reports)
+    except Exception as exc:
+        return "INVALID", f"SHACL runtime smoke execution error: {type(exc).__name__}: {exc}"
 
 
 def _resolve_repo_path(repo_root: Path, value: str | None) -> Path | None:
@@ -547,7 +705,8 @@ def recorded_meta_shacl(
     if not isinstance(value, bool):
         return None
     detail = {
-        "method": "RECORDED_PIPELINE_META_SHACL",
+        "method": "RECORDED_PIPELINE_OPERATIONAL_SHACL",
+        "definition": "pipeline meta-SHACL result combined with activated SHACL runtime smoke execution",
         "source_path": str(evidence_path.relative_to(repo_root)),
         "source_sha256": expected_evidence_sha,
         "artifact_metadata_path": str(metadata_path.relative_to(repo_root)),
@@ -669,7 +828,7 @@ def _activation_cell_value(activation: Mapping[str, Mapping[str, Any]]) -> str:
 def _automatic_cell_values(evidence: Mapping[str, Any]) -> dict[str, Any]:
     profile = evidence.get("structural_profile") or {}
     return {
-        "SHACL specification validity": _spec_cell_value(evidence["shacl_specification_validity"]),
+        INPUT_OPERATIONAL_HEADER: _spec_cell_value(evidence["operational_shacl_validity"]),
         "SHACL vocabulary validity": evidence["shacl_vocabulary_validity"],
         "Selected-case target activation": _activation_cell_value(evidence["selected_case_target_activation"]),
         "Node-shape count": profile.get("node_shape_count", ""),
@@ -688,7 +847,9 @@ def build_evidence_record(
     ledger_cache: LedgerCache,
     supported_vocabulary: set[URIRef],
     recheck_unresolved: bool,
+    activation_context: ActivationContext | None = None,
 ) -> tuple[dict[str, Any], list[Discrepancy]]:
+    activation_context = activation_context or unresolved_activation_context()
     if record.get("generation_run") != "RUN_01" or record.get("selected_generation_run", "RUN_01") != "RUN_01":
         raise EnrichmentError(f"Only RUN_01 is permitted: {record['architecture']} {record['requirement_id']}")
     selected_path = _resolve_repo_path(repo_root, record.get("shape_path"))
@@ -733,6 +894,7 @@ def build_evidence_record(
             "source": SELECTION_NAME,
             "ledger_statuses": sorted({row.get("shape_parse_status") for row in selected_rows if row.get("shape_parse_status")}),
         },
+        "selected_artifact_turtle_parse_validity": "NOT_EVALUATED",
         "existing_pipeline_validation_evidence": {
             "status": record.get("deterministic_status"),
             "generation_status": record.get("original_generation_status"),
@@ -745,13 +907,22 @@ def build_evidence_record(
             "source_sha256": record.get("source_ledger_sha256"),
             "selected_case_rows": behavioural,
         },
+        "activation_analysis_context": {
+            "resolved": activation_context.resolved,
+            "ontology_path": activation_context.ontology_path,
+            "ontology_sha256": activation_context.ontology_sha256,
+            "inference_mode": activation_context.inference_mode,
+            "provenance": list(activation_context.provenance),
+            "unresolved_reason": activation_context.unresolved_reason,
+        },
         "warnings_or_unresolved_limitations": warnings,
     }
     if not hash_matches:
         base.update({
-            "shacl_specification_validity": "MISSING_ARTIFACT" if not exists else "ERROR",
-            "specification_validity_provenance": "MISSING_ARTIFACT" if not exists else "ERROR",
-            "specification_validity_provenance_detail": "Selected artifact is absent" if not exists else "Selected artifact hash mismatch",
+            "selected_artifact_turtle_parse_validity": "MISSING_ARTIFACT" if not exists else "NOT_EVALUATED",
+            "operational_shacl_validity": "MISSING_ARTIFACT" if not exists else "ERROR",
+            "operational_shacl_validity_provenance": "MISSING_ARTIFACT" if not exists else "ERROR",
+            "operational_shacl_validity_provenance_detail": "Selected artifact is absent" if not exists else "Selected artifact hash mismatch",
             "shacl_vocabulary_validity": "MISSING_ARTIFACT" if not exists else "ERROR",
             "unknown_shacl_terms": [],
             "selected_case_target_activation": {
@@ -768,9 +939,10 @@ def build_evidence_record(
     except Exception as exc:
         base["warnings_or_unresolved_limitations"].append(f"Turtle parsing error during static enrichment: {type(exc).__name__}: {exc}")
         base.update({
-            "shacl_specification_validity": "ERROR",
-            "specification_validity_provenance": "ERROR",
-            "specification_validity_provenance_detail": f"Turtle parsing error: {type(exc).__name__}: {exc}",
+            "selected_artifact_turtle_parse_validity": "INVALID",
+            "operational_shacl_validity": "ERROR",
+            "operational_shacl_validity_provenance": "ERROR",
+            "operational_shacl_validity_provenance_detail": f"Turtle parsing error: {type(exc).__name__}: {exc}",
             "shacl_vocabulary_validity": "ERROR",
             "unknown_shacl_terms": [],
             "selected_case_target_activation": {
@@ -781,12 +953,14 @@ def build_evidence_record(
         })
         return base, discrepancies
 
+    base["selected_artifact_turtle_parse_validity"] = "VALID"
+
     recorded = recorded_meta_shacl(repo_root, record, expected_sha)
     if recorded:
         spec_result, detail = recorded
         provenance = "RECORDED"
     else:
-        derived = derive_meta_shacl_from_rows(selected_rows, expected_sha)
+        derived = derive_operational_shacl_from_rows(selected_rows, expected_sha)
         if derived:
             spec_result, detail = derived[0], {
                 "method": derived[1], "source_path": record.get("source_ledger_path"),
@@ -800,9 +974,9 @@ def build_evidence_record(
             }
             provenance = "DERIVED"
         elif recheck_unresolved:
-            spec_result, report = standalone_meta_shacl(shape_graph)
+            spec_result, report = standalone_operational_shacl(shape_graph)
             provenance = "RECHECKED" if spec_result in {"VALID", "INVALID"} else "ERROR"
-            detail = {"method": "STANDALONE_LOCAL_META_SHACL", "report": report}
+            detail = {"method": "STANDALONE_LOCAL_OPERATIONAL_SHACL", "report": report}
         else:
             spec_result, provenance = "NOT_TESTED", "NOT_TESTED"
             detail = {"method": "UNRESOLVED_EXISTING_EVIDENCE; standalone recheck disabled"}
@@ -819,15 +993,22 @@ def build_evidence_record(
             continue
         try:
             data_graph = Graph().parse(_rdf_path(repo_root, row), format="turtle")
-            result, focus_nodes, target_warnings = target_activation(shape_graph, data_graph)
+            try:
+                inferred_data_graph = prepare_inferred_activation_graph(data_graph, activation_context)
+            except Exception as exc:
+                inferred_data_graph = None
+                base["warnings_or_unresolved_limitations"].append(
+                    f"{ACTIVATION_UNRESOLVED_REASON}: {type(exc).__name__}: {exc}"
+                )
+            result, focus_nodes, target_warnings = target_activation(shape_graph, data_graph, inferred_data_graph)
             activation[label] = {"case_id": case_id, "result": result, "focus_nodes": focus_nodes, "warnings": target_warnings}
         except Exception as exc:
             activation[label] = {"case_id": case_id, "result": "ERROR", "focus_nodes": [], "warnings": [f"{type(exc).__name__}: {exc}"]}
 
     base.update({
-        "shacl_specification_validity": spec_result,
-        "specification_validity_provenance": provenance,
-        "specification_validity_provenance_detail": detail,
+        "operational_shacl_validity": spec_result,
+        "operational_shacl_validity_provenance": provenance,
+        "operational_shacl_validity_provenance_detail": detail,
         "shacl_vocabulary_validity": vocabulary_result,
         "unknown_shacl_terms": unknown_terms,
         "selected_case_target_activation": activation,
@@ -895,7 +1076,13 @@ def build_summary(
     input_workbook: Path,
     output_workbook: Path,
     discrepancies: Sequence[Discrepancy],
+    activation_context: ActivationContext,
+    archived_output_hashes: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    vocabulary_resources = shacl_vocabulary_resources()
+    combined_vocabulary_hash = hashlib.sha256(
+        "".join(f"{item['path']}\0{item['sha256']}\n" for item in vocabulary_resources).encode("utf-8")
+    ).hexdigest()
     summary: dict[str, Any] = {
         "status": "COMPLETE",
         "input_workbook": str(input_workbook),
@@ -905,10 +1092,26 @@ def build_summary(
         "architectures": {},
         "discrepancy_count": len(discrepancies),
         "discrepancy_severity_counts": dict(Counter(item.severity for item in discrepancies)),
+        "preserved_pre_r2_output_sha256": dict(archived_output_hashes or {}),
+        "reproducibility": {
+            "python_version": platform.python_version(),
+            "rdflib_version": rdflib.__version__,
+            "pyshacl_version": pyshacl.__version__,
+            "shacl_vocabulary_resources": vocabulary_resources,
+            "shacl_vocabulary_resources_combined_sha256": combined_vocabulary_hash,
+            "activation_ontology_path": activation_context.ontology_path,
+            "activation_ontology_sha256": activation_context.ontology_sha256,
+            "activation_inference_mode": activation_context.inference_mode,
+            "activation_context_resolved": activation_context.resolved,
+            "activation_context_provenance": list(activation_context.provenance),
+            "activation_context_unresolved_reason": activation_context.unresolved_reason,
+            "activation_inference_implementation": "pySHACL ontology inoculation plus installed CustomRDFSSemantics closure",
+        },
         "metric_definitions": {
-            "artifact_availability": "available selected artifacts / 268 requirements",
-            "conditional_turtle_parse_rate": "parse-valid selected artifacts / available selected artifacts",
-            "conditional_shacl_specification_validity_rate": "specification-valid artifacts / artifacts for which specification validity was evaluated",
+            "pipeline_approved_output_rate": "OFFICIAL_ELIGIBLE_OUTPUT selections / 268 requirements; recorded pipeline outcome, not retained-artifact usability",
+            "retained_audit_artifact_availability": "hash-verified retained audit artifacts / 268 requirements",
+            "selected_artifact_turtle_parse_rate": "artifacts parsed successfully by this enrichment / hash-verified retained audit artifacts",
+            "operational_shacl_validity_rate": "operationally valid artifacts / Turtle-parseable artifacts for which composite meta-SHACL plus runtime usability was evaluated",
             "conditional_shacl_vocabulary_validity_rate": "vocabulary-valid artifacts / artifacts for which vocabulary validity was evaluated",
             "selected_case_target_activation_rate": "activated selected cases / selected cases for which activation was evaluated",
             "rdf_behavioural_accuracy": "recorded correct PASS/FAIL verdicts / recorded executed PASS/FAIL cases",
@@ -919,13 +1122,10 @@ def build_summary(
     for architecture in ARCHITECTURES:
         rows = [record for record in evidence if record["architecture"] == architecture]
         available = sum(record["availability"] == "AVAILABLE" for record in rows)
-        parse_valid = sum(
-            record["availability"] == "AVAILABLE"
-            and record["existing_parsing_evidence"].get("status") == "PARSED"
-            for record in rows
-        )
-        spec_evaluated = sum(record["shacl_specification_validity"] in {"VALID", "INVALID"} for record in rows)
-        spec_valid = sum(record["shacl_specification_validity"] == "VALID" for record in rows)
+        pipeline_approved = sum(record.get("artifact_selection_category") == "OFFICIAL_ELIGIBLE_OUTPUT" for record in rows)
+        parse_valid = sum(record.get("selected_artifact_turtle_parse_validity") == "VALID" for record in rows)
+        operational_evaluated = sum(record["operational_shacl_validity"] in {"VALID", "INVALID"} for record in rows)
+        operational_valid = sum(record["operational_shacl_validity"] == "VALID" for record in rows)
         vocab_evaluated = sum(record["shacl_vocabulary_validity"] in {"VALID", "INVALID"} for record in rows)
         vocab_valid = sum(record["shacl_vocabulary_validity"] == "VALID" for record in rows)
         activations = [
@@ -944,12 +1144,19 @@ def build_summary(
             "pipeline_generation_status_counts": dict(Counter(
                 record["existing_pipeline_validation_evidence"].get("generation_status") for record in rows
             )),
-            "specification_validity_provenance_counts": dict(Counter(
-                record.get("specification_validity_provenance") for record in rows
+            "recorded_pipeline_turtle_status_counts": dict(Counter(
+                record["existing_parsing_evidence"].get("status") for record in rows
             )),
-            "artifact_availability": {"numerator": available, "denominator": len(rows), "rate": available / len(rows) if rows else None},
-            "conditional_turtle_parse_rate": {"numerator": parse_valid, "denominator": available, "rate": parse_valid / available if available else None},
-            "conditional_shacl_specification_validity_rate": {"numerator": spec_valid, "denominator": spec_evaluated, "rate": spec_valid / spec_evaluated if spec_evaluated else None},
+            "selected_artifact_turtle_parse_validity_counts": dict(Counter(
+                record.get("selected_artifact_turtle_parse_validity") for record in rows
+            )),
+            "operational_shacl_validity_provenance_counts": dict(Counter(
+                record.get("operational_shacl_validity_provenance") for record in rows
+            )),
+            "pipeline_approved_output_rate": {"numerator": pipeline_approved, "denominator": len(rows), "rate": pipeline_approved / len(rows) if rows else None},
+            "retained_audit_artifact_availability": {"numerator": available, "denominator": len(rows), "rate": available / len(rows) if rows else None},
+            "selected_artifact_turtle_parse_rate": {"numerator": parse_valid, "denominator": available, "rate": parse_valid / available if available else None},
+            "operational_shacl_validity_rate": {"numerator": operational_valid, "denominator": operational_evaluated, "rate": operational_valid / operational_evaluated if operational_evaluated else None},
             "conditional_shacl_vocabulary_validity_rate": {"numerator": vocab_valid, "denominator": vocab_evaluated, "rate": vocab_valid / vocab_evaluated if vocab_evaluated else None},
             "selected_case_target_activation_rate": {"numerator": activation_yes, "denominator": activation_evaluated, "rate": activation_yes / activation_evaluated if activation_evaluated else None},
             "rdf_behavioural_accuracy_recorded_not_recomputed": {"numerator": correct, "denominator": executed, "rate": correct / executed if executed else None},
@@ -976,9 +1183,13 @@ def verify_workbook_preservation(input_path: Path, output_path: Path) -> None:
             raise EnrichmentError(f"Unrelated workbook part changed: {name}")
     for sheet_name in SHEET_BY_ARCHITECTURE.values():
         before_header_row, before_headers = before.discover_headers(sheet_name, REQUIRED_HEADERS)
-        after_header_row, after_headers = after.discover_headers(sheet_name, REQUIRED_HEADERS)
-        if (before_header_row, before_headers) != (after_header_row, after_headers):
-            raise EnrichmentError(f"Workbook headers changed: {sheet_name}")
+        after_header_row, after_headers = after.discover_headers(sheet_name, OUTPUT_REQUIRED_HEADERS)
+        expected_after_headers = {
+            (OUTPUT_OPERATIONAL_HEADER if header == INPUT_OPERATIONAL_HEADER else header): column
+            for header, column in before_headers.items()
+        }
+        if after_header_row != before_header_row or after_headers != expected_after_headers:
+            raise EnrichmentError(f"Workbook headers changed outside the operational-validity relabel: {sheet_name}")
         allowed_columns = {before_headers[header] for header in AUTOMATIC_HEADERS}
         before_rows = {int(row.attrib["r"]): row for row in before._rows(sheet_name)}
         after_rows = {int(row.attrib["r"]): row for row in after._rows(sheet_name)}
@@ -989,6 +1200,12 @@ def verify_workbook_preservation(input_path: Path, output_path: Path) -> None:
             after_cells = after._cells_by_column(after_rows[row_number])
             all_columns = set(before_cells) | set(after_cells)
             for column in all_columns:
+                if column == before_headers[INPUT_OPERATIONAL_HEADER] and row_number == before_header_row:
+                    if before._cell_value(before_cells.get(column)) != INPUT_OPERATIONAL_HEADER:
+                        raise EnrichmentError(f"Unexpected source operational-validity header: {sheet_name}")
+                    if after._cell_value(after_cells.get(column)) != OUTPUT_OPERATIONAL_HEADER:
+                        raise EnrichmentError(f"Operational-validity header was not relabelled: {sheet_name}")
+                    continue
                 if column in allowed_columns and row_number > before_header_row:
                     before_formula = before_cells.get(column).find("x:f", NS) if before_cells.get(column) is not None else None
                     after_formula = after_cells.get(column).find("x:f", NS) if after_cells.get(column) is not None else None
@@ -1014,12 +1231,19 @@ def run_enrichment(
     *,
     expected_requirements: int = 268,
     expected_availability: Mapping[str, int] = EXPECTED_AVAILABILITY,
+    expected_selected_parse_valid: Mapping[str, int] = EXPECTED_SELECTED_TURTLE_PARSE_VALID,
     recheck_unresolved: bool = True,
+    activation_context: ActivationContext | None = None,
 ) -> dict[str, Any]:
     input_workbook = audit_dir / INPUT_WORKBOOK_NAME
     output_workbook = audit_dir / OUTPUT_WORKBOOK_NAME
     selection_path = audit_dir / SELECTION_NAME
     targets = [output_workbook, audit_dir / EVIDENCE_NAME, audit_dir / SUMMARY_NAME, audit_dir / DISCREPANCIES_NAME]
+    archived_output_hashes = {
+        name: sha256_file(audit_dir / name)
+        for name in ARCHIVED_OUTPUT_NAMES
+        if (audit_dir / name).is_file()
+    }
     if not input_workbook.is_file():
         available = sorted(path.name for path in audit_dir.glob("*.xlsx"))
         raise EnrichmentError(f"MethodV2 workbook is missing: {input_workbook}. Available: {available}")
@@ -1035,6 +1259,7 @@ def run_enrichment(
 
     supported_vocabulary = load_supported_shacl_vocabulary()
     ledger_cache = LedgerCache(repo_root)
+    activation_context = activation_context or resolve_activation_context(repo_root, selected_records)
     evidence_records: list[dict[str, Any]] = []
     discrepancies: list[Discrepancy] = []
     for architecture in ARCHITECTURES:
@@ -1042,7 +1267,7 @@ def run_enrichment(
             key = (architecture, requirement_id)
             record = selected_records[key]
             evidence, evidence_discrepancies = build_evidence_record(
-                repo_root, record, ledger_cache, supported_vocabulary, recheck_unresolved
+                repo_root, record, ledger_cache, supported_vocabulary, recheck_unresolved, activation_context
             )
             evidence_records.append(evidence)
             discrepancies.extend(evidence_discrepancies)
@@ -1072,12 +1297,28 @@ def run_enrichment(
                         source_path=record.get("shape_path", ""), message="Existing automatic value or formula was preserved",
                     ))
 
+    for sheet_name in SHEET_BY_ARCHITECTURE.values():
+        header_row, headers = workbook.discover_headers(sheet_name, REQUIRED_HEADERS)
+        workbook.set_cell_value(
+            sheet_name, header_row, headers[INPUT_OPERATIONAL_HEADER], OUTPUT_OPERATIONAL_HEADER
+        )
+
     observed_availability = Counter(
         record["architecture"] for record in evidence_records if record["availability"] == "AVAILABLE"
     )
     if dict(observed_availability) != dict(expected_availability):
         raise EnrichmentError(
             f"Artifact availability differs from the frozen expectation: observed={dict(observed_availability)} expected={dict(expected_availability)}"
+        )
+    observed_selected_parse_valid = Counter(
+        record["architecture"]
+        for record in evidence_records
+        if record.get("selected_artifact_turtle_parse_validity") == "VALID"
+    )
+    if dict(observed_selected_parse_valid) != dict(expected_selected_parse_valid):
+        raise EnrichmentError(
+            "Selected-artifact Turtle parsing differs from the audited expectation: "
+            f"observed={dict(observed_selected_parse_valid)} expected={dict(expected_selected_parse_valid)}"
         )
 
     with tempfile.TemporaryDirectory(prefix="nltl-auto-evidence-", dir=audit_dir) as temporary:
@@ -1092,7 +1333,10 @@ def run_enrichment(
         )
         staged_discrepancies = stage / DISCREPANCIES_NAME
         write_csv(staged_discrepancies, _discrepancy_rows(discrepancies))
-        summary = build_summary(evidence_records, selection, input_workbook, staged_workbook, discrepancies)
+        summary = build_summary(
+            evidence_records, selection, input_workbook, staged_workbook, discrepancies, activation_context,
+            archived_output_hashes,
+        )
         summary["output_workbook"] = str(output_workbook.relative_to(repo_root))
         staged_summary = stage / SUMMARY_NAME
         staged_summary.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -1105,6 +1349,9 @@ def run_enrichment(
             if target.exists():
                 raise EnrichmentError(f"Refusing to overwrite output created concurrently: {target}")
             shutil.move(staged, target)
+    for name, expected_sha in archived_output_hashes.items():
+        if sha256_file(audit_dir / name) != expected_sha:
+            raise EnrichmentError(f"Pre-r2 enrichment output changed unexpectedly: {name}")
     return {
         "output_workbook": str(output_workbook),
         "records": len(evidence_records),
@@ -1130,12 +1377,16 @@ def verify_outputs(repo_root: Path, audit_dir: Path, expected_requirements: int 
             raise EnrichmentError(f"Artifact substitution detected in evidence: {row['architecture']} {row['requirement_id']}")
     summary = json.loads((audit_dir / SUMMARY_NAME).read_text(encoding="utf-8"))
     if summary.get("output_workbook_sha256") != sha256_file(output_workbook):
-        raise EnrichmentError("Enriched workbook hash differs from automatic_summary.json")
+        raise EnrichmentError(f"Enriched workbook hash differs from {SUMMARY_NAME}")
+    for name, expected_sha in summary.get("preserved_pre_r2_output_sha256", {}).items():
+        path = audit_dir / name
+        if not path.is_file() or sha256_file(path) != expected_sha:
+            raise EnrichmentError(f"Preserved pre-r2 output is missing or changed: {name}")
     verify_workbook_preservation(input_workbook, output_workbook)
     with (audit_dir / DISCREPANCIES_NAME).open(encoding="utf-8", newline="") as stream:
         discrepancy_count = max(sum(1 for _ in csv.reader(stream)) - 1, 0)
     if discrepancy_count != summary.get("discrepancy_count"):
-        raise EnrichmentError("Discrepancy CSV row count differs from automatic_summary.json")
+        raise EnrichmentError(f"Discrepancy CSV row count differs from {SUMMARY_NAME}")
     return {
         "status": "PASS",
         "evidence_records": len(evidence),
@@ -1150,8 +1401,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--audit-dir", type=Path, help="Audit directory; defaults to AUDIT_20260915")
     parser.add_argument("--verify-only", action="store_true", help="Verify already-created enrichment outputs without modifying files")
     parser.add_argument(
-        "--no-recheck-unresolved-meta-shacl", action="store_true",
-        help="Leave unresolved specification validity NOT_TESTED instead of running targeted standalone meta-SHACL",
+        "--no-recheck-unresolved-operational-shacl", action="store_true",
+        help="Leave unresolved operational SHACL validity NOT_TESTED instead of running the targeted composite check",
     )
     return parser.parse_args(argv)
 
@@ -1169,7 +1420,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.verify_only
             else run_enrichment(
                 repo_root, audit_dir,
-                recheck_unresolved=not args.no_recheck_unresolved_meta_shacl,
+                recheck_unresolved=not args.no_recheck_unresolved_operational_shacl,
             )
         )
     except EnrichmentError as exc:

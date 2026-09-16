@@ -12,7 +12,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from openpyxl.worksheet.datavalidation import DataValidation
 from rdflib import Graph, RDF, URIRef
-from rdflib.namespace import SH
+from rdflib.namespace import RDFS, SH
 
 import enrich_automatic_evidence as enrich
 
@@ -51,7 +51,7 @@ class AutomaticEvidenceUnitTests(unittest.TestCase):
             "pyshacl_options": {"meta_shacl": True},
         }
         self.assertEqual(
-            enrich.derive_meta_shacl_from_rows([row], sha),
+            enrich.derive_operational_shacl_from_rows([row], sha),
             ("VALID", "DERIVED_FROM_SUCCESSFUL_META_SHACL_EXECUTION"),
         )
         for field, value in (
@@ -62,7 +62,7 @@ class AutomaticEvidenceUnitTests(unittest.TestCase):
         ):
             changed = dict(row)
             changed[field] = value
-            self.assertIsNone(enrich.derive_meta_shacl_from_rows([changed], sha))
+            self.assertIsNone(enrich.derive_operational_shacl_from_rows([changed], sha))
 
     def test_vocabulary_check_ignores_project_terms_and_rejects_unknown_shacl(self):
         valid = Graph().parse(data=SHAPE_TTL, format="turtle")
@@ -89,10 +89,46 @@ class AutomaticEvidenceUnitTests(unittest.TestCase):
             self.assertEqual(result, "ACTIVATED")
             self.assertTrue(nodes)
 
+    def test_target_class_activated_by_ontology_subclass(self):
+        shapes = Graph().parse(data=f"""@prefix sh: <{SH}> . @prefix ex: <https://example.test/> .
+            ex:S a sh:NodeShape ; sh:targetClass ex:Super .""", format="turtle")
+        data = Graph().parse(data="@prefix ex: <https://example.test/> . ex:i a ex:Sub .", format="turtle")
+        ontology = Graph().parse(data="""@prefix ex: <https://example.test/> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . ex:Sub rdfs:subClassOf ex:Super .""", format="turtle")
+        context = enrich.ActivationContext(True, "ontology.ttl", "a" * 64, "rdfs", ontology, ("synthetic",))
+        inferred = enrich.prepare_inferred_activation_graph(data, context)
+        result, nodes, _ = enrich.target_activation(shapes, data, inferred)
+        self.assertEqual(result, "ACTIVATED")
+        self.assertIn("https://example.test/i", nodes)
+
+    def test_target_class_activated_only_after_rdfs_domain_inference(self):
+        shapes = Graph().parse(data=f"""@prefix sh: <{SH}> . @prefix ex: <https://example.test/> .
+            ex:S a sh:NodeShape ; sh:targetClass ex:Ship .""", format="turtle")
+        data = Graph().parse(data="@prefix ex: <https://example.test/> . ex:i ex:hasName \"A\" .", format="turtle")
+        ontology = Graph().parse(data="""@prefix ex: <https://example.test/> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . ex:hasName rdfs:domain ex:Ship .""", format="turtle")
+        context = enrich.ActivationContext(True, "ontology.ttl", "b" * 64, "rdfs", ontology, ("synthetic",))
+        inferred = enrich.prepare_inferred_activation_graph(data, context)
+        self.assertNotIn((URIRef("https://example.test/i"), RDF.type, URIRef("https://example.test/Ship")), data)
+        self.assertIn((URIRef("https://example.test/i"), RDF.type, URIRef("https://example.test/Ship")), inferred)
+        self.assertEqual(enrich.target_activation(shapes, data, inferred)[0], "ACTIVATED")
+
+    def test_unresolved_ontology_context_is_not_evaluated(self):
+        shapes = Graph().parse(data=f"""@prefix sh: <{SH}> . @prefix ex: <https://example.test/> .
+            ex:S a sh:NodeShape ; sh:targetClass ex:Super .""", format="turtle")
+        data = Graph().parse(data="@prefix ex: <https://example.test/> . ex:i a ex:Sub .", format="turtle")
+        result, nodes, warnings = enrich.target_activation(shapes, data, None)
+        self.assertEqual(result, "NOT_EVALUATED")
+        self.assertEqual(nodes, [])
+        self.assertEqual(warnings, [enrich.ACTIVATION_UNRESOLVED_REASON])
+
     def test_not_activated_is_not_inferred_from_report_focus_nodes(self):
         shapes = Graph().parse(data=SHAPE_TTL, format="turtle")
         data = Graph().parse(data="@prefix ex: <https://example.test/> . ex:x ex:p ex:y .", format="turtle")
-        self.assertEqual(enrich.target_activation(shapes, data)[0], "NOT_ACTIVATED")
+        result, nodes, warnings = enrich.target_activation(shapes, data)
+        self.assertEqual(result, "NOT_EVALUATED")
+        self.assertEqual(nodes, [])
+        self.assertEqual(warnings, [enrich.ACTIVATION_UNRESOLVED_REASON])
 
     def test_custom_target_is_not_evaluated(self):
         shapes = Graph().parse(data=f"""@prefix sh: <{SH}> . @prefix ex: <https://example.test/> .
@@ -148,7 +184,34 @@ class AutomaticEvidenceUnitTests(unittest.TestCase):
             record = self._selection_record("V2_FALLBACK25", "R1", None, None, "ledger.jsonl", enrich.sha256_file(ledger))
             evidence, _ = enrich.build_evidence_record(repo, record, enrich.LedgerCache(repo), self.allowed, False)
             self.assertEqual(evidence["availability"], "MISSING_ARTIFACT")
+            self.assertEqual(evidence["selected_artifact_turtle_parse_validity"], "MISSING_ARTIFACT")
             self.assertEqual(evidence["shacl_vocabulary_validity"], "MISSING_ARTIFACT")
+
+    def test_pipeline_rejected_retained_artifact_can_be_turtle_parseable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = Path(temporary)
+            shape = repo / "retained-diagnostic.ttl"
+            shape.write_text(SHAPE_TTL, encoding="utf-8")
+            shape_sha = enrich.sha256_file(shape)
+            ledger = repo / "ledger.jsonl"
+            rows = [self._ledger_row("R1-P", shape_sha), self._ledger_row("R1-F", shape_sha)]
+            ledger.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+            record = self._selection_record(
+                "V2_FALLBACK25", "R1", shape.name, shape_sha, ledger.name, enrich.sha256_file(ledger)
+            )
+            record.update({
+                "output_origin": "REJECTED_ATTEMPT_04",
+                "parse_status": "NOT_PARSED",
+                "deterministic_status": "FAIL",
+                "original_generation_status": "MAX_ATTEMPTS_REACHED",
+            })
+            evidence, _ = enrich.build_evidence_record(
+                repo, record, enrich.LedgerCache(repo), self.allowed, False
+            )
+            self.assertEqual(evidence["existing_parsing_evidence"]["status"], "NOT_PARSED")
+            self.assertEqual(evidence["existing_pipeline_validation_evidence"]["generation_status"], "MAX_ATTEMPTS_REACHED")
+            self.assertEqual(evidence["artifact_selection_category"], "REJECTED_ATTEMPT_04")
+            self.assertEqual(evidence["selected_artifact_turtle_parse_validity"], "VALID")
 
     def test_required_workbook_headers_are_discovered_by_text(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -203,7 +266,11 @@ class AutomaticEvidenceUnitTests(unittest.TestCase):
             result = enrich.run_enrichment(
                 repo, audit, expected_requirements=1,
                 expected_availability={architecture: 1 for architecture in enrich.ARCHITECTURES},
+                expected_selected_parse_valid={architecture: 1 for architecture in enrich.ARCHITECTURES},
                 recheck_unresolved=False,
+                activation_context=enrich.ActivationContext(
+                    True, "synthetic-ontology.ttl", "c" * 64, "rdfs", Graph(), ("synthetic",)
+                ),
             )
             self.assertEqual(result["records"], 3)
             verification = enrich.verify_outputs(repo, audit, expected_requirements=1)
@@ -214,13 +281,21 @@ class AutomaticEvidenceUnitTests(unittest.TestCase):
                 headers = {cell.value: cell.column for cell in sheet[1]}
                 self.assertEqual(sheet.cell(2, headers["Manual field"]).value, "HUMAN_KEEP")
                 self.assertEqual(sheet.cell(2, headers["Manual formula"]).value, "=1+1")
-                self.assertEqual(sheet.cell(2, headers["SHACL specification validity"]).value, "PASS")
+                self.assertNotIn(enrich.INPUT_OPERATIONAL_HEADER, headers)
+                self.assertEqual(sheet.cell(2, headers[enrich.OUTPUT_OPERATIONAL_HEADER]).value, "PASS")
                 self.assertEqual(sheet.cell(2, headers["SHACL vocabulary validity"]).value, "VALID")
                 self.assertIn("ACTIVATED", sheet.cell(2, headers["Selected-case target activation"]).value)
                 self.assertTrue(sheet.cell(2, headers["Manual field"]).comment)
                 self.assertTrue(sheet.cell(2, headers["Manual field"]).hyperlink)
                 self.assertEqual(len(sheet.data_validations.dataValidation), 1)
             workbook.close()
+            summary = json.loads((audit / enrich.SUMMARY_NAME).read_text(encoding="utf-8"))
+            for architecture in enrich.ARCHITECTURES:
+                metrics = summary["architectures"][architecture]
+                self.assertEqual(metrics["pipeline_approved_output_rate"]["numerator"], 1)
+                self.assertEqual(metrics["retained_audit_artifact_availability"]["numerator"], 1)
+                self.assertEqual(metrics["selected_artifact_turtle_parse_rate"]["numerator"], 1)
+                self.assertEqual(metrics["operational_shacl_validity_rate"]["numerator"], 1)
 
     @staticmethod
     def _ledger_row(
