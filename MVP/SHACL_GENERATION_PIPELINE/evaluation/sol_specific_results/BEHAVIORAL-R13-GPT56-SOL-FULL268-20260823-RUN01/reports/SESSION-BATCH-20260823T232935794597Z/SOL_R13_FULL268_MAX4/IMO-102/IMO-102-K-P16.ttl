@@ -1,0 +1,72 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[] a sh:ValidationReport ;
+    sh:conforms false ;
+    sh:result [ a sh:ValidationResult ;
+            sh:focusNode <https://w3id.org/nltl/benchmark/imo-batch-k/IMO-102-K-P16/ship> ;
+            sh:resultMessage "Each represented crew member must have the training level and, where applicable, valid matching STCW qualification required by the clause 12.3.1 matrix." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint [ sh:message "Each represented crew member must have the training level and, where applicable, valid matching STCW qualification required by the clause 12.3.1 matrix." ;
+                    sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this ?crew
+WHERE {
+    $this nltl:iceConditionClassification ?iceCondition ;
+          nltl:polarTrainingShipTypeClassification ?shipType ;
+          nltl:hasCrewMemberInventory ?crew .
+    ?crew nltl:polarTrainingCrewRoleClassification ?crewRole .
+
+    BIND(
+        IF(
+            ?iceCondition = nltl:iceFreeIceCondition,
+            nltl:polarTrainingNotApplicable,
+            IF(
+                ?iceCondition = nltl:openWaterIceCondition,
+                IF(
+                    ?shipType = nltl:otherShipPolarTrainingType,
+                    nltl:polarTrainingNotApplicable,
+                    nltl:basicPolarTrainingLevel
+                ),
+                IF(
+                    ?crewRole = nltl:officerInChargeOfNavigationalWatchPolarTrainingRole,
+                    nltl:basicPolarTrainingLevel,
+                    nltl:advancedPolarTrainingLevel
+                )
+            )
+        )
+        AS ?expectedLevel
+    )
+
+    FILTER(
+        NOT EXISTS {
+            ?crew nltl:hasCrewTrainingRecord ?trainingRecord .
+            ?trainingRecord nltl:requiredTrainingLevel ?expectedLevel .
+            FILTER(
+                ?expectedLevel = nltl:polarTrainingNotApplicable ||
+                EXISTS {
+                    ?trainingRecord
+                        nltl:trainingRecordLevel ?expectedLevel ;
+                        nltl:stcwQualificationValid true .
+                }
+            )
+        }
+        ||
+        (
+            ?expectedLevel != nltl:polarTrainingNotApplicable &&
+            NOT EXISTS {
+                ?crew nltl:hasPolarTrainingRecord ?polarRecord .
+                ?polarRecord
+                    nltl:requiredTrainingLevel ?expectedLevel ;
+                    nltl:trainingRecordLevel ?expectedLevel ;
+                    nltl:stcwQualificationValid true .
+            }
+        )
+    )
+}
+""" ] ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape gen:PolarTrainingShipShape ;
+            sh:value <https://w3id.org/nltl/benchmark/imo-batch-k/IMO-102-K-P16/ship> ] .
+

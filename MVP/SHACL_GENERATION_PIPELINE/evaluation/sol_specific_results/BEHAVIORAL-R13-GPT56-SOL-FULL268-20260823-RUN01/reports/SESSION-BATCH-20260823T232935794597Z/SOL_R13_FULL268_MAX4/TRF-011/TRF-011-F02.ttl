@@ -1,0 +1,82 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[] a sh:ValidationReport ;
+    sh:conforms false ;
+    sh:result [ a sh:ValidationResult ;
+            sh:focusNode <https://w3id.org/nltl/benchmark/traficom-batch-b/TRF-011-F02/ship> ;
+            sh:resultMessage "The upper ice waterline shall match, at every represented longitudinal position, the highest vertical coordinate of the intended ice-operating waterlines." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint [ a sh:SPARQLConstraint ;
+                    sh:message "The upper ice waterline shall match, at every represented longitudinal position, the highest vertical coordinate of the intended ice-operating waterlines." ;
+                    sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+    {
+        SELECT $this ?x
+               (COUNT(?uiZ) AS ?uiCount)
+               (COUNT(?intendedZ) AS ?intendedCount)
+               (MIN(?uiZ) AS ?minimumUiZ)
+               (MAX(?uiZ) AS ?maximumUiZ)
+               (MAX(?intendedZ) AS ?maximumIntendedZ)
+        WHERE {
+            {
+                $this nltl:hasUpperIceWaterline ?upperWaterline .
+                ?upperWaterline nltl:hasWaterlineProfilePoint ?upperPoint .
+                ?upperPoint nltl:longitudinalPosition ?upperXQuantity ;
+                            nltl:verticalCoordinate ?upperZQuantity .
+                ?upperXQuantity qudt:numericValue ?x ;
+                                qudt:unit unit:M .
+                ?upperZQuantity qudt:numericValue ?upperZ ;
+                                qudt:unit unit:M .
+                BIND(?upperZ AS ?uiZ)
+            }
+            UNION
+            {
+                $this nltl:hasIntendedIceOperatingWaterline ?intendedWaterline .
+                ?intendedWaterline nltl:hasWaterlineProfilePoint ?intendedPoint .
+                ?intendedPoint nltl:longitudinalPosition ?intendedXQuantity ;
+                               nltl:verticalCoordinate ?intendedZQuantity .
+                ?intendedXQuantity qudt:numericValue ?x ;
+                                   qudt:unit unit:M .
+                ?intendedZQuantity qudt:numericValue ?intendedZValue ;
+                                   qudt:unit unit:M .
+                BIND(?intendedZValue AS ?intendedZ)
+            }
+        }
+        GROUP BY $this ?x
+    }
+    BIND(
+        IF(
+            BOUND(?maximumIntendedZ) &&
+            ABS(?maximumIntendedZ) * "0.000001"^^xsd:decimal >
+                "0.000000001"^^xsd:decimal,
+            ABS(?maximumIntendedZ) * "0.000001"^^xsd:decimal,
+            "0.000000001"^^xsd:decimal
+        )
+        AS ?tolerance
+    )
+    FILTER(
+        ?uiCount = 0 ||
+        ?intendedCount = 0 ||
+        (
+            BOUND(?minimumUiZ) &&
+            BOUND(?maximumUiZ) &&
+            BOUND(?maximumIntendedZ) &&
+            (
+                ABS(?minimumUiZ - ?maximumIntendedZ) > ?tolerance ||
+                ABS(?maximumUiZ - ?maximumIntendedZ) > ?tolerance
+            )
+        )
+    )
+}
+""" ] ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape gen:TRF011ShipShape ;
+            sh:value <https://w3id.org/nltl/benchmark/traficom-batch-b/TRF-011-F02/ship> ] .
+
