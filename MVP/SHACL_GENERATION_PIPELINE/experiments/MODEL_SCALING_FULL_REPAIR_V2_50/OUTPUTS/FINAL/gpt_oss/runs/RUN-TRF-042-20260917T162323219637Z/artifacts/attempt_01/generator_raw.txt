@@ -1,0 +1,296 @@
+We need to generate SHACL shape for the requirement. Let's parse:
+
+Requirement: f_2 = longitudinalPlatingFactorF2, formula uses h/s where h is designIceLoadHeight (?) actually h is given in section 4.2.1 (maybe designIceLoadHeight? Or maybe thickness? In context: h is plating thickness? In hull plating factor f2, typical formula uses h/s where h is plating thickness and s maybe spacing? In requirement, operandTerms: designIceLoadHeight and spacing. Hmm maybe h = designIceLoadHeight? That seems odd. The operandTerms list: "designIceLoadHeight", "spacing". So h might be designIceLoadHeight? Actually designIceLoadHeight is a length. Spacing is also a length. The ratio h/s is designIceLoadHeight / spacing.
+
+Result term: longitudinalPlatingFactorF2.
+
+We need to generate SHACL shapes to validate that the computed longitudinalPlatingFactorF2 matches the formula given the operands. Mode: DIRECT_CALCULATION, so we are allowed to reconstruct calculation.
+
+We need to enforce presence of required inputs: designIceLoadHeight, spacing, yieldStrength? requirement mentions yieldStrength used for material classification; but result depends on steel grade maybe? Actually not directly in formula. However they have semanticObligations: Constrain materialApprovalStatus to the canonical evidenceState range when a lower corrosion addition is justified... That is separate; may require property shape for materialApprovalStatus with allowed range values (evidenceState*). But not needed maybe.
+
+One semantic obligation: Use tolerance max(1e-6*ABS(expected),1e-12) for derived f2 comparison.
+
+So our SHACL must:
+
+- target class: plating (since requiredTargetOwner is plating). So shape target is nltl:plating.
+
+- Ensure presence of designIceLoadHeight (quantity property) and spacing (quantity property) and longitudinalPlatingFactorF2 (quantity property). Also ensure they have proper datatype: quantity value node with qudt:numericValue xsd:decimal, unit as per recommended unit. designIceLoadHeight recommended unit: M (meter). spacing: M (meter). longitudinalPlatingFactorF2 recommended unit: UNITLESS (unitless). The property types are QuantityProperty, range qudt:QuantityValue.
+
+Thus we need property shapes to ensure they have one value (minCount 1, maxCount 1) and that the quantity node has numericValue and unit.
+
+Simplify: Use sh:property with path designIceLoadHeight, and require minCount 1 etc. But to also enforce unit, we could use shape for the quantity node via sh:node. So property shape path to quantity value node; then inner shape for that node specifying qudt:numericValue of datatype decimal, and qudt:unit exactly recommended unit.
+
+Similarly for spacing and longitudinalPlatingFactorF2.
+
+Then a SPARQL constraint to compute ratio h/s = designIceLoadHeight numeric / spacing numeric (both decimals). Compute expected f2 based on piecewise function. Then compare to provided longitudinalPlatingFactorF2 numeric value using tolerance.
+
+We need to reference QUDT prefix: prefix qudt: <http://qudt.org/schema/qudt#>. Also xsd.
+
+In SPARQL, we need to retrieve numeric values via ?hNode qudt:numericValue ?hVal . same for ?sNode, ?fNode. Also get units? assume correct units already validated.
+
+Compute ratio = ?hVal / ?sVal as ?ratio.
+
+Compute expected? Use IF. Piecewise: if ?ratio <= 1 then expected = 0.4 / ?ratio + 0.6? Actually formula: f2 = 0.4/(h/s) + 0.6 where h/s <= 1 ; but careful: 0.4/(h/s) = 0.4 * (s/h). So we can compute expected = 0.4 / ?ratio + 0.6 for ?ratio <= 1. For 1 <= ?ratio <= 1.8, expected = 1.4 - 0.4*?ratio. For >1.8 maybe no rule (should be missing or violation). We'll treat values outside range as violation.
+
+Implement in SPARQL using BIND and FILTER.
+
+Tolerance: tolerance = max(1e-6 * abs(expected), 1e-12). Then violation if abs(?fVal - expected) > tolerance.
+
+Note: Use math functions? Not needed.
+
+Calculate abs: use ABS(). Use IF for tolerance.
+
+SPARQL will need prefixes: sh, nltl, xsd, qudt.
+
+Write SELECT $this WHERE { ... FILTER (abs diff > tolerance) }
+
+We also need to ensure that designIceLoadHeight has unit M (recommendedUnit). Use earlier core shape ensures unit.
+
+Now also semantic obligation about materialApprovalStatus: Constrain materialApprovalStatus to the canonical evidenceState range when a lower corrosion addition is justified by approved maintained coating evidence. This seems beyond formula: maybe we need a shape for materialApprovalStatus with allowed values from evidenceState individuals. Since requiredOwner is plating, we include property shape for materialApprovalStatus with sh:in of the listed individuals: evidenceStateApproved, Draft, etc. But spec says "canonical evidenceState range", so object property range is evidenceState class. So we can enforce that the object is a member of evidenceState class. In SHACL core, we can use sh:class nltl:evidenceState for the property shape. Ensure presence minCount maybe optional? The obligation maybe only when lower corrosion addition is used, which we don't have a weighting. For simplicity, we can enforce materialApprovalStatus as having class evidenceState.
+
+Thus include property shape for nltl:materialApprovalStatus with sh:class nltl:evidenceState and minCount 1, maxCount 1.
+
+Now shape naming: using generatedShapeNamespace "urn:nltl:generated-shape:". We'll define shape "urn:nltl:generated-shape:TRF-042Shape" perhaps.
+
+Prefixes: ex: no need.
+
+Now produce final Turtle with prefixes declarations: @prefix sh: ..., @prefix nltl: ..., @prefix xsd:, @prefix qudt: .
+
+Also include necessary property shapes and SPARQL constraint.
+
+Make sure all URIs exactly as canonical.
+
+Check for property names: nltl:designIceLoadHeight, nltl:spacing, nltl:longitudinalPlatingFactorF2, nltl:materialApprovalStatus.
+
+Now assemble.
+
+For each quantity property with unit checking, we can have:
+
+sh:property [
+  sh:path nltl:designIceLoadHeight ;
+  sh:minCount 1 ; sh:maxCount 1 ;
+  sh:node [
+    sh:property [
+      sh:path qudt:numericValue ;
+      sh:datatype xsd:decimal ;
+      sh:minCount 1 ; sh:maxCount 1
+    ] ;
+    sh:property [
+      sh:path qudt:unit ;
+      sh:hasValue <http://qudt.org/vocab/unit/M> ;
+      sh:minCount 1 ; sh:maxCount 1
+    ]
+  ]
+] ;
+
+Similarly for spacing; for longitudinalPlatingFactorF2 unit UNITLESS.
+
+Now SPARQL: need to match same variable names.
+
+Let's write:
+
+sh:sparql [
+  sh:message "longitudinalPlatingFactorF2 does not satisfy the formula within tolerance" ;
+  sh:select """
+    PREFIX sh: <http://www.w3.org/ns/shacl#>
+    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+    PREFIX qudt: <http://qudt.org/schema/qudt#>
+    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+    SELECT $this
+    WHERE {
+        $this nltl:designIceLoadHeight ?hNode .
+        $this nltl:spacing ?sNode .
+        $this nltl:longitudinalPlatingFactorF2 ?fNode .
+        ?hNode qudt:numericValue ?hVal .
+        ?sNode qudt:numericValue ?sVal .
+        ?fNode qudt:numericValue ?fVal .
+        # Ensure numeric values are decimal
+        FILTER(datatype(?hVal) = xsd:decimal && datatype(?sVal) = xsd:decimal && datatype(?fVal) = xsd:decimal)
+        BIND (?hVal / ?sVal AS ?ratio)
+        BIND ( IF(?ratio <= 1,
+                  (0.4 / ?ratio) + 0.6,
+                  IF(?ratio <= 1.8,
+                     1.4 - 0.4 * ?ratio,
+                     -1) ) AS ?expected )
+        FILTER ( ?expected = -1 ) # violation for out of range ratio
+        BIND ( MAX( 1e-6 * ABS(?expected), 1e-12 ) AS ?tol )
+        FILTER ( ABS(?fVal - ?expected) > ?tol )
+    }
+  """ ;
+] .
+
+But we need to separate out-of-range detection maybe separate condition. For out of range ratio, we raise violation. Could incorporate as if expected = -1 then violation regardless of fVal.
+
+Simplify: we can produce two filters using OR. Instead, we can compute expected only if within range, else make violation.
+
+We can do:
+
+BIND ( IF(?ratio <= 1, (0.4 / ?ratio) + 0.6,
+           IF(?ratio <= 1.8, 1.4 - 0.4 * ?ratio, NaN) ) AS ?expected) .
+
+Then FILTER( !bound(?expected) || (ABS(?fVal - ?expected) > ?tol) ).
+
+But SPARQL does not have bound for BIND variable? It's bound always, but can be NaN? We'll use a separate filter for ratio out of range.
+
+We'll write:
+
+FILTER ( ?ratio > 1.8 || ?ratio < 0 ) # invalid ratio
+
+UNION maybe but we need not union.
+
+Better: Use FILTER ( ?ratio > 1.8 ) OR compute.
+
+Simplify: generate two shapes: one for ratio outside allowed range fails, another for mismatch.
+
+But guidelines avoid UNION. We can produce two separate SPARQL constraints maybe.
+
+But easier: compute expected only for allowed range and apply second FILTER only if within range.
+
+Thus:
+
+FILTER ( ?ratio > 1 && ?ratio <= 1.8 ) BIND; else compute else else.
+
+Ok maybe simpler: Use conditional to compute expected and then compare using tolerance, but for out-of-range we set expected to ?ratio (makes diff > tol). But diff will likely be > tol. Could compute expected as 0 (but diff large). Use:
+
+BIND ( IF(?ratio <= 1, (0.4 / ?ratio) + 0.6,
+           IF(?ratio <= 1.8, 1.4 - 0.4 * ?ratio,
+              0) ) AS ?expected)
+BIND ( MAX(1e-6 * ABS(?expected), 1e-12) AS ?tol)
+FILTER ( (?ratio > 1.8) || (ABS(?fVal - ?expected) > ?tol) )
+
+So if ratio >1.8, violation regardless.
+
+Now we must ensure tolerance supports expected zero case (0). ok.
+
+Now implement shape.
+
+Add prefix for qudt: <http://qudt.org/schema/qudt#> . For unit UNITLESS: <http://qudt.org/vocab/unit/UNITLESS>. that's correct.
+
+Now final shape ID: "urn:nltl:generated-shape:TRF-042".
+
+Let's construct Turtle.
+
+Check that we use all required allowed vocab terms only.
+
+We used nltl:plating target class.
+
+Properties: designIceLoadHeight, spacing, longitudinalPlatingFactorF2, materialApprovalStatus.
+
+We also used qudt:numericValue, qudt:unit.
+
+Now produce final output.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+urn:nltl:generated-shape:TRF-042
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+
+    # designIceLoadHeight – length, unit m
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # spacing – length, unit m
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # longitudinalPlatingFactorF2 – dimensionless
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # materialApprovalStatus – must be an evidenceState individual
+    sh:property [
+        sh:path nltl:materialApprovalStatus ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class nltl:evidenceState
+    ] ;
+
+    # Calculated check for longitudinalPlatingFactorF2 (f2)
+    sh:sparql [
+        sh:message "longitudinalPlatingFactorF2 does not satisfy the prescribed formula within tolerance or h/s exceeds the allowed range (1.0‑1.8)." ;
+        sh:select """
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?hNode .
+                $this nltl:spacing ?sNode .
+                $this nltl:longitudinalPlatingFactorF2 ?fNode .
+
+                ?hNode qudt:numericValue ?hVal .
+                ?sNode qudt:numericValue ?sVal .
+                ?fNode qudt:numericValue ?fVal .
+
+                FILTER ( datatype(?hVal) = xsd:decimal &&
+                         datatype(?sVal) = xsd:decimal &&
+                         datatype(?fVal) = xsd:decimal )
+
+                BIND ( ?hVal / ?sVal AS ?ratio ) .
+
+                # Expected f2 based on piece‑wise definition
+                BIND ( IF ( ?ratio <= 1,
+                           (0.4 / ?ratio) + 0.6,
+                           IF ( ?ratio <= 1.8,
+                                1.4 - 0.4 * ?ratio,
+                                0 ) ) AS ?expected ) .
+
+                # Tolerance: max(1e-6*|expected|,1e-12)
+                BIND ( MAX( 1e-6 * ABS(?expected), 1e-12 ) AS ?tol ) .
+
+                # Violation if ratio out of allowed interval or f2 differs beyond tolerance
+                FILTER ( ( ?ratio > 1.8 ) ||
+                         ( ABS(?fVal - ?expected) > ?tol ) )
+            }
+        """
+    ] .
+<END_SHACL>

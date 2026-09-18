@@ -1,0 +1,119 @@
+<BEGIN_SHACL>
+@prefix gs: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gs:ForceQuantityValueShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+        sh:maxCount 1
+    ] .
+
+gs:LengthQuantityValueShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:maxCount 1
+    ] .
+
+gs:SupportedStringerOutsideIceBeltShape a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:property [
+        sh:path nltl:supportedStringerOutsideIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The supported-stringer outside-ice-belt state must be recorded."
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:hasValue false
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:supportedStringerOutsideIceBelt ;
+                sh:hasValue true
+            ] ;
+            sh:property [
+                sh:path nltl:iceLoadForce ;
+                sh:node gs:ForceQuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:stringerOutsideIceBeltHeight ;
+                sh:node gs:LengthQuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:stringerSpan ;
+                sh:node gs:LengthQuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path nltl:adjustedIceLoadForce ;
+                sh:node gs:ForceQuantityValueShape ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "For a supported stringer outside the ice belt, adjustedIceLoadForce must equal iceLoadForce multiplied by (1 - stringerOutsideIceBeltHeight/stringerSpan), within a relative tolerance of 1e-6 and an absolute fallback of 1e-9; stringerSpan must be non-zero." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:supportedStringerOutsideIceBelt true ;
+                      nltl:iceLoadForce ?forceQuantity ;
+                      nltl:stringerOutsideIceBeltHeight ?heightQuantity ;
+                      nltl:stringerSpan ?spanQuantity ;
+                      nltl:adjustedIceLoadForce ?adjustedQuantity .
+                ?forceQuantity qudt:numericValue ?force .
+                ?heightQuantity qudt:numericValue ?height .
+                ?spanQuantity qudt:numericValue ?span .
+                ?adjustedQuantity qudt:numericValue ?adjusted .
+                BIND(
+                    IF(
+                        ?span != 0,
+                        ?force * (1 - (?height / ?span)),
+                        0
+                    ) AS ?expected
+                )
+                BIND(
+                    IF(
+                        ABS(?expected) * 0.000001 > 0.000000001,
+                        ABS(?expected) * 0.000001,
+                        0.000000001
+                    ) AS ?tolerance
+                )
+                FILTER(
+                    ?span = 0 ||
+                    ABS(?adjusted - ?expected) > ?tolerance
+                )
+            }
+        """
+    ] .
+<END_SHACL>

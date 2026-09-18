@@ -1,0 +1,339 @@
+We need to repair the SHACL graph to fix deterministic validation issues: quantity properties must point to QUDT QuantityValue node, not a direct literal datatype. So previously shape uses sh:datatype xsd:decimal. Need to change to use sh:class or sh:node shape that expects a node of type qudt:QuantityValue with required properties: qudt:numericValue xsd:decimal and qudt:unit recommendedUnit.
+
+We must preserve other semantics unchanged.
+
+We need to modify shapes for properties: nltl:localIcePressure, nltl:propellerIceInteractionLoad, nltl:thrusterBodyIceInteractionLoad, and also in designCondition's property designConditionLocalStrengthCapacity (inside nested node). Also maybe designConditionLocalStrengthCapacity is a quantity property; need to adjust similarly.
+
+Thus create a node shape for each quantity property using the nodePattern "qudtQuantityValue". We can either inline a node shape with sh:node [ sh:property ... ] maybe expecting a node of type qudt:QuantityValue and required properties.
+
+Simplest: modify each sh:property to set sh:class qudt:QuantityValue and use sh:node to enforce numeric value and unit.
+
+But we need to preserve minCount etc. Should keep sh:minCount 1.
+
+Implementation: For each property, define:
+
+sh:property [
+   sh:path nltl:localIcePressure ;
+   sh:node [
+       sh:class qudt:QuantityValue ;
+       sh:property [
+           sh:path qudt:numericValue ;
+           sh:datatype xsd:decimal ;
+           sh:minCount 1 ;
+       ] ;
+       sh:property [
+           sh:path qudt:unit ;
+           sh:hasValue <recommendedUnitIRI> ; // recommended unit from vocabulary.
+           sh:minCount 1 ;
+       ] ;
+   ] ;
+   sh:minCount 1 ;
+   sh:message "... quantity must be provided ..."
+] ;
+
+But message referencing property.
+
+We need to reference QUDT namespace: prefix qudt: <http://qudt.org/schema/qudt#>. Also need unit prefixes maybe unit namespace? Units are from http://qudt.org/vocab/unit/. We'll need to use unit URIs.
+
+Look at allowed vocabulary for each property:
+
+localIcePressure recommendedUnit: http://qudt.org/vocab/unit/MegaPA (MPa). So use that IRI.
+
+propellerIceInteractionLoad recommendedUnit: http://qudt.org/vocab/unit/KiloN
+
+thrusterBodyIceInteractionLoad recommendedUnit: http://qudt.org/vocab/unit/KiloN
+
+designConditionLocalStrengthCapacity recommendedUnit: http://qudt.org/vocab/unit/KiloN
+
+Okay.
+
+Also there is property designConditionLocalStrengthCapacity inside nested node of hasDesignCondition node shape currently using sh:path nltl:designConditionLocalStrengthCapacity with datatype. We'll replace similarly with sh:node pattern.
+
+Also note that we have a direct check SPARQL using capacity value directly; currently it expects capacityVal as literal from nltl:designConditionLocalStrengthCapacity. After change, capacity will be a node with numericValue property. The SPARQL must adapt, but the current issue only mentions deterministic validation; we may adjust SPARQL but not required? It could break, but they'd maybe still be okay if we keep property shape still as datatype? The shape may need to capture capacity within node. The SPARQL selects ?dc nltl:designConditionLocalStrengthCapacity ?capacityVal . That will no longer bind literal. So SPARQL will break, but issue didn't mention. However we should preserve semantics: direct check should compare numeric values. So we need to modify SPARQL to extract numericValue. The shape can be updated.
+
+Thus adjust SPARQL to:
+
+SELECT ?this WHERE {
+  ?this nltl:hasDesignCondition ?dc .
+  ?dc nltl:designConditionLocalStrengthCapacity ?capacityNode .
+  ?capacityNode qudt:numericValue ?capacityVal .
+  ?this nltl:localIcePressure ?pressureNode .
+  ?pressureNode qudt:numericValue ?pressureVal .
+  FILTER (?capacityVal < ?pressureVal)
+}
+
+Need to also ensure prefixes.
+
+Now also need to add prefix qudt: and maybe unit prefix.
+
+Add to top: @prefix qudt: <http://qudt.org/schema/qudt#> . Also maybe unit: @prefix unit: <http://qudt.org/vocab/unit/> . But unit IRI can be directly used.
+
+Now we must preserve other parts unchanged.
+
+Thus produce revised SHACL containing all previous definitions plus modifications.
+
+Let's rewrite shape:
+
+:TRF-070_Shape
+ a sh:NodeShape ;
+ sh:targetClass nltl:ship ;
+
+ # thrusterType property unchanged
+
+ # mainPropulsionThruster unchanged
+
+ # hasDesignCondition unchanged (class) maybe keep as previously
+
+ # localIcePressure property change to node shape
+
+ # propellerIceInteractionLoad property change
+
+ # thrusterBodyIceInteractionLoad property change
+
+ # Within designCondition shape: currently they have nested node shape for hasDesignCondition with property designConditionLocalStrengthCapacity. We'll replace that property with node shape expecting QuantityValue.
+
+ # SPARQL constraint update.
+
+Implement as:
+
+sh:property [
+  sh:path nltl:localIcePressure ;
+  sh:node [
+    sh:class qudt:QuantityValue ;
+    sh:property [
+      sh:path qudt:numericValue ;
+      sh:datatype xsd:decimal ;
+      sh:minCount 1 ;
+    ] ;
+    sh:property [
+      sh:path qudt:unit ;
+      sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+      sh:minCount 1 ;
+    ] ;
+  ] ;
+  sh:minCount 1 ;
+  sh:message "localIcePressure quantity must be provided as a QUDT QuantityValue." ;
+] ;
+
+Similarly others.
+
+For nested designCondition property:
+
+sh:property [
+  sh:path nltl:hasDesignCondition ;
+  sh:node [
+    sh:property [
+      sh:path nltl:designConditionLocalStrengthCapacity ;
+      sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+          sh:path qudt:numericValue ;
+          sh:datatype xsd:decimal ;
+          sh:minCount 1 ;
+        ] ;
+        sh:property [
+          sh:path qudt:unit ;
+          sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+          sh:minCount 1 ;
+        ] ;
+      ] ;
+      sh:minCount 1 ;
+      sh:message "designConditionLocalStrengthCapacity must be provided as a QUDT QuantityValue." ;
+    ] ;
+  ] ;
+] ;
+
+Now the outer hasDesignCondition earlier also defined as property requiring designCondition class. We have two definitions now; could combine but we must preserve semantics. Currently earlier shape includes:
+
+sh:property [
+   sh:path nltl:hasDesignCondition ;
+   sh:class nltl:designCondition ;
+   sh:minCount 1 ;
+   sh:message ...
+];
+
+Adding another property with same path may be okay but SHACL expects one property block per path. Could combine: maybe modify the existing hasDesignCondition property to include both sh:class and sh:node. SHACL allows both. So we should adjust that block: add sh:class (already) and then also incorporate nested node shape for designConditionLocalStrengthCapacity.
+
+Thus replace the original block with:
+
+sh:property [
+   sh:path nltl:hasDesignCondition ;
+   sh:class nltl:designCondition ;
+   sh:minCount 1 ;
+   sh:message "A designCondition must be associated with the ship." ;
+   sh:node [
+       sh:property [
+           sh:path nltl:designConditionLocalStrengthCapacity ;
+           sh:node [
+               sh:class qudt:QuantityValue ;
+               sh:property [
+                   sh:path qudt:numericValue ;
+                   sh:datatype xsd:decimal ;
+                   sh:minCount 1 ;
+               ] ;
+               sh:property [
+                   sh:path qudt:unit ;
+                   sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+                   sh:minCount 1 ;
+               ] ;
+           ] ;
+           sh:minCount 1 ;
+           sh:message "designConditionLocalStrengthCapacity must be provided as a QUDT QuantityValue." ;
+       ] ;
+   ] ;
+] ;
+
+That covers both.
+
+Now we need to adjust SPARQL constraint accordingly.
+
+Let's construct updated SPARQL block.
+
+Now final shape includes all modifications, others unchanged.
+
+Make sure prefixes: sh, nltl, xsd, : , qudt.
+
+Now produce final Turtle with <BEGIN_SHACL> markers.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix :     <urn:nltl:generated-shape:> .
+
+:TRF-070_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Applicability – thruster type
+    sh:property [
+        sh:path nltl:thrusterType ;
+        sh:datatype xsd:string ;
+        sh:in ( "azimuthing" "fixed" ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "thrusterType must be present and be either 'azimuthing' or 'fixed'." ;
+    ] ;
+
+    # Applicability – main propulsion thruster must be true
+    sh:property [
+        sh:path nltl:mainPropulsionThruster ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "mainPropulsionThruster must be true for the requirement to apply." ;
+    ] ;
+
+    # Require a design condition and embed the local strength capacity quantity
+    sh:property [
+        sh:path nltl:hasDesignCondition ;
+        sh:class nltl:designCondition ;
+        sh:minCount 1 ;
+        sh:message "A designCondition must be associated with the ship." ;
+        sh:node [
+            sh:property [
+                sh:path nltl:designConditionLocalStrengthCapacity ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+                        sh:minCount 1 ;
+                    ] ;
+                ] ;
+                sh:minCount 1 ;
+                sh:message "designConditionLocalStrengthCapacity must be provided as a QUDT QuantityValue." ;
+            ] ;
+        ] ;
+    ] ;
+
+    # Require local ice pressure quantity (QUDT QuantityValue)
+    sh:property [
+        sh:path nltl:localIcePressure ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+                sh:minCount 1 ;
+            ] ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "localIcePressure quantity must be provided as a QUDT QuantityValue." ;
+    ] ;
+
+    # Require propeller‑ice interaction load (QUDT QuantityValue)
+    sh:property [
+        sh:path nltl:propellerIceInteractionLoad ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+                sh:minCount 1 ;
+            ] ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "propellerIceInteractionLoad quantity must be provided as a QUDT QuantityValue." ;
+    ] ;
+
+    # Require thruster‑body ice interaction load (QUDT QuantityValue)
+    sh:property [
+        sh:path nltl:thrusterBodyIceInteractionLoad ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+                sh:minCount 1 ;
+            ] ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "thrusterBodyIceInteractionLoad quantity must be provided as a QUDT QuantityValue." ;
+    ] ;
+
+    # Direct check: capacity >= pressure (using QUDT numeric values)
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Design condition local strength capacity is insufficient compared to local ice pressure." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT ?this WHERE {
+                ?this nltl:hasDesignCondition ?dc .
+                ?dc nltl:designConditionLocalStrengthCapacity ?capacityNode .
+                ?capacityNode qudt:numericValue ?capacityVal .
+
+                ?this nltl:localIcePressure ?pressureNode .
+                ?pressureNode qudt:numericValue ?pressureVal .
+
+                FILTER ( ?capacityVal < ?pressureVal )
+            }
+        """ ;
+    ] .
+<END_SHACL>

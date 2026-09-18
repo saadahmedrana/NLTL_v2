@@ -1,0 +1,251 @@
+We need to generate SHACL graph for requirement. Category Complex, verificationMode COMPLEX_READINESS. According to rule 36: For COMPLEX_READINESS, do not reconstruct calculation; generate readiness/result SHACL that verifies applicability, declared operand terms as required inputs, their owners/paths/datatypes/units, the declared calculation or analysis structures, evidence/table/method references, and resultTerms as externally computed outputs. Enforce only directCheckSubconstraints explicitly marked DIRECT_CHECK. Here, dependencyContract has directConstraintTerms, but verificationMode is COMPLEX_READINESS, and formulaExecutionRequired false. So we need to validate presence of required inputs: dailyLowTemperatureObservation nodes with properties dailyTemperatureObservationDate (xsd:date) and dailyLowTemperature (quantity). Also need dataPeriod (quantity on ship) and meanDailyLowTemperature (quantity on ship). Also need administrationDatasetApprovalStatus (object property to evidenceStateApproved) but only when dataPeriod <10 years. That is a conditional rule: if dataPeriod < 10 years then administrationDatasetApprovalStatus must be evidenceStateApproved. That's a direct constraint? It's part of conditionalRules, so we must enforce it via SHACL-SPARQL constraint (since involves a comparison). Should also enforce that if dataPeriod >=10 years, then no need for approval status? Not required but okay. Also must ensure presence of dailyLowTemperatureObservation per ship? Not missing but maybe required because they are needed for calculation, but external calculation not reconstructed. We may enforce that each ship has at least one dailyLowTemperatureObservation (maybe) - though not explicitly required. The requirement says dataset needed, but not enforce count. We can include shape for ship that requires dataPeriod property (quantity), meanDailyLowTemperature property (quantity), and optionally administrationDatasetApprovalStatus if applicable.
+
+We also need shapes for dailyLowTemperatureObservation to ensure it has date and dailyLowTemperature (quantity with unit deg C). Use sh:property shapes.
+
+Use prefixes: sh, nltl, xsd, qudt, fs? Not needed. Use generatedShapeNamespace: urn:nltl:generated-shape:.
+
+Define shape for ship: targetClass nltl:ship. Add property shapes:
+
+- sh:path nltl:dataPeriod ; require qudt quantity node (via pattern? Use sh:node to specify shape that ensures qudt:numericValue xsd:decimal and qudt:unit recommended unit). Could embed shape inline.
+
+- sh:path nltl:meanDailyLowTemperature ; same.
+
+- Conditional: if dataPeriod less than 10 years then must have administrationDatasetApprovalStatus = evidenceStateApproved. Need SPARQL query reading dataPeriod numeric value in years (quantity). Use qudt:numericValue and unit (YR). Then compare. We'll need to locate the quantity node: ship nltl:dataPeriod ?dp . ?dp qudt:numericValue ?val . ?dp qudt:unit nltl: ??? recommended unit is http://qudt.org/vocab/unit/YR. Use that IRI.
+
+Write SPARQL constraint:
+
+SELECT $this (??) WHERE {
+  $this nltl:dataPeriod ?dp .
+  ?dp qudt:numericValue ?val .
+  FILTER ( ?val < 10 )
+  FILTER NOT EXISTS { $this nltl:administrationDatasetApprovalStatus nltl:evidenceStateApproved . }
+}
+
+If exists, violation missing approved status.
+
+Add sh:message.
+
+Also ensure that if dataPeriod >=10, no requirement, we don't need status. That's okay.
+
+Also ensure administrationDatasetApprovalStatus property if present must be evidenceStateApproved? The rule only when <10, but could also enforce that if present, must be evidenceStateApproved (maybe not needed). Could ignore.
+
+Now shape for dailyLowTemperatureObservation: targetClass nltl:dailyLowTemperatureObservation. property for dailyTemperatureObservationDate: datatype xsd:date. property for dailyLowTemperature: quantity node with unit DEG_C.
+
+The property path is nltl:dailyLowTemperature (Object property Q?), it's a QuantityProperty with range qudt:QuantityValue. Needs shape for quantity node: ensure qudt:numericValue decimal, qudt:unit http://qudt.org/vocab/unit/DEG_C.
+
+Now shape for administratonDatasetApprovalStatus maybe not needed shape as object property.
+
+Use shape for ship that also enforces that administrationDatasetApprovalStatus is only allowed value evidenceStateApproved. Could enforce a sh:property with sh:in list.
+
+But we only need when <10.
+
+Thus final SHACL graph:
+
+@prefix sh: <http://www.w3.org/2001/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:dataPeriod ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:YR ;
+                sh:minCount 1 ;
+            ]
+        ] ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:meanDailyLowTemperature ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG_C ;
+                sh:minCount 1 ;
+            ]
+        ] ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:administrationDatasetApprovalStatus ;
+        sh:class nltl:evidenceState ;
+        sh:in ( nltl:evidenceStateApproved ) ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When dataPeriod is less than 10 years, administrationDatasetApprovalStatus must be Approved." ;
+        sh:prefixes [
+            sh:declare [ sh:prefix "nltl" ; sh:namespace "https://w3id.org/nltl/vocab#" ] ;
+            sh:declare [ sh:prefix "qudt" ; sh:namespace "http://qudt.org/schema/qudt#" ] ;
+            sh:declare [ sh:prefix "unit" ; sh:namespace "http://qudt.org/vocab/unit/" ] ;
+            sh:declare [ sh:prefix "xsd" ; sh:namespace "http://www.w3.org/2001/XMLSchema#" ] ;
+        ] ;
+        sh:select """
+            SELECT $this WHERE {
+                $this nltl:dataPeriod ?dp .
+                ?dp qudt:numericValue ?val .
+                FILTER ( ?val < 10 )
+                FILTER NOT EXISTS { $this nltl:administrationDatasetApprovalStatus nltl:evidenceStateApproved . }
+            }
+        """ ;
+    ] .
+
+gen:DailyLowTempObsShape a sh:NodeShape ;
+    sh:targetClass nltl:dailyLowTemperatureObservation ;
+    sh:property [
+        sh:path nltl:dailyTemperatureObservationDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:dailyLowTemperature ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG_C ;
+                sh:minCount 1 ;
+            ]
+        ] ;
+        sh:minCount 1 ;
+    ] .
+
+Note: For unit prefix use full IRI unit:DEG_C, unit:YR; ensure correct. Provide it. Also ensure property shapes for hasDailyLowTemperatureObservation maybe not needed.
+
+Now ensure we used only allowed vocabulary terms: nltl:ship, nltl:dataPeriod, nltl:meanDailyLowTemperature, nltl:administrationDatasetApprovalStatus, nltl:evidenceStateApproved, nltl:evidenceState, nltl:dailyLowTemperatureObservation, nltl:dailyTemperatureObservationDate, nltl:dailyLowTemperature, nltl:hasDailyLowTemperatureObservation? Not used but that's okay. All are in allowed list.
+
+We used qudt: namespace which is allowed (QUDT). Sh:prefixes defined in SPARQL constraint may not be necessary to declare prefixes inside constraint per rule 10: must declare every prefix inside its own query prologue. We used sh:prefixes block which may be acceptable but better to include PREFIX lines inside SELECT query. According to rule 10: every SHACL-SPARQL query must declare inside its own query prologue every prefix it uses, including nltl and xsd. So inside SELECT we need PREFIX lines. So we should write:
+
+SELECT $this WHERE {
+  PREFIX nltl: <https://w3id.org/nltl/vocab#>
+  PREFIX qudt: <http://qudt.org/schema/qudt#>
+  PREFIX unit: <http://qudt.org/vocab/unit/>
+  PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+  $this nltl:dataPeriod ?dp .
+  ?dp qudt:numericValue ?val .
+  FILTER ( ?val < 10 )
+  FILTER NOT EXISTS { $this nltl:administrationDatasetApprovalStatus nltl:evidenceStateApproved . }
+}
+
+But SPARQL prologue inside query string can have PREFIX lines before SELECT. That's okay.
+
+Thus modify sh:select content accordingly.
+
+Let's produce final Turtle.
+
+Check syntax: sh:sparql [ a sh:SPARQLConstraint ; sh:message "..."; sh:select """ PREFIX ... SELECT ... """ ].
+
+Make sure no stray spaces.
+
+Now output within markers.
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen:  <urn:nltl:generated-shape:> .
+
+gen:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:dataPeriod ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:YR ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:meanDailyLowTemperature ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG_C ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:administrationDatasetApprovalStatus ;
+        sh:class nltl:evidenceState ;
+        sh:in ( nltl:evidenceStateApproved )
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When dataPeriod is less than 10 years, administrationDatasetApprovalStatus must be Approved." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:dataPeriod ?dp .
+                ?dp qudt:numericValue ?val .
+                FILTER ( ?val < 10 )
+                FILTER NOT EXISTS { $this nltl:administrationDatasetApprovalStatus nltl:evidenceStateApproved . }
+            }
+        """ ;
+    ] .
+
+gen:DailyLowTempObsShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:dailyLowTemperatureObservation ;
+    sh:property [
+        sh:path nltl:dailyTemperatureObservationDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:dailyLowTemperature ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DEG_C ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:minCount 1
+    ] .
+<END_SHACL>

@@ -1,0 +1,113 @@
+We need to repair SHACL graph based on currentIssues. Issue: thickness unit currently unit:M but requirement says mm. Need change to unit:MilliM (or unit:MilliM). Also need to ensure any references to thickness property in shape use correct unit. In current SHACL, thickness property path is nltl:thickness as a property of the ship? Actually they used $this nltl:thickness ?thickQV within SPARQL. In property definitions earlier they didn't define thickness property (only inside plating node? Wait they defined thickness inside the plating node's property block? Actually they defined required thickness inside plating node: inside sh:node of nltl:hasPlating they have sh:property for nltl:thickness. That seems to assume thickness is attached to plating as well. But SPARQL uses $this nltl:thickness directly on ship. Inconsistent. However issue only about unit conversion. So we only change unit for thickness from unit:M to unit:MilliM. Also need to maybe adjust recommendedUnit in the vocab for thickness (currently recommendedUnit is "http://qudt.org/vocab/unit/M"). But we cannot edit vocab file, only SHACL. So change unit value.
+
+Also need potentially adjust calculation if unit mismatched; but they said can add explicit conversion. Simpler: change unit to mm to align.
+
+Thus modify property block for nltl:thickness: change sh:hasValue unit:M to unit:MilliM.
+
+Also ensure any other areas referencing unit:M (maybe there is only that). Also ensure SPARQL selects? It uses numeric values only, unit not used there.
+
+Implement change.
+
+Return full revised graph with only this modification.
+
+Let's produce final SHACL.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:ThicknessCalcShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPlating ;
+        sh:node [
+            sh:class nltl:plating ;
+
+            # required thickness
+            sh:property [
+                sh:path nltl:thickness ;
+                sh:minCount 1 ; sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ; sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:MilliM ;   # corrected unit to mm
+                        sh:minCount 1 ; sh:maxCount 1
+                    ]
+                ]
+            ] ;
+
+            # net plate thickness required for ice load
+            sh:property [
+                sh:path nltl:iceLoadRequiredNetPlateThickness ;
+                sh:minCount 1 ; sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ; sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:MilliM ;
+                        sh:minCount 1 ; sh:maxCount 1
+                    ]
+                ]
+            ] ;
+
+            # corrosion‑abrasion allowance
+            sh:property [
+                sh:path nltl:corrosionAbrasionAllowance ;
+                sh:minCount 1 ; sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ; sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:MilliM ;
+                        sh:minCount 1 ; sh:maxCount 1
+                    ]
+                ]
+            ] ;
+
+            # calculation: thickness = net + allowance (with tolerance)
+            sh:sparql [
+                sh:message "Shell plate thickness must equal net plate thickness plus corrosion‑abrasion allowance (within tolerance)." ;
+                sh:select """
+                    PREFIX sh: <http://www.w3.org/ns/shacl#>
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt/>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this
+                    WHERE {
+                        $this nltl:thickness ?thickQV .
+                        $this nltl:iceLoadRequiredNetPlateThickness ?netQV .
+                        $this nltl:corrosionAbrasionAllowance ?caQV .
+                        ?thickQV qudt:numericValue ?tVal .
+                        ?netQV qudt:numericValue ?netVal .
+                        ?caQV qudt:numericValue ?caVal .
+                        FILTER (
+                            abs(?tVal - (?netVal + ?caVal)) >
+                            ( "0.000001"^^xsd:decimal * (abs(?netVal + ?caVal) + "0.000000001"^^xsd:decimal) )
+                        )
+                    }
+                """ ;
+            ]
+        ]
+    ] .
+<END_SHACL>

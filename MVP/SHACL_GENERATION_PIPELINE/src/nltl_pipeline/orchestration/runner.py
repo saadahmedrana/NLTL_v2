@@ -15,7 +15,7 @@ from ..reporting.tracker import TrackerExporter
 from ..retrieval.context import VocabularyRepository
 from ..retrieval.fewshot import FewShotSelector
 from ..telemetry.events import EventLogger
-from ..validation.contracts import parse_matcher_decision, parse_validator_decision
+from ..validation.contracts import normalize_validator_response, parse_matcher_decision, parse_validator_decision
 from ..validation.shacl import ShaclStaticValidator
 from .repair import RepairMemory, format_issues, issue_key, issues_payload, packet_sha256, rdf_identity, repair_diff, static_issues
 
@@ -67,6 +67,21 @@ class PipelineRunner:
             self._log_api(logger, role, result, developer_prompt, actual_user, iteration, contract_attempt=contract_attempt)
             logger.write_artifact(f"artifacts/attempt_{iteration:02d}/{artifact_prefix}_raw_{contract_attempt:02d}.txt",
                                   result.text, artifact_type=f"{artifact_prefix}_raw_response", iteration=iteration)
+            if role == "validator":
+                normalization = normalize_validator_response(result.text)
+                observation = normalization.to_dict()
+                logger.write_artifact(
+                    f"artifacts/attempt_{iteration:02d}/{artifact_prefix}_formatting_{contract_attempt:02d}.json",
+                    json.dumps(observation, indent=2, ensure_ascii=True) + "\n",
+                    artifact_type="validator_formatting_observation", iteration=iteration,
+                )
+                logger.emit(
+                    "validator_formatting_observed", iteration=iteration, contract_attempt=contract_attempt,
+                    has_text_outside_decision_block=normalization.text_outside_decision_block,
+                    multiple_candidate_decision_blocks=normalization.multiple_candidate_decision_blocks,
+                    candidate_decision_block_count=normalization.candidate_decision_block_count,
+                    normalization_error=normalization.error or "",
+                )
             try:
                 return parser(result.text), result
             except ResponseContractError as exc:

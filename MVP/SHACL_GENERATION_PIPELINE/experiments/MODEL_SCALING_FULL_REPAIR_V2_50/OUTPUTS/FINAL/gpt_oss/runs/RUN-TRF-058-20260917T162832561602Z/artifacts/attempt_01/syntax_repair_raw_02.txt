@@ -1,0 +1,132 @@
+We need to output corrected Turtle within <BEGIN_SHACL> and <END_SHACL>. The provided candidate already largely correct, but there is a syntax error with the triple-quoted string: after sh:message ... ; sh:select """\ (the triple quotes) they have a backslash after the triple quotes - the string begins "\"\"\"\\\n". The backslash is part of the string content, but the parse error indicates "bad escape". In Turtle, inside a long string, a backslash at end of line is escape for newline? Actually in Turtle, a literal string can contain a backslash; it's okay. The error likely due to ambiguous quoting: they wrote sh:select \"\"\"\\\n which in Turtle literal is: """\<newline>... That is allowed: triple quotes followed by a backslash character. The backslash is not an escape unless it's followed by something like "n". Backslash then newline is maybe considered line continuation? That could be problematic. We can simply remove the backslash after the opening triple quotes, i.e., start string with """\n (without backslash). Also ensure no stray backslashes at end. At end they have """" ; which is fine.
+
+Thus modify sh:select literal to start """\n (no backslash). Also ensure we escape double quotes inside? No internal quotes.
+
+Thus produce corrected version.
+
+Also check that sh:select property expects a literal string, fine.
+
+Make sure final shape ends with a period before closing.
+
+Let's craft final output.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-058Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:property [
+        sh:path nltl:supportedStringerOutsideIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadForce ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:stringerOutsideIceBeltHeight ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:stringerSpan ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:adjustedIceLoadForce ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "When supportedStringerOutsideIceBelt is true, adjustedIceLoadForce must equal iceLoadForce * (1 - hs/ls) within tolerance." ;
+        sh:select """ 
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:supportedStringerOutsideIceBelt true ;
+                     nltl:iceLoadForce ?iceNode ;
+                     nltl:stringerOutsideIceBeltHeight ?hsNode ;
+                     nltl:stringerSpan ?lsNode ;
+                     nltl:adjustedIceLoadForce ?adjNode .
+
+                ?iceNode qudt:numericValue ?iceVal .
+                ?hsNode  qudt:numericValue ?hsVal .
+                ?lsNode  qudt:numericValue ?lsVal .
+                ?adjNode qudt:numericValue ?adjVal .
+
+                BIND ( ?iceVal * (1 - (?hsVal / ?lsVal)) AS ?expected )
+                BIND ( 1e-6 AS ?tol )
+                FILTER ( ABS(?adjVal - ?expected) > ?tol )
+            }
+        """ ;
+    ] .
+<END_SHACL>

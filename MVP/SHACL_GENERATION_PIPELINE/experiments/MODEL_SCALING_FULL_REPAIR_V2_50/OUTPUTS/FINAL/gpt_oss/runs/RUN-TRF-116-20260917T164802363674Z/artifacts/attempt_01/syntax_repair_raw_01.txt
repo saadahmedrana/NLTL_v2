@@ -1,0 +1,141 @@
+We need to fix Turtle syntax errors. The error is that "urn:" prefix is not bound. In Turtle, you cannot use a CURIE with a colon unless a prefix is declared. We can define a prefix like @prefix : <urn:nltl:generated-shape:> . Then use :TRF-116_ShipShape as subject, or define a base IRI.
+
+Simplest: declare prefix g: <urn:nltl:generated-shape:> . Then use g:TRF-116_ShipShape.
+
+Also ensure that prefixes lines are correct.
+
+Also check that the property paths use nltl:nonHemisphericalImpactContactArea etc. Those prefixes are declared.
+
+Check that unit:M2 is correct IRI? QUDT unit vocabulary includes unit:M2. It's fine.
+
+Check for any stray characters: the candidate string uses triple quotes inside SELECT string; this is okay in Turtle as a literal, but must be enclosed in triple quotes (""" ... """) preceded by a caret? In Turtle, sh:select expects an RDF literal, can be a string with quotes; need to escape line breaks. Using """ ... """ is allowed for multiline literal in Turtle (SPARQL string). Need to ensure proper use of triple quotes (""" ... """) preceded by sh:select, with a space before it. That's okay.
+
+Check that we didn't miss any semicolons or periods. At the end we have . after the closing shape; okay.
+
+One more: we used sh:node with blank node inside property shape; that's allowed.
+
+Check that we used unit:M2 but missing prefix unit; we defined @prefix unit: <http://qudt.org/vocab/unit#> . So OK.
+
+Potential syntax: In sh:sparql constraint we used a blank node list: sh:sparql [ a sh:SPARQLConstraint ; sh:message "..."; sh:select """ ... """ ; ] . All good.
+
+Make sure the final dot after the shape is there.
+
+Thus repair: Add @prefix g: <urn:nltl:generated-shape:> . Then replace subject urn:nltl:generated-shape:TRF-116_ShipShape with g:TRF-116_ShipShape.
+
+Also we might need to declare base prefix for nltl; we already did.
+
+Let's produce corrected candidate.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit#> .
+@prefix g:    <urn:nltl:generated-shape:> .
+
+# -----------------------------------------------------------------
+# Shape targeting the ship entity for the TRF‑116 requirement
+# -----------------------------------------------------------------
+g:TRF-116_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # -------------------------------------------------------------
+    # Boolean flag indicating the exception case
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Flag propellerHubOrThrusterEndCapImpact (true if the impact is on a propeller hub or thruster end‑cap) must be provided." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Quantity: Non‑hemispherical impact contact area (A)
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:nonHemisphericalImpactContactArea ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:message "numericValue for nonHemisphericalImpactContactArea must be a decimal." ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M2 ;
+                sh:minCount 1 ;
+                sh:message "Unit for nonHemisphericalImpactContactArea must be square metres (unit:M2)." ;
+            ] ;
+        ] ;
+        sh:message "Non‑hemispherical impact contact area (A) must be supplied with a numeric value and unit m²." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Quantity: Design ice thickness (H_iced)
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:message "numericValue for designIceThickness must be a decimal." ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:message "Unit for designIceThickness must be metres (unit:M)." ;
+            ] ;
+        ] ;
+        sh:message "Design ice thickness (H_iced) must be supplied with a numeric value and unit m." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Quantity: Equivalent impact sphere radius (R_ceq) – result of the calculation
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:message "numericValue for equivalentImpactSphereRadius must be a decimal." ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:message "Unit for equivalentImpactSphereRadius must be metres (unit:M)." ;
+            ] ;
+        ] ;
+        sh:message "Equivalent impact sphere radius (R_ceq) must be provided with a numeric value and unit m when the rule applies." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Conditional SPARQL constraint:
+    #   If the exception flag is false, the three quantities above must all be present.
+    # -------------------------------------------------------------
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When propellerHubOrThrusterEndCapImpact = false, the ship must provide nonHemisphericalImpactContactArea, designIceThickness and equivalentImpactSphereRadius." ;
+        sh:select """ 
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:propellerHubOrThrusterEndCapImpact ?exc .
+                FILTER ( ?exc = false ) .
+                FILTER NOT EXISTS { $this nltl:nonHemisphericalImpactContactArea ?a . }
+                FILTER NOT EXISTS { $this nltl:designIceThickness ?d . }
+                FILTER NOT EXISTS { $this nltl:equivalentImpactSphereRadius ?r . }
+            }
+        """ ;
+    ] .
+</END_SHACL>

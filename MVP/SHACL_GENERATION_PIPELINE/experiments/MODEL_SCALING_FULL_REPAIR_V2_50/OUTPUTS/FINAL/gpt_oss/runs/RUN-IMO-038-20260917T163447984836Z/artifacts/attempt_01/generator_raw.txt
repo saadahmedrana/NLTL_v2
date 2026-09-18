@@ -1,0 +1,404 @@
+We need to generate SHACL Turtle based on the requirement.
+
+Requirement: static calculation, direct calculation. Variables: upperIceWaterlineLength, damageCenterForwardOfMaxBreadth (boolean), longitudinalDamageExtent (quantity), transversePenetration (quantity), verticalDamageExtent (quantity), allowedVerticalPosition (string? Actually allowedVerticalPosition datatype string, represents allowed vertical position between keel and 1.20*upperIceWaterlineDraught). Also selectedVerticalDamagePosition (quantity) maybe? The result terms include selectedVerticalDamagePosition (the actual chosen position) but requirement says allowedVerticalPosition is between keel and 1.20 * upperIceWaterlineDraught. That is a constraint on allowedVerticalPosition (string?) but likely it's a textual "allowed vertical position" string, not numeric. However we also have selectedVerticalDamagePosition numeric quantity. The requirement includes range for vertical position but we have both allowedVerticalPosition (string) and selectedVerticalDamagePosition (quantity). The regulatory requirement: vertical extent is lesser of 20% of draught or longitudinal extent, and shall be assumed at any vertical position between keel and 120% of upper ice waterline draught. So we need compute longitudinalDamageExtent based on condition on damageCenterForwardOfMaxBreadth (boolean). Compute transversePenetration constant = 760 mm (value). verticalDamageExtent = min(0.20 * upperIceWaterlineDraught, longitudinalDamageExtent). Also allowedVerticalPosition is between keel and 1.20*upperIceWaterlineDraught. That could be represented as a string but perhaps we enforce a numeric position must be within that range. There's selectedVerticalDamagePosition quantity property. So we could enforce selectedVerticalDamagePosition between 0 (keel) and 1.20 * upperIceWaterlineDraught. But the requirement doesn't specify a specific selected position; just allowed range. So we can enforce this range as a constraint on selectedVerticalDamagePosition.
+
+Thus shapes:
+
+Target ship class.
+
+Properties:
+
+- nltl:damageCenterForwardOfMaxBreadth boolean, required (minCount 1). dtype xsd:boolean
+
+- nltl:upperIceWaterlineLength quantity, required; must have qudt:numericValue decimal and unit M.
+
+- nltl:upperIceWaterlineDraught quantity, required; unit M.
+
+- nltl:longitudinalDamageExtent quantity, required; unit M, numeric value derived. Must compute using piecewise: if damageCenterForwardOfMaxBreadth true => 0.045 * upperIceWaterlineLength; else 0.015 * upperIceWaterlineLength. We'll write SPARQL constraint: no violation if the value equals either of those? Actually must equal exactly the piecewise result. So constraint should detect when value not equal expected based on boolean.
+
+- nltl:transversePenetration quantity, required; must have numeric value = 0.760 (since unit mm? recommended unit MilliM). 760 mm = 0.760 m? But unit is MilliM, but recommended unit is MilliM, but we can enforce numeric value = 760 and unit = MilliM. Use qudt:unit etc.
+
+- nltl:verticalDamageExtent quantity, required; must be <= both 0.20*upperIceWaterlineDraught and longitudinalDamageExtent, and >= 0? Actually should be the lesser of those, so must equal min of the two. So constraint: value must equal either 0.20*draught (if that's <= longitudinal) or longitudinalDamageExtent (if that's smaller). So check that numeric value equals the smaller.
+
+- nltl:selectedVerticalDamagePosition quantity, required; numeric value must be >= 0 (keel) and <= 1.20*upperIceWaterlineDraught.
+
+- nltl:allowedVerticalPosition string? Might be not needed.
+
+We need to use allowed vocabulary terms only.
+
+Check each term's requiredOwner: ship. So all properties on ship.
+
+Define prefixes: sh, nltl, xsd, qudt, math maybe not needed (just arithmetic), but simple arithmetic can be done with SPARQL arithmetic.
+
+Implement property shapes for datatype and unit constraints.
+
+For quantity properties shape, we need ensure that the node is a qudt:QuantityValue with numericValue decimal and unit given. Use property shape for the relation? Example: we can require the ship property points to a node that has qudt:numericValue and qudt:unit. Might need nested shapes using sh:node. Simpler: use sh:property on the ship for the property path nltl:upperIceWaterlineLength, then also ensure the object has the numeric and unit: we can have sh:node shape with patterns.
+
+Simplify: we can just ensure that the value is a literal decimal? However range is a quantity object, not literal. According to allowedVocabulary, quantity property range is qudt:QuantityValue. So typical modeling would have a blank node with numericValue and unit.
+
+We'll create separate node shapes for quantity values referencing property path.
+
+E.g.,
+
+:UpperIceWaterlineLengthShape a sh:NodeShape;
+  sh:targetObjectsOf nltl:upperIceWaterlineLength;
+  sh:property [ sh:path qudt:numericValue ; sh:datatype xsd:decimal ; sh:minCount 1 ; sh:maxCount 1 ] ;
+  sh:property [ sh:path qudt:unit ; sh:hasValue <http://qudt.org/vocab/unit/M> ; sh:minCount 1 ; sh:maxCount 1 ] .
+
+Similarly for other quantity properties.
+
+Then main ship shape includes property shapes to enforce presence (minCount 1). Then SPARQL constraints for calculations.
+
+Let's construct.
+
+Prefixes:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+Now shapes.
+
+gen:ShipShape a sh:NodeShape ;
+  sh:targetClass nltl:ship ;
+  sh:property [ sh:path nltl:damageCenterForwardOfMaxBreadth ; sh:datatype xsd:boolean ; sh:minCount 1 ; sh:maxCount 1 ] ;
+  sh:property [ sh:path nltl:upperIceWaterlineLength ; sh:minCount 1 ; sh:maxCount 1 ; sh:node gen:UpperIceWaterlineLengthShape ] ;
+  sh:property [ sh:path nltl:upperIceWaterlineDraught ; sh:minCount 1 ; sh:maxCount 1 ; sh:node gen:UpperIceWaterlineDraughtShape ] ;
+  sh:property [ sh:path nltl:longitudinalDamageExtent ; sh:minCount 1 ; sh:maxCount 1 ; sh:node gen:LongitudinalDamageExtentShape ] ;
+  sh:property [ sh:path nltl:transversePenetration ; sh:minCount 1 ; sh:maxCount 1 ; sh:node gen:TransversePenetrationShape ] ;
+  sh:property [ sh:path nltl:verticalDamageExtent ; sh:minCount 1 ; sh:maxCount 1 ; sh:node gen:VerticalDamageExtentShape ] ;
+  sh:property [ sh:path nltl:selectedVerticalDamagePosition ; sh:minCount 1 ; sh:maxCount 1 ; sh:node gen:SelectedVerticalDamagePositionShape ] ;
+  # SPARQL constraints
+  sh:sparql [
+    sh:message "longitudinalDamageExtent must equal 0.045 * upperIceWaterlineLength when damageCenterForwardOfMaxBreadth is true, otherwise 0.015 * upperIceWaterlineLength" ;
+    sh:select """
+      PREFIX nltl: <https://w3id.org/nltl/vocab#>
+      PREFIX qudt: <http://qudt.org/schema/qudt#>
+      PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+      SELECT $this WHERE {
+        $this nltl:damageCenterForwardOfMaxBreadth ?center .
+        $this nltl:upperIceWaterlineLength ?lenNode .
+        $this nltl:longitudinalDamageExtent ?lonNode .
+        ?lenNode qudt:numericValue ?lenVal .
+        ?lonNode qudt:numericValue ?lonVal .
+        BIND ( IF(?center = true,
+                  ?lenVal * 0.045,
+                  ?lenVal * 0.015) AS ?expected ) .
+        FILTER ( abs(?lonVal - ?expected) > 1e-6 )
+      }
+    """ ;
+  ] ;
+  sh:sparql [
+    sh:message "transversePenetration must be 760 mm" ;
+    sh:select """
+      PREFIX nltl: <https://w3id.org/nltl/vocab#>
+      PREFIX qudt: <http://qudt.org/schema/qudt#>
+      PREFIX unit: <http://qudt.org/vocab/unit/>
+      SELECT $this WHERE {
+        $this nltl:transversePenetration ?tpNode .
+        ?tpNode qudt:numericValue ?val .
+        ?tpNode qudt:unit unit:MilliM .
+        FILTER ( abs(?val - 760) > 1e-6 )
+      }
+    """ ;
+  ] ;
+  sh:sparql [
+    sh:message "verticalDamageExtent must be the lesser of 0.20 * upperIceWaterlineDraught and longitudinalDamageExtent" ;
+    sh:select """
+      PREFIX nltl: <https://w3id.org/nltl/vocab#>
+      PREFIX qudt: <http://qudt.org/schema/qudt#>
+      PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+      SELECT $this WHERE {
+        $this nltl:upperIceWaterlineDraught ?draughtNode .
+        $this nltl:longitudinalDamageExtent ?lonNode .
+        $this nltl:verticalDamageExtent ?vertNode .
+        ?draughtNode qudt:numericValue ?draughtVal .
+        ?lonNode qudt:numericValue ?lonVal .
+        ?vertNode qudt:numericValue ?vertVal .
+        BIND ( ?draughtVal * 0.20 AS ?limit ) .
+        BIND ( IF(?lonVal < ?limit, ?lonVal, ?limit) AS ?expected ) .
+        FILTER ( abs(?vertVal - ?expected) > 1e-6 )
+      }
+    """ ;
+  ] ;
+  sh:sparql [
+    sh:message "selectedVerticalDamagePosition must be between keel (0) and 1.20 * upperIceWaterlineDraught" ;
+    sh:select """
+      PREFIX nltl: <https://w3id.org/nltl/vocab#>
+      PREFIX qudt: <http://qudt.org/schema/qudt#>
+      SELECT $this WHERE {
+        $this nltl:upperIceWaterlineDraught ?draughtNode .
+        $this nltl:selectedVerticalDamagePosition ?posNode .
+        ?draughtNode qudt:numericValue ?draughtVal .
+        ?posNode qudt:numericValue ?posVal .
+        BIND ( ?draughtVal * 1.20 AS ?upper ) .
+        FILTER ( ?posVal < 0 || ?posVal > ?upper )
+      }
+    """ ;
+  ] .
+
+Now define quantity node shapes:
+
+gen:UpperIceWaterlineLengthShape a sh:NodeShape ;
+  sh:targetObjectsOf nltl:upperIceWaterlineLength ;
+  sh:property [ sh:path qudt:numericValue ; sh:datatype xsd:decimal ; sh:minCount 1 ; sh:maxCount 1 ] ;
+  sh:property [ sh:path qudt:unit ; sh:hasValue <http://qudt.org/vocab/unit/M> ; sh:minCount 1 ; sh:maxCount 1 ] .
+
+Similarly for draught.
+
+gen:UpperIceWaterlineDraughtShape similar.
+
+gen:LongitudinalDamageExtentShape similar unit M.
+
+gen:TransversePenetrationShape unit MilliM, numericValue decimal.
+
+gen:VerticalDamageExtentShape unit M.
+
+gen:SelectedVerticalDamagePositionShape unit M.
+
+Make sure to use exact IRIs.
+
+Add prefixes for unit IRIs:
+
+M unit IRI: <http://qudt.org/vocab/unit/M> . Already used.
+
+MilliM: <http://qudt.org/vocab/unit/MilliM>.
+
+Now ensure that we have allowed terms: all used IRIs are in allowedVocabulary: upperIceWaterlineLength, upperIceWaterlineDraught, longitudinalDamageExtent, transversePenetration, verticalDamageExtent, selectedVerticalDamagePosition, damageCenterForwardOfMaxBreadth, allowedVerticalPosition (not used). hasComponent not used. personsOnBoard not.
+
+All good.
+
+Make sure to include prefix for qudt: maybe need to include qudt namespace.
+
+Now need to output between <BEGIN_SHACL> and <END_SHACL>.
+
+Make sure Turtle syntactically correct, with '.' at ends.
+
+Let's craft final answer.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Boolean applicability flag
+    sh:property [
+        sh:path nltl:damageCenterForwardOfMaxBreadth ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    # Upper ice‑waterline length
+    sh:property [
+        sh:path nltl:upperIceWaterlineLength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UpperIceWaterlineLengthShape
+    ] ;
+    # Upper ice‑waterline draught
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UpperIceWaterlineDraughtShape
+    ] ;
+    # Longitudinal damage extent (calculated)
+    sh:property [
+        sh:path nltl:longitudinalDamageExtent ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LongitudinalDamageExtentShape
+    ] ;
+    # Transverse penetration (fixed)
+    sh:property [
+        sh:path nltl:transversePenetration ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TransversePenetrationShape
+    ] ;
+    # Vertical damage extent (min of two values)
+    sh:property [
+        sh:path nltl:verticalDamageExtent ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:VerticalDamageExtentShape
+    ] ;
+    # Selected vertical damage position – must lie in allowed range
+    sh:property [
+        sh:path nltl:selectedVerticalDamagePosition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:SelectedVerticalDamagePositionShape
+    ] ;
+    # -----------------------------------------------------------------
+    # Piecewise calculation for longitudinal damage extent
+    sh:sparql [
+        sh:message "longitudinalDamageExtent must equal 0.045 × upperIceWaterlineLength when damageCenterForwardOfMaxBreadth = true, otherwise 0.015 × upperIceWaterlineLength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:damageCenterForwardOfMaxBreadth ?center .
+                $this nltl:upperIceWaterlineLength ?lenNode .
+                $this nltl:longitudinalDamageExtent ?lonNode .
+                ?lenNode qudt:numericValue ?lenVal .
+                ?lonNode qudt:numericValue ?lonVal .
+                BIND ( IF(?center = true,
+                         ?lenVal * 0.045,
+                         ?lenVal * 0.015) AS ?expected ) .
+                FILTER ( abs(?lonVal - ?expected) > 1e-6 )
+            }
+        """
+    ] ;
+    # Fixed transverse penetration
+    sh:sparql [
+        sh:message "transversePenetration must be exactly 760 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            SELECT $this WHERE {
+                $this nltl:transversePenetration ?tpNode .
+                ?tpNode qudt:numericValue ?val .
+                ?tpNode qudt:unit unit:MilliM .
+                FILTER ( abs(?val - 760) > 1e-6 )
+            }
+        """
+    ] ;
+    # Vertical damage extent = min(0.20 × draught, longitudinalExtent)
+    sh:sparql [
+        sh:message "verticalDamageExtent must be the lesser of 0.20 × upperIceWaterlineDraught and longitudinalDamageExtent." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            SELECT $this WHERE {
+                $this nltl:upperIceWaterlineDraught ?draughtNode .
+                $this nltl:longitudinalDamageExtent ?lonNode .
+                $this nltl:verticalDamageExtent ?vertNode .
+                ?draughtNode qudt:numericValue ?draughtVal .
+                ?lonNode qudt:numericValue ?lonVal .
+                ?vertNode qudt:numericValue ?vertVal .
+                BIND ( ?draughtVal * 0.20 AS ?limit ) .
+                BIND ( IF(?lonVal < ?limit, ?lonVal, ?limit) AS ?expected ) .
+                FILTER ( abs(?vertVal - ?expected) > 1e-6 )
+            }
+        """
+    ] ;
+    # Selected vertical position must be within keel (0) and 1.20 × draught
+    sh:sparql [
+        sh:message "selectedVerticalDamagePosition must lie between the keel (0 m) and 1.20 × upperIceWaterlineDraught." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            SELECT $this WHERE {
+                $this nltl:upperIceWaterlineDraught ?draughtNode .
+                $this nltl:selectedVerticalDamagePosition ?posNode .
+                ?draughtNode qudt:numericValue ?draughtVal .
+                ?posNode qudt:numericValue ?posVal .
+                BIND ( ?draughtVal * 1.20 AS ?upper ) .
+                FILTER ( ?posVal < 0 || ?posVal > ?upper )
+            }
+        """
+    ] .
+
+# -----------------------------------------------------------------
+# Quantity node shapes (ensure numeric value and correct unit)
+
+gen:UpperIceWaterlineLengthShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:upperIceWaterlineLength ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UpperIceWaterlineDraughtShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:upperIceWaterlineDraught ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LongitudinalDamageExtentShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:longitudinalDamageExtent ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TransversePenetrationShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:transversePenetration ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:VerticalDamageExtentShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:verticalDamageExtent ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:SelectedVerticalDamagePositionShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:selectedVerticalDamagePosition ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

@@ -1,0 +1,92 @@
+We need to evaluate candidateShacl for blocking defects.
+
+We must return JSON with accept false if any blocking issue; otherwise accept true with empty issues array.
+
+We must inspect target, applicability, ownership/path, etc.
+
+Requirement: target owner requiredTargetOwner is "ship". That means the SHACL should target ship class? Let's read candidate shapes:
+
+- ex:MemberStrengthCheck: targetClass nltl:structuralMember. Not ship.
+
+- ex:BottomPatchOrientationCheck: targetClass nltl:structuralMember. Not ship.
+
+- ex:ShipHasStructuralMemberCheck: targetClass nltl:ship. This matches required target owner.
+
+- ex:StructuralMemberFrameProfileTypeCheck: targetClass nltl:structuralMember.
+
+So the candidate includes a shape targeting ship, but also others targeting structuralMember. Requirement says requiredTargetOwner: ship. Does that mean all shapes must target ship? The selection indicates "requiredTargetOwner": "ship". Likely the SHACL graph for the requirement should have target ship (the owner). Additional shapes may be okay if they are subconstraints? The requirement is about ship-level need that each structural member satisfies something, but they might be constraints on structuralMember. Typically SHACL designs: top-level shape target ship, then property shapes using sh:node or sh:qualifiedValueShape to validate members. Here they have separate node shapes targeting structuralMember directly. Could be acceptable, but the requirement's requiredTargetOwner being ship might be a constraint that the primary target should be ship. Having extra shapes may not be a blocking defect unless they conflict.
+
+Let's check other defects:
+
+- WRONG_TARGET: For shapes where targetClass does not match requiredTargetOwner? The spec maybe expects the candidate's main shape (maybe ex:ShipHasStructuralMemberCheck) to be the only shape? Not clear.
+
+The JSON must list each defect with keys: category, location, problem, required_change, regression_guard, blocking, needs_vocabulary_resolution.
+
+We need to detect concrete blocking defects.
+
+Potential issues:
+
+1. The MemberStrengthCheck shape uses SPARQL constraint referencing nltl:structuralLocation and expects location values bottom or side. That seems aligning with requirement. No problem.
+
+2. The BottomPatchOrientationCheck shape checks that for bottom structure members, there is a loadPatchOrientation value of loadPatchHeightParallelToFrame. It uses NOT EXISTS to ensure presence? Actually ensures that such orientation does NOT exist? The requirement says patch load shall be applied with dimension (b) parallel with frame direction. So we need to ensure that the orientation is exactly loadPatchHeightParallelToFrame. The SPARQL checks NOT EXISTS { ?lc nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame . } meaning if such triple is missing, it's a violation. That's correct: shape violation when missing. okay.
+
+3. The ShipHasStructuralMemberCheck ensures ship has at least one structural member via property shape. Good.
+
+4. StructuralMemberFrameProfileTypeCheck ensures each structural member has frameProfileType. This requirement is about frame profile types? Requirement includes frameProfileType perhaps indirectly, but requirement clause does not explicitly require specifying frameProfileType, but the selection includes relationshipTerms includes frameProfileType. So ensuring presence may be ok.
+
+Potential missing required owner: The shape StructuralMemberFrameProfileTypeCheck targets structuralMember, which is not ship; but requirement might require checking inside structuralMember but main target is ship - maybe acceptable.
+
+But there is a rule: "ownership/path" defect if missing required path from ship to structuralMember via hasStructuralMember. For shapes that target structuralMember directly, SHACL may lack path context; but they still operate on any structuralMember in dataset, regardless of belonging to ship. That could be a defect if they need to be scoped to ship's members. However SHACL node shapes with targetClass apply globally; may be okay if dataset only contains members of ship. But the requirement asserts ship must have structural member; not necessarily that all structural members are validated.
+
+Given the validator is about "blocking defects capable of changing regulatory semantics or executable conformance". A shape targeting structuralMember but not scoped may cause false positives (e.g., structuralMember unrelated to ship). That could be a defect (WRONG_TARGET) because requirement expects ship-level validation.
+
+Thus we may flag WRONG_TARGET for ex:MemberStrengthCheck and ex:BottomPatchOrientationCheck and ex:StructuralMemberFrameProfileTypeCheck because they target structuralMember not ship.
+
+But the candidate includes a ship-target shape that ensures at least one member; but still the other constraints not scoped.
+
+We need to decide if that's considered a blocking defect. Likely yes because the requirement expects the constraints to be applied to members of the ship, but the shape may apply to any structuralMember outside ship, which could be too broad but not necessarily breaking semantics; still if dataset includes extraneous members, violations may be reported incorrectly (changing semantics). That is a concrete defect.
+
+Thus categories: WRONG_TARGET.
+
+Location: shape name.
+
+Problem: "Shape targets nltl:structuralMember instead of required target nltl:ship, causing out‑of‑scope validation."
+
+required_change: "Change sh:targetClass to nltl:ship and use sh:property with sh:node or sh:qualifiedValueShape to apply constraints to structural members."
+
+regression_guard: maintain corrected target to ship.
+
+blocking: true
+
+needs_vocabulary_resolution: false (no vocab needed).
+
+We need at least one issue. Multiple possible but we can list one, maybe for ex:MemberStrengthCheck (first wrong target). The response should list all current blocking issues? The instruction: "Return all concrete blocking defects actually present." So we should list each offending shape. That's three shapes with WRONG_TARGET. Possibly also check that ex:ShipHasStructuralMemberCheck shape has sh:property with minCount 1 but no sh:path? It has path nltl:hasStructuralMember fine.
+
+Check other defects:
+
+- MISSING_MANDATORY_DATA: Are there required inputs like plasticStrength etc. The shape MemberStrengthCheck uses plasticStrength property present on structuralMember. If missing, the query will not return (since ?strengthQty not bound) - no violation; but perhaps requirement expects that structuralMember must have plasticStrength defined. Not enforced. There's no sh:property ensuring plasticStrength present. That could be a missing mandatory property defect (MANDATORY_CONDITION). But shape logic uses ?strengthQty qudt:numericValue ?strength; if plasticStrength missing, the pattern fails, and the shape does not trigger violation, so a missing plasticStrength would not be caught, but requirement may need it defined. However requirement compares combined shear demand to plasticStrength; if plasticStrength missing, perhaps undefined; may be considered a defect. The shape does not enforce existence. Arg.
+
+Similarly, structuralMember must have frameProfileType - they added a shape for that.
+
+But plasticStrength presence not ensured. Could be a missing constraint, but not necessarily a "blocking defect" per spec? Might be considered a missing mandatory condition: structuralMember must have plasticStrength.
+
+Thus category MANDATORY_CONDITION (or WRONG? There's a list: "mandatory condition". The categories list: WRONG_TARGET, etc. Not enumerated but we can use "MANDATORY_CONDITION"? The spec only gave list of categories? The instruction gave list of issue keys but not allowed categories list. It said "category": "WRONG_TARGET" example. Probably any category string acceptable but must be concrete.
+
+We could use "MISSING_PROPERTY" etc. Safer: use WRONG_TARGET only for those three shapes.
+
+Return JSON with accept false.
+
+Need activate_variable_matcher false.
+
+Construct array with three issues.
+
+Each issue location: shape name (ex:MemberStrengthCheck). Problem statement.
+
+Provide required_change.
+
+Regression_guard: maybe "Preserve corrected target.".
+
+Now produce JSON as single line.
+
+
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"WRONG_TARGET","location":"ex:MemberStrengthCheck","problem":"Shape targets nltl:structuralMember instead of required target nltl:ship, causing out‑of‑scope validation of structural members.","required_change":"Change sh:targetClass to nltl:ship and use a property shape (e.g., sh:qualifiedValueShape) to apply the constraint to each ship's structural members via nltl:hasStructuralMember.","regression_guard":"Preserve the corrected target (nltl:ship) for this shape.","blocking":true,"needs_vocabulary_resolution":false},{"category":"WRONG_TARGET","location":"ex:BottomPatchOrientationCheck","problem":"Shape targets nltl:structuralMember instead of required target nltl:ship, leading to validation that is not scoped to a ship instance.","required_change":"Change sh:targetClass to nltl:ship and nest the constraint under a property shape targeting structural members through nltl:hasStructuralMember.","regression_guard":"Preserve the corrected target (nltl:ship) for this shape.","blocking":true,"needs_vocabulary_resolution":false},{"category":"WRONG_TARGET","location":"ex:StructuralMemberFrameProfileTypeCheck","problem":"Shape targets nltl:structuralMember rather than the required target nltl:ship, so the frameProfileType requirement is applied globally.","required_change":"Set sh:targetClass to nltl:ship and use a qualified value shape to enforce frameProfileType on each ship's structural members.","regression_guard":"Preserve the corrected target (nltl:ship) for this shape.","blocking":true,"needs_vocabulary_resolution":false}]}

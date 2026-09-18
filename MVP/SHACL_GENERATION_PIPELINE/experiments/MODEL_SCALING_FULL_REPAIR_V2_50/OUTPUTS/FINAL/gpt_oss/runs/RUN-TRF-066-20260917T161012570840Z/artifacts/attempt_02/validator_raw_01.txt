@@ -1,0 +1,54 @@
+We need to evaluate candidate SHACL against requirement, looking for concrete blocking defects. We must output JSON with accept false and issues if any.
+
+We must consider target: sh:targetClass nltl:ship correct according to requiredTargetOwner "ship". Use full IRI? nltl:ship resolves to https://w3id.org/nltl/vocab#ship which matches required target owner class. Good.
+
+Applicability: Requirement conditional: If iceClass is IA or IA Super AND practicable then ice knife must extend below LIWL. Candidate includes property constraints: iceClass allowed values (in list) – okay; iceKnifePracticable required boolean minCount1 maxCount1 – ensures presence. Also hasRudderProtectionArrangement required – good.
+
+Conditional requirement expressed via sh:sparql constraint. Need to check correctness. Potential issues:
+
+- The SPARQL uses $this nltl:iceKnifePracticable true . It should maybe be ?ic ?practicable boolean check but pattern is okay if datatype boolean literal true. However may need to use xsd:boolean true literal "true"^^xsd:boolean. Using plain true is a SPARQL boolean? In SPARQL, true is a boolean literal (true). That is okay; datatype is xsd:boolean automatically.
+
+- Filtering for iceClass values uses FILTER(?ic = nltl:iceClassIa || ?ic = nltl:iceClassIaSuper). This is fine.
+
+- It then checks NOT EXISTS { ?knife a nltl:iceKnife . ?knife nltl:extendsBelowLowerIceWaterline true . } This checks existence of any iceKnife with that property true. However requirement says iceKnife that extends below LIWL must exist; could be multiple knives. The constraint ensures at least one. Works.
+
+Potential defect: The SPARQL selects $this (COUNT(*) AS ?violations) but SELECT $this may need variable ?this? In SHACL SPARQLConstraint, the SELECT must return ?this variable named ?this or $this? Actually SHACL uses $this as variable placeholder within the query, replaced. In query, you can use $this within pattern; but SELECT must bind ?this? The spec: In SELECT queries, you must include ?this for focus node. Using $this in SELECT is allowed? Usually they use $this in WHERE patterns and SELECT must project ?this. You can also SELECT $this directly? I think $this is a placeholder replaced before execution; So SELECT $this is okay? Not sure. Might be considered wrong target variable, causing constraint not evaluated. Could be a blocking defect: Wrong target variable in SPARQL constraint.
+
+But we need concrete defect that "can change regulatory semantics". If query fails to detect violations, that's a defect. Let's assume it's wrong: Should SELECT ?this not $this. So category WRONG_TARGET? The issue category list includes WRONG_TARGET for target class, but also could be used for wrong target variable? The specification says WRONG_TARGET is for target mismatch. Here target shape is correct; the issue is within SPARQL constraint variable usage. There may be category LOGIC or MISSING_VALUE? The categories given: WRONG_TARGET, APPLICABILITY, OWNERSHIP_PATH, AND_OR_NOT_XONE, CARDINALITY, THRESHOLD, FORMULA_TABLE, UNIT_CONVERSION, DATATYPE_QUANTITY_ACCESS, MISSING_VALUE_BEHAVIOR, COMPLETENESS, INVENTED_CONSTRAINT, CANONICAL_VOCABULARY. So we need to select appropriate. The defect is logical error in constraint's SELECT variable, causing shape not to fire. Could be considered WRONG_TARGET? Might be considered LOGIC but not listed. Perhaps APPLICABILITY? Not exactly. Could be FORMULA_TABLE? No. Maybe MISSING_VALUE_BEHAVIOR? No.
+
+The shape's conditional logic is supposed to be applicability: If conditions hold then requirement. The SPARQL constraint currently asserts violation when condition true and missing knife. That's correct. The issue might be that the constraint doesn't ensure the existence of the iceKnife that extends below LIWL; it just checks NOT EXISTS any knife with property true, but doesn't ensure the knife is linked to the ship (i.e., belonging). However requirement expects iceKnife as part of rudder protection arrangement (maybe via hasRudderProtectionArrangement?). But not required.
+
+But bigger defect: The shape does not require linking iceKnife to the ship; but the requirement is that the ice knife must exist; may be okay to just exist somewhere in graph. However normative: need to assert existence of iceKnife entity; maybe fine.
+
+Another potential defect: The shape includes sh:in for iceClass values allowed, but requirement says iceClass may be present; if present restrict to IA/IA Super. However shape does not make iceClass optional (no minCount). That's okay because it's optional by default (minCount 0). Good.
+
+Check datatype of extendsBelowLowerIceWaterline: using nltl:extendsBelowLowerIceWaterline true. Should be boolean literal true. Good.
+
+Check that iceKnifePracticable property is mandatory count 1; requirement says "if practicable". The shape forces a boolean always present; perhaps should be optional? Requirement: "if practicable". That means presence indicates practicable; if not practicable, may be false or absent. The shape making it mandatory may be too strict (forcing ship to state practicable even if not). That could be a blocking defect: Mandatory condition wrongly required. Category CARDINALITY (minCount1). Should be optional (minCount 0). So this is a concrete blocking defect.
+
+Thus we have at least one issue: CARDINALITY for iceKnifePracticable.
+
+Now also shape has hasRudderProtectionArrangement mandatory. Requirement does not require that arrangement? It says "rudder shall be protected ... by an ice knife ... if practicable (or equivalent means)." May also allow equivalent means alternative; not necessarily requiring hasRudderProtectionArrangement property. But maybe it's okay, but could be considered over-constraining. Might be blocking.
+
+But at least the mandatory iceKnifePracticable is definitely stricter than requirement; requirement implies it's a flag that indicates practicability, not mandatory.
+
+So we will generate issue with category CARDINALITY, location maybe "IceKnifePracticableProperty". Must include keys.
+
+Provide location as "IceKnifePracticableProperty". Problem: "Ice knife practicable is required (minCount 1) but requirement only mandates its presence when applicable."
+
+Required_change: "Set sh:minCount to 0 (or remove minCount) so the property is optional."
+
+Regression_guard: "Preserve optional nature of iceKnifePracticable."
+
+blocking true, needs_vocabulary_resolution false.
+
+Now need JSON output. accept false. No other issues.
+
+Return exactly one line JSON with array containing this issue.
+
+Check schema: keys: category, location, problem, required_change, regression_guard, blocking, needs_vocabulary_resolution.
+
+Category should be "CARDINALITY". location maybe "sh:property[sh:path nltl:iceKnifePracticable]" but whatever. Use "IceKnifePracticableProperty". Provide strings.
+
+Now produce final.
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"CARDINALITY","location":"IceKnifePracticableProperty","problem":"The shape requires the iceKnifePracticable property (sh:minCount 1), but the requirement only mandates its presence when the ship deems the ice knife practicable; it should be optional.","required_change":"Remove the sh:minCount constraint or set sh:minCount to 0 so the property is optional.","regression_guard":"Preserve the optional nature of iceKnifePracticable as per the requirement.","blocking":true,"needs_vocabulary_resolution":false}]}

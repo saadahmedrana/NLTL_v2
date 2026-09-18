@@ -1,0 +1,52 @@
+We need to validate candidate SHACL against requirement, detect concrete blocking defects. Deterministic validation says valid: true. However we must still manually check for defects like wrong target, applicability, ownership/path, missing mandatory constraints, etc.
+
+Requirement: IF sewage_discharge_uses_treatment_plant = true, THEN:
+- sewage_treatment_plant_approval_status = approved (i.e., must have object with evidenceStateApproved)
+- MARPOL IV 9.1.1 or 9.2.1 certification status = compliant (should be evidenceStateApproved)
+- MARPOL IV 11.1.2 discharge status = compliant (boolean true)
+- distances to land, ice shelf, fast ice, and ice concentration >1/10 must be recorded. The candidate includes checks for two distances: distanceToNearestLandIceShelfOrFastIce and distanceToAreaWithIceConcentrationGreaterThanOneTenth. It also checks for existence of a discharge distance record (hasDischargeDistanceRecord) and datatype decimal for those distance values. It does not check for separate distance to fast ice separate from land ice shelf? The property might be same as distanceToNearestLandIceShelfOrFastIce includes fast ice? The requirement mentions nearest land, ice shelf, fast ice. The property name includes land ice shelf or fast ice (combined). So okay.
+
+Check: It also checks that sewaterDischargeUsesTreatmentPlant true is present; fine.
+
+Potential defects:
+- For approval status, it checks existence of object with nltl:sewageTreatmentPlantApprovalStatus nltl:evidenceStateApproved . That's correct.
+
+- For MARPOL 9 certification status, it checks existence of nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus nltl:evidenceStateApproved . That's correct.
+
+- For MARPOL 11 discharge status, it checks existence of nltl:marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus true . That's correct.
+
+- For distances, the requirement says distances to land, ice shelf, fast ice, and ice concentration greater than 1/10 shall be recorded. The candidate checks both distance properties with datatype decimal. It doesn't enforce that both must be present, but uses NOT EXISTS combined with OR: The FILTER includes a big OR of NOT EXISTS for each required element. However logic: it uses NOT EXISTS ... || NOT EXISTS ... etc. So condition: if any of those NOT EXISTS is true, then filter passes => a violation is reported. That's correct: they want violation if any missing.
+
+But check the SPARQL pattern: The query SELECT $this WHERE { $this nltl:sewageDischargeUsesTreatmentPlant true . FILTER ( NOT EXISTS {...} || NOT EXISTS {...} || ... ) } . This means if the flag is true, and at least one of the required things missing, then $this appears as a violation. Good.
+
+Potential issues:
+- Use of true literal: Should be xsd:boolean true? In RDF, true can be a plain literal? Typically boolean literal is "true"^^xsd:boolean or just true (as a boolean literal). In SPARQL, true is a boolean literal (xsd:boolean). Acceptable.
+
+- For distance values, they check datatype(?valLand) = xsd:decimal but the property range is QuantityValue (QUDT), not directly decimal. Usually the measurement is a QuantityValue node with unit etc, not direct decimal literal. They only check literal. This could be a missing mandatory structure: The requirement expects distance values as quantities, maybe using QUDT QuantityValue. Candidate only checks xsd:decimal literal directly, not a QuantityValue. That may be a defect: missing correct representation according to locked vocab, which expects QuantityValue class.
+
+Check vocabulary: distanceToNearestLandIceShelfOrFastIce range = http://qudt.org/schema/qudt/QuantityValue. So expected object is a QuantityValue instance, not a decimal literal. The candidate uses direct property with decimal literal validation, which violates datatype requirement.
+
+Thus a concrete blocking defect: datatype mismatch for distance properties.
+
+Specifically: The SHACL shape does not enforce that the object of distance properties is a QuantityValue; the SPARQL only checks datatype of literal but if object is a blank node of QuantityValue, condition fails? Actually they check ?valLand is the value literal, expecting direct literal. If data uses proper model, the shape would not detect. But this is a defect relative to requirement: missing proper handling. Requirement: distances shall be recorded; the shape should require existence of a property with a QuantityValue instance. Not enforcing correct datatype is a blocking defect.
+
+Also need to check that the shape has property shape for nltl:sewageDischargeUsesTreatmentPlant with datatype boolean and maxCount 1. That's fine.
+
+Target: sh:targetClass nltl:ship -> correct required target owner ship.
+
+Ownership/path: The distances are accessed via hasDischargeDistanceRecord path; that property is defined correctly.
+
+Thus main defect: distance property datatype mismatch. Must be flagged as WRONG_DATATYPE? The categories allowed: "WRONG_TARGET","APPLICABILITY","OWNERSHIP","AND/OR/NOT/XONE","CARDINALITY","THRESHOLD/BORDER","FORMULA/TABLE","UNIT/CONVERSION","DATATYPE/QUANTITY ACCESS","MISSING_VALUE_BEHAVIOR","CANONICAL_TERM","LOCKED_VOCABULARY_SCOPE","OMITTED_OBLIGATORY_SEMANTIC_ELEMENT". Which corresponds? The shape does not enforce correct datatype; it's a DATATYPE/QUANTITY ACCESS issue. Category key maybe "DATATYPE/QUANTITY ACCESS". Use that as category.
+
+Location: MainShape (the shape node). Provide problem description.
+
+Required_change: Add a constraint (e.g., sh:property with sh:path distance... sh:class qudt:QuantityValue or sh:nodeKind sh:BlankNodeOrIRI and sh:datatype xsd:decimal? Actually need to enforce proper type.
+
+Needs_vocabulary_resolution: false because no missing term; they already used canonical IRIs.
+
+Thus we will reject with one issue.
+
+Return JSON exactly.
+
+
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"DATATYPE/QUANTITY ACCESS","location":"MainShape","problem":"Distance properties (distanceToNearestLandIceShelfOrFastIce and distanceToAreaWithIceConcentrationGreaterThanOneTenth) are validated as xsd:decimal literals, but the locked vocabulary defines their range as qudt:QuantityValue. The shape does not enforce the required QuantityValue type, violating the mandatory datatype/quantity access constraint.","required_change":"Add constraints (e.g., sh:class qudt:QuantityValue or appropriate sh:nodeKind/sh:datatype) to ensure distance values are instances of the specified QuantityValue class.","regression_guard":"Preserve the corrected datatype enforcement for both distance properties.","blocking":true,"needs_vocabulary_resolution":false}]}

@@ -1,0 +1,115 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-057 a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    # icePressure operand
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    # iceLoadHeight operand
+    sh:property [
+        sh:path nltl:iceLoadHeight ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    # webFrameSpacing operand (S)
+    sh:property [
+        sh:path nltl:webFrameSpacing ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    # webFrameIceLoad result (F)
+    sh:property [
+        sh:path nltl:webFrameIceLoad ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    # calculation verification
+    sh:sparql [
+        sh:message "Web frame ice load does not satisfy F = f12 * max(p*h, 0.15) * S (converted to kN) with f12 = 1.8" ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:icePressure ?pNode .
+                ?pNode qudt:numericValue ?pVal .
+                $this nltl:iceLoadHeight ?hNode .
+                ?hNode qudt:numericValue ?hVal .
+                $this nltl:webFrameSpacing ?sNode .
+                ?sNode qudt:numericValue ?sVal .
+                $this nltl:webFrameIceLoad ?fNode .
+                ?fNode qudt:numericValue ?fVal .
+
+                # calculate p*h
+                BIND (?pVal * ?hVal AS ?phProd) .
+                # apply lower bound 0.15 MN/m
+                BIND (IF(?phProd < 0.15, 0.15, ?phProd) AS ?phAdj) .
+                # expected load in MN: f12 * phAdj * S, with f12 = 1.8
+                BIND (1.8 * ?phAdj * ?sVal AS ?expectedMN) .
+                # convert to kN (1 MN = 1000 kN)
+                BIND (?expectedMN * 1000 AS ?expectedKN) .
+
+                # tolerance: relative 1e-6, absolute 1e-9
+                BIND ( (1e-6 * ABS(?expectedKN) + 1e-9) AS ?tol ) .
+                FILTER ( ABS(?fVal - ?expectedKN) > ?tol )
+            }
+        """ ;
+    ] .

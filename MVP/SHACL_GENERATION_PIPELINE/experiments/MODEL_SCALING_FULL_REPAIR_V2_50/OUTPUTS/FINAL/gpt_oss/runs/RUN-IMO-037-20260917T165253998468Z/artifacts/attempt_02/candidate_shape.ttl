@@ -1,0 +1,68 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # shipCategory must be A or B
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:in (nltl:polarShipCategoryA nltl:polarShipCategoryB) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ship category must be A or B." ;
+    ] ;
+    # constructionDate must be on or after 2017‑01‑01
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "2017-01-01"^^xsd:date ;
+        sh:message "Construction date must be on or after 2017‑01‑01." ;
+    ] ;
+    # at least one loading condition case (the detailed check is performed by SPARQL)
+    sh:property [
+        sh:path nltl:hasLoadingConditionCase ;
+        sh:minCount 1 ;
+        sh:message "At least one loading condition case must be provided." ;
+    ] ;
+    # Direct‑check SPARQL: each loading condition case satisfies SI=1 or allowed alternative
+    sh:sparql [
+        sh:message "Each loading condition case must have residualStabilityFactorSI = 1, or (alternativeInstrumentApplicable = true and alternativeInstrumentResidualStabilityStatus = true)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:shipCategory ?cat .
+                FILTER(?cat = nltl:polarShipCategoryA || ?cat = nltl:polarShipCategoryB) .
+                $this nltl:constructionDate ?cdate .
+                FILTER(?cdate >= "2017-01-01"^^xsd:date) .
+                $this nltl:hasLoadingConditionCase ?lc .
+
+                OPTIONAL { ?lc nltl:residualStabilityFactorSI ?val . }
+                OPTIONAL { ?lc nltl:alternativeInstrumentApplicable ?altApp . }
+                OPTIONAL { ?lc nltl:alternativeInstrumentResidualStabilityStatus ?altStat . }
+
+                FILTER( !( (BOUND(?val) && ABS(?val - 1) <= 1e-6) ||
+                          (BOUND(?altApp) && ?altApp = true && BOUND(?altStat) && ?altStat = true) ) )
+            }
+        """ ;
+    ] .
+
+:LoadingConditionCaseShape a sh:NodeShape ;
+    sh:targetClass nltl:loadingConditionCase ;
+    # evidence artifact for each loading condition result
+    sh:property [
+        sh:path nltl:hasLoadingConditionResultEvidence ;
+        sh:class nltl:evidenceArtifact ;
+        sh:minCount 1 ;
+        sh:message "Loading condition case must cite a result evidence artifact." ;
+    ] ;
+    # loadingConditionIdentifier is required for COMPLEX_READINESS
+    sh:property [
+        sh:path nltl:loadingConditionIdentifier ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Each loading condition case must have a loadingConditionIdentifier." ;
+    ] .

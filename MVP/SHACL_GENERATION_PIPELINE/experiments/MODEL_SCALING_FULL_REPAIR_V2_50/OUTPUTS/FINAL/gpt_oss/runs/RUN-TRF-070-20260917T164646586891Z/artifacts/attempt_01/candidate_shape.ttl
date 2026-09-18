@@ -1,0 +1,76 @@
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix :     <urn:nltl:generated-shape:> .
+
+:TRF-070_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Applicability – thruster type
+    sh:property [
+        sh:path nltl:thrusterType ;
+        sh:datatype xsd:string ;
+        sh:in ("azimuthing" "fixed") ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "thrusterType must be present and be either 'azimuthing' or 'fixed'." ;
+    ] ;
+
+    # Applicability – main propulsion thruster must be true
+    sh:property [
+        sh:path nltl:mainPropulsionThruster ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "mainPropulsionThruster must be true for the requirement to apply." ;
+    ] ;
+
+    # Require a design condition
+    sh:property [
+        sh:path nltl:hasDesignCondition ;
+        sh:class nltl:designCondition ;
+        sh:minCount 1 ;
+        sh:message "A designCondition must be associated with the ship." ;
+    ] ;
+
+    # Require local ice pressure quantity
+    sh:property [
+        sh:path nltl:localIcePressure ;
+        sh:minCount 1 ;
+        sh:message "localIcePressure quantity must be provided for the ship." ;
+    ] ;
+
+    # Within the design condition, require the strength capacity quantity
+    sh:property [
+        sh:path nltl:hasDesignCondition ;
+        sh:node [
+            sh:property [
+                sh:path nltl:designConditionLocalStrengthCapacity ;
+                sh:minCount 1 ;
+                sh:message "designConditionLocalStrengthCapacity must be provided on the designCondition." ;
+            ]
+        ] ;
+    ] ;
+
+    # Direct check: capacity >= pressure
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Design condition local strength capacity is insufficient compared to local ice pressure." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT ?this WHERE {
+                ?this nltl:hasDesignCondition ?dc .
+                ?dc nltl:designConditionLocalStrengthCapacity ?capacityNode .
+                ?capacityNode qudt:numericValue ?capacityVal .
+                ?this nltl:localIcePressure ?pressureNode .
+                ?pressureNode qudt:numericValue ?pressureVal .
+                FILTER ( ?capacityVal < ?pressureVal )
+            }
+        """ ;
+    ] .

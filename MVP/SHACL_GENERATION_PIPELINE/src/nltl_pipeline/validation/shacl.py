@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 import pyshacl
@@ -18,6 +19,11 @@ register_math_functions()
 
 BEGIN = "<BEGIN_SHACL>"
 END = "<END_SHACL>"
+ALTERNATE_END = "</END_SHACL>"
+STANDALONE_MARKER_RE = re.compile(
+    r"^[ \t]*(?P<marker><BEGIN_SHACL>|<END_SHACL>|</END_SHACL>)[ \t]*(?:\r?\n|$)",
+    re.MULTILINE,
+)
 QUDT_NUMERIC_VALUE = URIRef("http://qudt.org/schema/qudt/numericValue")
 FULL_NLTL_IRI_RE = re.compile(r"<((?:https://w3id\.org/nltl/vocab#)[A-Za-z_][A-Za-z0-9_]*)>")
 CURIE_RE = re.compile(r"\bnltl:([A-Za-z_][A-Za-z0-9_]*)\b")
@@ -77,19 +83,67 @@ CONSTRAINT_PREDICATES = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class ShaclWrapperNormalization:
+    turtle: str
+    text_outside_markers: bool
+    alternate_closing_marker_used: bool
+    multiple_marker_mentions: bool
+
+
+class ShaclWrapperError(ValueError):
+    pass
+
+
+def normalize_shacl_wrapper(raw: str) -> ShaclWrapperNormalization:
+    """Select the final complete standalone SHACL block without editing it."""
+    matches = list(STANDALONE_MARKER_RE.finditer(raw))
+    begins = [match for match in matches if match.group("marker") == BEGIN]
+    if not begins:
+        raise ShaclWrapperError("Generator response contains no standalone BEGIN_SHACL marker")
+
+    selected_begin = begins[-1]
+    balance = 0
+    for match in matches:
+        if match.start() >= selected_begin.start():
+            break
+        if match.group("marker") == BEGIN:
+            balance += 1
+        elif balance:
+            balance -= 1
+        else:
+            raise ShaclWrapperError("Generator response contains an ambiguous standalone closing marker")
+    if balance:
+        raise ShaclWrapperError("Generator response contains nested candidate SHACL blocks")
+
+    closings = [
+        match for match in matches
+        if match.start() > selected_begin.start() and match.group("marker") in {END, ALTERNATE_END}
+    ]
+    if not closings:
+        raise ShaclWrapperError("Generator response contains no complete final SHACL block")
+    if len(closings) != 1:
+        raise ShaclWrapperError("Generator response contains ambiguous standalone closing markers")
+    selected_end = closings[0]
+
+    turtle = raw[selected_begin.end():selected_end.start()]
+    if not turtle.strip():
+        raise ShaclWrapperError("Generated SHACL block is empty")
+    if "```" in turtle:
+        raise ShaclWrapperError("Generated SHACL contains a Markdown fence")
+
+    outside = raw[:selected_begin.start()] + raw[selected_end.end():]
+    literal_mentions = sum(raw.count(marker) for marker in (BEGIN, END, ALTERNATE_END))
+    return ShaclWrapperNormalization(
+        turtle=turtle,
+        text_outside_markers=bool(outside.strip()),
+        alternate_closing_marker_used=selected_end.group("marker") == ALTERNATE_END,
+        multiple_marker_mentions=literal_mentions > 2,
+    )
+
+
 def extract_shacl(raw: str) -> str:
-    if raw.count(BEGIN) != 1 or raw.count(END) != 1:
-        raise ValueError("Generator response must contain exactly one BEGIN_SHACL and END_SHACL marker")
-    start = raw.index(BEGIN) + len(BEGIN)
-    end = raw.index(END, start)
-    if raw[:raw.index(BEGIN)].strip() or raw[end + len(END):].strip():
-        raise ValueError("Generator response contains text outside SHACL markers")
-    text = raw[start:end].strip()
-    if not text:
-        raise ValueError("Generated SHACL block is empty")
-    if "```" in text:
-        raise ValueError("Generated SHACL contains a Markdown fence")
-    return text + "\n"
+    return normalize_shacl_wrapper(raw).turtle
 
 
 class ShaclStaticValidator:
@@ -157,7 +211,7 @@ class ShaclStaticValidator:
 
     def validate_raw(self, raw: str, context: ContextPack) -> tuple[str, StaticValidationReport]:
         try:
-            turtle = extract_shacl(raw)
+            normalized = normalize_shacl_wrapper(raw)
         except ValueError as exc:
             return "", StaticValidationReport(
                 valid=False,
@@ -170,7 +224,11 @@ class ShaclStaticValidator:
                 target_path_valid=False,
                 errors=[str(exc)],
             )
-        return turtle, self.validate_turtle(turtle, context)
+        report = self.validate_turtle(normalized.turtle, context)
+        report.text_outside_markers = normalized.text_outside_markers
+        report.alternate_closing_marker_used = normalized.alternate_closing_marker_used
+        report.multiple_marker_mentions = normalized.multiple_marker_mentions
+        return normalized.turtle, report
 
     @staticmethod
     def is_syntax_failure(report: StaticValidationReport) -> bool:

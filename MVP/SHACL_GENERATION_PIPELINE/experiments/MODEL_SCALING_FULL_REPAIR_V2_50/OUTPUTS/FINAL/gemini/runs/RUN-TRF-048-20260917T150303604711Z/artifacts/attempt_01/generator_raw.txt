@@ -1,0 +1,198 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix shape: <urn:nltl:generated-shape:> .
+
+shape:LongitudinalFrameShape a sh:NodeShape ;
+    sh:targetClass nltl:longitudinalFrame ;
+    sh:property [
+        sh:path nltl:icePressure ;
+        sh:minCount 1 ;
+        sh:node shape:MegaPAQuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ;
+        sh:node shape:MQuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ;
+        sh:node shape:MQuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:span ;
+        sh:minCount 1 ;
+        sh:node shape:MQuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node shape:MegaPAQuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:frameMomentFactorM ;
+        sh:minCount 1 ;
+        sh:node shape:UnitlessQuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalFrameLoadDistributionFactorF4 ;
+        sh:minCount 1 ;
+        sh:node shape:UnitlessQuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:minCount 1 ;
+        sh:node shape:CentiM3QuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:minCount 1 ;
+        sh:node shape:CentiM2QuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:actualFrameShearArea ;
+        sh:minCount 1 ;
+        sh:node shape:CentiM2QuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:grossFrameShearArea ;
+        sh:minCount 1 ;
+        sh:node shape:CentiM2QuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:bracketArea ;
+        sh:minCount 1 ;
+        sh:node shape:CentiM2QuantityValue
+    ] ;
+    sh:property [
+        sh:path nltl:frameBoundaryConditionType ;
+        sh:minCount 1 ;
+        sh:class nltl:frameBoundaryConditionTypeValue
+    ] ;
+    sh:property [
+        sh:path nltl:significantlyDifferentBoundaryConditions ;
+        sh:minCount 1 ;
+        sh:datatype xsd:boolean
+    ] ;
+    sh:sparql [
+        sh:message "Longitudinal frame does not satisfy calculations or shear area/modulus requirements of TRF-048." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:icePressure/qudt:numericValue ?p_val ;
+                      nltl:designIceLoadHeight/qudt:numericValue ?h_val ;
+                      nltl:spacing/qudt:numericValue ?s_val ;
+                      nltl:span/qudt:numericValue ?l_val ;
+                      nltl:yieldStrength/qudt:numericValue ?sigma_y_val ;
+                      nltl:frameMomentFactorM/qudt:numericValue ?m_val ;
+                      nltl:longitudinalFrameLoadDistributionFactorF4/qudt:numericValue ?f4_val ;
+                      nltl:sectionModulus/qudt:numericValue ?z_val ;
+                      nltl:requiredShearArea/qudt:numericValue ?a_req_val ;
+                      nltl:actualFrameShearArea/qudt:numericValue ?a_act_val ;
+                      nltl:grossFrameShearArea/qudt:numericValue ?a_gross_val ;
+                      nltl:bracketArea/qudt:numericValue ?a_bracket_val ;
+                      nltl:frameBoundaryConditionType ?b_cond ;
+                      nltl:significantlyDifferentBoundaryConditions ?diff_cond .
+
+                BIND(1.0 - 0.2 * ?h_val / ?s_val AS ?f4_calc)
+
+                BIND(
+                    IF(?b_cond = nltl:continuousBeamWithBracketsFrameCondition && ?diff_cond = false,
+                       13.3,
+                       ?m_val)
+                    AS ?m_expected
+                )
+
+                BIND(1.732050807568877 AS ?sqrt3)
+                BIND(?f4_calc * ?p_val * ?h_val * (?l_val * ?l_val) / (4.0 * ?m_expected * ?sigma_y_val) * 1000000.0 AS ?z_req_calc)
+                BIND(?sqrt3 * ?f4_calc * 2.16 * ?p_val * ?h_val * ?l_val / (2.0 * ?sigma_y_val) * 10000.0 AS ?a_req_calc)
+
+                BIND(ABS(?f4_val - ?f4_calc) > (1e-5 * ?f4_calc) AS ?f4_fail)
+                BIND(ABS(?m_val - ?m_expected) > 1e-5 AS ?m_fail)
+                BIND(ABS(?a_act_val - (?a_gross_val - ?a_bracket_val)) > (1e-5 * ?a_act_val) AS ?bracket_exclusion_fail)
+                BIND(ABS(?a_req_val - ?a_req_calc) > (1e-5 * ?a_req_calc) AS ?a_req_fail)
+                BIND(?z_val < ?z_req_calc - 1e-5 AS ?z_insufficient)
+                BIND(?a_act_val < ?a_req_calc - 1e-5 AS ?a_insufficient)
+
+                FILTER (?f4_fail || ?m_fail || ?bracket_exclusion_fail || ?a_req_fail || ?z_insufficient || ?a_insufficient)
+            }
+        """
+    ] .
+
+shape:MegaPAQuantityValue a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+shape:MQuantityValue a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+shape:UnitlessQuantityValue a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+shape:CentiM3QuantityValue a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/CentiM3> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+shape:CentiM2QuantityValue a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/CentiM2> ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

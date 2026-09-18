@@ -1,0 +1,143 @@
+We need to generate SHACL shape for requirement: design stress <= permissible stress, plus strengthCriterionStatus (probably boolean indicating criteria satisfied?) The requirement says: "The strength criteria provided in Table 9 are to be satisfied. The design stress is not to exceed the permissible stress."
+
+The direct constraint terms are designStress, permissibleStress, strengthCriterionStatus. Likely we need to ensure that strengthCriterionStatus is true (i.e., criteria satisfied). Also we must check that designStress numeric value <= permissibleStress numeric value.
+
+Both designStress and permissibleStress are QuantityProperty returning a QuantityValue (qudt). Pattern for qudt quantity value: subject property quantityNode; quantityNode qudt:numericValue xsd:decimal; qudt:unit recommendedUnit.
+
+We need to enforce both presence (minCount 1) and datatype/unit perhaps. And enforce constraint between numeric values.
+
+StrengthCriterionStatus is a datatype property boolean, required present and true.
+
+Also target class is ship (owner class). So shape targetClass nltl:ship.
+
+We'll define prefixes: sh, xsd, nltl, qudt. Also perhaps use fn: but not needed.
+
+For numeric comparison, use SHACL-SPARQL with a SELECT? We can use sh:sparql with query returning false causing violation.
+
+We need to include necessary prefixes inside query.
+
+Define shape: urn:nltl:generated-shape:StrengthCriteriaShape.
+
+Add property shapes:
+
+1. designStress property shape: ensure exactly one quantity node present? Actually designStress is a property linking ship to a quantity value node (I think). So path is nltl:designStress. Use sh:class qudt:QuantityValue maybe? Or enforce datatype? We'll just enforce that there is at least one designStress value with required unit etc.
+
+Simplify: Ensure there is a designStress quantity node with qudt:numericValue and unit MPa.
+
+Similarly for permissibleStress.
+
+We'll also need to enforce the comparison: In SPARQL, we can retrieve the numeric values:
+
+PREFIX sh: <...>
+PREFIX xsd: <...>
+PREFIX nltl: <...>
+PREFIX qudt: <...>
+
+SELECT $this (or ?this) WHERE {
+  $this nltl:designStress ?dQ .
+  ?dQ qudt:numericValue ?dVal .
+  $this nltl:permissibleStress ?pQ .
+  ?pQ qudt:numericValue ?pVal .
+  FILTER(?dVal > ?pVal) # violation when design > permissible
+}
+
+But we must ensure units are the recommended ones: designStress recommended unit MPa; permissibleStress MPa.
+
+We can also check that the unit matches the recommended unit by ensuring qudt:unit ?unit and that it's the IRI http://qudt.org/vocab/unit/MegaPA.
+
+Add property shape for unit maybe. But not required if rule only about numeric values.
+
+We'll also add property shape for strengthCriterionStatus: boolean must be true.
+
+Now ensure each property has sh:minCount 1.
+
+We must respect rule not to add extra constraints not in requirement. However requirement includes also strengthCriterionStatus as direct constraint term, presumably needs to be true (indicating criteria satisfied). The requirement text: "The strength criteria provided in Table 9 are to be satisfied." That may be expressed via the boolean status property. So enforce presence true.
+
+Let's construct SHACL.
+
+We need to include sh:message for violations: For numeric exceed, message "Design stress exceeds permissible stress."
+
+For strengthCriterionStatus false, "Strength criterion status must be true."
+
+Now ensure that shape uses sh:targetClass nltl:ship.
+
+Add property shapes:
+
+property [ sh:path nltl:designStress ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ; (maybe) ] but we may not need maxCount unless multiple allowed; but we can leave minCount only.
+
+Placement of unit check: create nested node shape for quantity value? Could use sh:property with sh:node but simpler to embed SPARQL.
+
+We'll rely on SPARQL to check numeric and unit by patterns.
+
+Now compose Turtle.
+
+Make sure to define prefixes: @prefix sh: <http://www.w3.org/ns/shacl#> . etc.
+
+Include qudt prefix: @prefix qudt: <http://qudt.org/schema/qudt/> . Also for unit URIs maybe we need qudt:unit? Actually qudt:unit is property.
+
+Define shape URI: urn:nltl:generated-shape:StrengthCriteriaShape a sh:NodeShape; sh:targetClass nltl:ship; sh:property ... ; sh:sparql [ ... ].
+
+Ok.
+
+Check rule 10: every SPARQL query must declare prefixes inside its own query prologue. So inside sh:sparql sh:select ... we must include PREFIX lines for nltl, qudt, xsd, sh? At least those used.
+
+Now final answer should be between <BEGIN_SHACL> and <END_SHACL>.
+
+Let's construct.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+urn:nltl:generated-shape:StrengthCriteriaShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # designStress must be present
+    sh:property [
+        sh:path nltl:designStress ;
+        sh:minCount 1 ;
+        sh:message "Design stress quantity must be present." ;
+    ] ;
+
+    # permissibleStress must be present
+    sh:property [
+        sh:path nltl:permissibleStress ;
+        sh:minCount 1 ;
+        sh:message "Permissible stress quantity must be present." ;
+    ] ;
+
+    # strengthCriterionStatus must be present and true
+    sh:property [
+        sh:path nltl:strengthCriterionStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue true ;
+        sh:message "Strength criterion status must be true." ;
+    ] ;
+
+    # numeric comparison: designStress must not exceed permissibleStress
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Design stress exceeds permissible stress." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:designStress ?dQ .
+                ?dQ qudt:numericValue ?dVal .
+                $this nltl:permissibleStress ?pQ .
+                ?pQ qudt:numericValue ?pVal .
+                FILTER( ?dVal > ?pVal )
+            }
+        """ ;
+    ] .
+
+<END_SHACL>

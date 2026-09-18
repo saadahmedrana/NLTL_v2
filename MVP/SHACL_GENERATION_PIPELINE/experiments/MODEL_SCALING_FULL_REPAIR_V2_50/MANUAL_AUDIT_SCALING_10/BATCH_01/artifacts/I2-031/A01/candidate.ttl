@@ -1,0 +1,154 @@
+@prefix generated: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+generated:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node generated:ApplicableStructuralMemberShape
+    ] ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:patchLoad ;
+        sh:node generated:ForceQuantityValueShape
+    ] ;
+    sh:sparql [
+        sh:message "A patch load is required when the ship has a bottom-structure member." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:structuralLocation nltl:bottomStructureLocation .
+                FILTER NOT EXISTS {
+                    $this nltl:patchLoad ?patchLoad .
+                }
+            }
+        """
+    ] .
+
+generated:ApplicableStructuralMemberShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:plasticStrength ;
+        sh:minCount 1 ;
+        sh:node generated:ForceQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:midspanPlasticCollapseLoad ;
+        sh:minCount 1 ;
+        sh:node generated:ForceQuantityValueShape
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberLoadCase ;
+        sh:minCount 1 ;
+        sh:node generated:LoadCaseShape
+    ] ;
+    sh:or (
+        [
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:hasValue nltl:bottomStructureLocation
+            ] ;
+            sh:property [
+                sh:path nltl:hasStructuralMemberLoadCase ;
+                sh:node generated:BottomStructureLoadCaseShape
+            ]
+        ]
+        [
+            sh:property [
+                sh:path nltl:structuralLocation ;
+                sh:hasValue nltl:sideStructureLocation
+            ] ;
+            sh:property [
+                sh:path nltl:transverseFrameOrientation ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true
+            ]
+        ]
+    ) ;
+    sh:sparql [
+        sh:message "The combined shear and bending demand must not exceed the member plastic strength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:hasStructuralMemberLoadCase ?loadCase ;
+                      nltl:plasticStrength ?strengthQuantity .
+                ?loadCase nltl:combinedShearAndBendingDemand ?demandQuantity .
+                ?demandQuantity qudt:numericValue ?demand .
+                ?strengthQuantity qudt:numericValue ?strength .
+                FILTER (?demand > ?strength)
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The reported plastic strength must agree with the midspan plastic collapse load within a relative tolerance of 1e-6 and an absolute fallback of 1e-12 kN." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT DISTINCT $this
+            WHERE {
+                $this nltl:plasticStrength ?strengthQuantity ;
+                      nltl:midspanPlasticCollapseLoad ?collapseQuantity .
+                ?strengthQuantity qudt:numericValue ?strength .
+                ?collapseQuantity qudt:numericValue ?collapseLoad .
+                BIND(ABS(?collapseLoad) * 0.000001 AS ?relativeTolerance)
+                BIND(IF(?relativeTolerance > 0.000000000001,
+                        ?relativeTolerance,
+                        0.000000000001) AS ?tolerance)
+                FILTER (ABS(?strength - ?collapseLoad) > ?tolerance)
+            }
+        """
+    ] .
+
+generated:LoadCaseShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:minCount 1 ;
+        sh:node generated:DecimalQuantityValueShape
+    ] .
+
+generated:BottomStructureLoadCaseShape
+    a sh:NodeShape ;
+    sh:node generated:LoadCaseShape ;
+    sh:property [
+        sh:path nltl:loadPatchOrientation ;
+        sh:hasValue nltl:loadPatchHeightParallelToFrame ;
+        sh:message "A bottom-structure load case must apply the patch-load height parallel to the frame."
+    ] .
+
+generated:DecimalQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] .
+
+generated:ForceQuantityValueShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue unit:KiloN
+    ] .

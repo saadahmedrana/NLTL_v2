@@ -1,0 +1,254 @@
+We need to modify the SHACL graph according to currentIssues: make adjustedIceLoadForce optional (minCount 0) and enforce its presence and formula only when supportedStringerOutsideIceBelt is true, via sh:if/then or separate conditional shapes.
+
+Current SHACL graph includes a NodeShape gen:TRF-058Shape targeting nltl:webFrame, with properties for supportedStringerOutsideIceBelt, iceLoadForce, stringerOutsideIceBeltHeight, stringerSpan, and adjustedIceLoadForce. All have minCount 1 maxCount 1.
+
+We need to adjust adjustedIceLoadForce property: minCount 0 (optional). Then enforce conditional: when supportedStringerOutsideIceBelt true, then adjustedIceLoadForce must exist (minCount 1) and follow formula. Could add a sh:if and sh:then construct within shape using sh:property? In SHACL, you can define sh:property with sh:path nltl:adjustedIceLoadForce, but conditional validation can be done by adding a separate sh:rule/ sh:condition? Actually SHACL offers sh:if / sh:then / sh:else via sh:NodeShape? There is sh:property shape but also sh:if under sh:NodeShape have sh:property? There's also sh:condition? Not typical. Better approach: define an additional sh:property with sh:path nltl:adjustedIceLoadForce but minCount 0; then add a sh:nodeShape as conditional using sh:if/then pattern: define a separate shape gen:AdjIceLoadForceWhenSupportedShape that applies to the same target but with sh:if condition on supportedStringerOutsideIceBelt true, and then includes required property.
+
+Simpler: Add a sh:property with adjustedIceLoadForce minCount 0 (original). Then add a sh:sparql constraint that earlier already ensures relationship, but also need to enforce presence: already the SPARQL selects only where adjustedIceLoadForce is present; doesn't enforce presence. We need a separate shape with sh:if true then require property. Use sh:property with sh:path nltl:adjustedIceLoadForce and sh:minCount 1 within a shape that has sh:if condition.
+
+Implementation: Add a new shape gen:AdjIceLoadForceRequiredShape:
+
+gen:AdjIceLoadForceRequiredShape a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:if [
+        sh:property [
+            sh:path nltl:supportedStringerOutsideIceBelt ;
+            sh:hasValue true ;
+        ]
+    ] ;
+    sh:then [
+        sh:property [
+            sh:path nltl:adjustedIceLoadForce ;
+            sh:node [ ... same node constraints ... ] ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+        ]
+    ] .
+
+But sh:if/sh:then is at shape level per SHACL Advanced Features? Actually SHACL defines sh:if / sh:then / sh:else on sh:NodeShape for conditional constraints. Example:
+
+ex:PersonShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    sh:if [
+        sh:property [ sh:path ex:hasPet ; sh:minCount 1 ] ;
+    ] ;
+    sh:then [
+        sh:property [ sh:path ex:petName ; sh:minCount 1 ] ;
+    ] .
+
+Thus we can apply.
+
+So we need to modify existing adjustedIceLoadForce property in main shape: set minCount 0, keep node constraints. Then add conditional shape.
+
+Also ensure that the SPARQL constraint still works, but it only runs if adjustedIceLoadForce exists; it's okay. But we may want to restrict to cases where supportedStringerOutsideIceBelt true. Already the SPARQL has condition $this nltl:supportedStringerOutsideIceBelt true; if not true, then pattern won't match, thus no violation. Good.
+
+Thus need to edit main shape: the adjustedIceLoadForce property minCount 0 (or omit minCount). Provide minCount 0.
+
+Also ensure that other properties remain unchanged.
+
+Add new shape after main shape.
+
+Let's construct revised SHACL.
+
+We need to include prefixes same as before.
+
+Implement adjustedIceLoadForce property as:
+
+sh:property [
+    sh:path nltl:adjustedIceLoadForce ;
+    sh:node [ ... ] ;
+    sh:minCount 0 ;
+    sh:maxCount 1
+] ;
+
+Now conditional shape:
+
+gen:AdjIceLoadForceConditionalShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:if [
+        sh:property [
+            sh:path nltl:supportedStringerOutsideIceBelt ;
+            sh:hasValue true ;
+        ]
+    ] ;
+    sh:then [
+        sh:property [
+            sh:path nltl:adjustedIceLoadForce ;
+            sh:node [
+                sh:property [
+                    sh:path qudt:numericValue ;
+                    sh:datatype xsd:decimal ;
+                    sh:minCount 1 ;
+                    sh:maxCount 1
+                ] ;
+                sh:property [
+                    sh:path qudt:unit ;
+                    sh:hasValue unit:KiloN ;
+                    sh:minCount 1 ;
+                    sh:maxCount 1
+                ]
+            ] ;
+            sh:minCount 1 ;
+            sh:maxCount 1
+        ]
+    ] .
+
+That's the required.
+
+Make sure to keep other content same.
+
+Return full revised graph.
+
+Let's write final answer.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-058Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:property [
+        sh:path nltl:supportedStringerOutsideIceBelt ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadForce ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:stringerOutsideIceBeltHeight ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:stringerSpan ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:adjustedIceLoadForce ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 0 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "When supportedStringerOutsideIceBelt is true, adjustedIceLoadForce must equal iceLoadForce * (1 - hs/ls) within tolerance." ;
+        sh:select """ 
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:supportedStringerOutsideIceBelt true ;
+                     nltl:iceLoadForce ?iceNode ;
+                     nltl:stringerOutsideIceBeltHeight ?hsNode ;
+                     nltl:stringerSpan ?lsNode ;
+                     nltl:adjustedIceLoadForce ?adjNode .
+
+                ?iceNode qudt:numericValue ?iceVal .
+                ?hsNode  qudt:numericValue ?hsVal .
+                ?lsNode  qudt:numericValue ?lsVal .
+                ?adjNode qudt:numericValue ?adjVal .
+
+                BIND ( ?iceVal * (1 - (?hsVal / ?lsVal)) AS ?expected )
+                BIND ( 1e-6 AS ?tol )
+                FILTER ( ABS(?adjVal - ?expected) > ?tol )
+            }
+        """ ;
+    ] .
+
+gen:AdjIceLoadForceConditionalShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:if [
+        sh:property [
+            sh:path nltl:supportedStringerOutsideIceBelt ;
+            sh:hasValue true ;
+        ]
+    ] ;
+    sh:then [
+        sh:property [
+            sh:path nltl:adjustedIceLoadForce ;
+            sh:node [
+                sh:property [
+                    sh:path qudt:numericValue ;
+                    sh:datatype xsd:decimal ;
+                    sh:minCount 1 ;
+                    sh:maxCount 1
+                ] ;
+                sh:property [
+                    sh:path qudt:unit ;
+                    sh:hasValue unit:KiloN ;
+                    sh:minCount 1 ;
+                    sh:maxCount 1
+                ]
+            ] ;
+            sh:minCount 1 ;
+            sh:maxCount 1
+        ]
+    ] .
+<END_SHACL>

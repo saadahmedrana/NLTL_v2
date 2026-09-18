@@ -1,0 +1,139 @@
+We need to repair syntax only. The error: qualifiedValueShape requires qualifiedMinCount or qualifiedMaxCount. Indeed, we used qualifiedValueShape but did not include qualifiedMinCount or qualifiedMaxCount. To fix, we can add sh:qualifiedMinCount 0? Minimum 0 is allowed but probably need at least 1. Since we just want to apply shape to each member, we could set qualifiedMinCount 0 and qualifiedMaxCount unbounded; but probably need at least one. In the context of qualification, you usually specify minCount or maxCount requirement on the number of values that conform to the qualifiedValueShape. If we set qualifiedMinCount 0, it's vacuous but maybe okay. However the constraint component requires at least one of those parameters, any integer >=0. So we can add sh:qualifiedMinCount 0. But we might want to ensure each member is validated, regardless of count. However SHACL does not apply shape to values without count constraints; but shape will still be evaluated for each value as part of the qualifiedValue shape only if count constraints are present? Actually the constraint ensures that among the values of the path, at least qualifiedMinCount of them conform to qualifiedValueShape. If we set qualifiedMinCount 0, then any number passes, but the validation of the qualifiedValueShape may not be executed? The spec: The constraint component checks the qualified values across the set; it evaluates the qualifiedValueShape on each value; if any conform, counts them; then checks counts against min/max. Even if minCount 0, it still evaluates? Yes evaluation should happen for each value. So okay.
+
+Thus add sh:qualifiedMinCount 0 to each property shape using qualifiedValueShape.
+
+Alternatively could set sh:qualifiedMinCount 1 but that would enforce at least one structural member passes the inner shape – maybe okay but could cause false failures if some member fails. We want to validate all, not enforce count. So choose 0.
+
+Add to each property shape:
+
+sh:qualifiedMinCount 0
+
+Make sure syntax correct.
+
+Also need to ensure prefixes URIs: nltl prefix used as "https://w3id.org/nltl/vocab#" as declared. Already there.
+
+One more thing: In ex:BottomPatchOrientationCheck_QV SPARQL prefix uses nltl: and base; but in prefix line they wrote nltl: <https://w3id.org/nltl/vocab#>. in inner shape SPARQL they used nltl: <https://w3id.org/nltl/vocab#>? That is fine.
+
+The error message about sh:qualifiedMinCount must be integer literal; we can use "0"^^xsd:integer or just 0 (SHACL allows integers). Provide as plain integer.
+
+Thus modify property shapes:
+
+ex:MemberStrengthCheck property shape: add sh:qualifiedMinCount 0 .
+
+ex:BottomPatchOrientationCheck property shape: add sh:qualifiedMinCount 0 .
+
+ex:StructuralMemberFrameProfileTypeCheck property shape: add sh:qualifiedMinCount 0 .
+
+Make sure correct syntax: include ; after path line etc.
+
+Let's produce corrected Turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <urn:nltl:generated-shape:> .
+
+# -----------------------------------------------------------------
+# Wrapper shape for member strength check – now targets ship
+# -----------------------------------------------------------------
+ex:MemberStrengthCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:qualifiedValueShape ex:MemberStrengthCheck_QV ;
+        sh:qualifiedMinCount 0
+    ] .
+
+ex:MemberStrengthCheck_QV
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Combined shear and bending demand exceeds plastic strength for this structural member." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+              $this nltl:structuralLocation ?locValue .
+              FILTER(?locValue IN (nltl:bottomStructureLocation, nltl:sideStructureLocation))
+              $this nltl:hasStructuralMemberLoadCase ?lc .
+              ?lc nltl:combinedShearAndBendingDemand ?demandQty .
+              ?demandQty qudt:numericValue ?demand .
+              $this nltl:plasticStrength ?strengthQty .
+              ?strengthQty qudt:numericValue ?strength .
+              FILTER(?demand > ?strength)
+            }
+        """ ;
+    ] .
+
+# -----------------------------------------------------------------
+# Wrapper shape for bottom‑patch orientation check – now targets ship
+# -----------------------------------------------------------------
+ex:BottomPatchOrientationCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:qualifiedValueShape ex:BottomPatchOrientationCheck_QV ;
+        sh:qualifiedMinCount 0
+    ] .
+
+ex:BottomPatchOrientationCheck_QV
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For bottom‑structure members the patch load must be applied with the dimension (b) parallel to the frame direction." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+              $this nltl:structuralLocation nltl:bottomStructureLocation .
+              $this nltl:hasStructuralMemberLoadCase ?lc .
+              FILTER NOT EXISTS {
+                ?lc nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame .
+              }
+            }
+        """ ;
+    ] .
+
+# -----------------------------------------------------------------
+# Existing shape: ensure every ship has at least one structural member
+# -----------------------------------------------------------------
+ex:ShipHasStructuralMemberCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:minCount 1 ;
+        sh:message "A ship must have at least one structural member linked via nltl:hasStructuralMember." ;
+    ] .
+
+# -----------------------------------------------------------------
+# Wrapper shape for frame‑profile‑type check – now targets ship
+# -----------------------------------------------------------------
+ex:StructuralMemberFrameProfileTypeCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:qualifiedValueShape ex:StructuralMemberFrameProfileTypeCheck_QV ;
+        sh:qualifiedMinCount 0
+    ] .
+
+ex:StructuralMemberFrameProfileTypeCheck_QV
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:minCount 1 ;
+        sh:message "Every structural member must have a frame profile type defined via nltl:frameProfileType." ;
+    ] .
+<END_SHACL>

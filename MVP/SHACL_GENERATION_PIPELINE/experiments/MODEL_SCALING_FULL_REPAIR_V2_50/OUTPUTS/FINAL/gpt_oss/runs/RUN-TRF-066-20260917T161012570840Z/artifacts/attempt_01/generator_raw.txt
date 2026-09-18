@@ -1,0 +1,155 @@
+We need to generate a SHACL shape for the requirement: For ice classes IA and IA Super, the rudder must be protected by an ice knife that extends below the LIWL, if practicable (or equivalent means).
+
+Interpretation: It's a conditional requirement:
+
+Applicability: ship's iceClass is IA or IA Super. Also maybe iceKnifePracticable (practicable) is true? The requirement says "if practicable (or equivalent means)". So if practicable is true, then need ice knife extends below LIWL. If not practicable, then equivalent means may satisfy. There's term equivalentRudderProtectionMeans class, maybe need presence of that.
+
+We have limited vocabulary. Provide shapes to enforce:
+
+- ship must have iceClass property linking to a value which is either iceClassIa or iceClassIaSuper. So shape: on ship, property nltl:iceClass with value one of those individuals. Use sh:in maybe.
+
+- If iceClass is IA or IA Super then must have a rudderProtectionArrangement via hasRudderProtectionArrangement. There's a class rudderProtectionArrangement.
+
+- Within that arrangement, there must be an iceKnife (class) maybe attached via range? Actually iceKnife class range is rudderProtectionArrangement, meaning iceKnife is linked to arrangement as subject? The property linking maybe not defined; but we have extendsBelowLowerIceWaterline property on iceKnife. Also lowerIceWaterline is a datatype property on ship (string?). Not ideal but we can assert that iceKnife must have extendsBelowLowerIceWaterline true (maybe boolean) and must have a relation to lowerIceWaterline? The property extendsBelowLowerIceWaterline is boolean. Requirement: ice knife extends below LIWL, i.e., extendsBelowLowerIceWaterline true.
+
+Thus validation:
+
+- If ship iceClass in {Ia, IaSuper} and iceKnifePracticable true, then there must exist an iceKnife associated with the ship's rudderProtectionArrangement that has extendsBelowLowerIceWaterline true.
+
+How link iceKnife to ship? There's no property linking ship to iceKnife directly, but iceKnife has domain iceKnife class? Actually domain is iceKnife (the class). Range is rudderProtectionArrangement. Means iceKnife is a subclass? The property extendsBelowLowerIceWaterline has domain iceKnife, range boolean. So iceKnife instances are of class iceKnife. They need to be linked via ?arrangement a rudderProtectionArrangement . Then maybe something like ?arrangement nltl:someProperty ?iceKnife? Not provided. But we can use pattern: ship hasRudderProtectionArrangement ?rpa . ?rpa a nltl:rudderProtectionArrangement . within that maybe iceKnife is a component? Not defined. Could use rdf:type nltl:iceKnife linked perhaps via ?rpa nltl:hasComponent ?iceKnife? Not in vocab but hasComponent expects shipComponent. iceKnife range is rudderProtectionArrangement (i.e., iceKnife individuals are also shipComponent? Not necessarily). However we don't have a property to connect them; maybe the implied relationship is that iceKnife is part of the arrangement (its range). So we can use triple pattern: ?iceKnife a nltl:iceKnife . ?iceKnife nltl:extendsBelowLowerIceWaterline true . Since range of iceKnife is rudderProtectionArrangement meaning ?iceKnife nltl:?? Actually range indicates the object of a property, but it's a class property; the property is not defined. Probably they mean iceKnife instances are in the class and also are of type rudderProtectionArrangement? But range is class; that seems to indicate iceKnife instances are also members of rudderProtectionArrangement? Might just use inference: iceKnife is a kind of rudderProtectionArrangement (subclass?). But not defined.
+
+Given limited spec, we can enforce existence of iceKnife with extendsBelowLowerIceWaterline true on ship, with a path maybe via hasRudderProtectionArrangement then some property? Since we lack a property linking arrangement to knife, we may need to assert presence of iceKnife (anywhere) as required presence conditional on ship.
+
+The requirement also mentions "or equivalent means". There is class equivalentRudderProtectionMeans, range rudderProtectionArrangement. Could be alternative: if not practicable, maybe they must have equivalentRudderProtectionMeans instance. So conditional: if iceClass in IA/IA Super then either (practicable true AND iceKnife extendsBelowLowerIceWaterline true) OR (equivalentRudderProtectionMeans exists). That seems complex; but we can produce two shapes: one for the case where iceKnifePracticable true, requiring iceKnife with extendsBelowLowerIceWaterline true. The alternative we can treat as optional; but requirement says "if practicable (or equivalent means)". So maybe we need to allow either.
+
+Simplify: enforce that if iceClass is IA/IA Super and iceKnifePracticable true then a iceKnife with extendsBelowLowerIceWaterline true must be present. If iceKnifePracticable false, then no violation (maybe not applicable). The presence of equivalentRudderProtectionMeans could be used but we lack spec; we could also add a shape: if iceClass IA/IA Super and iceKnifePracticable false, then must have at least one equivalentRudderProtectionMeans instance. Might implement with two shapes using sh:or.
+
+Implementation plan:
+
+Define two node shapes targeting ship.
+
+Shape1: Applicability where iceClass in {Ia, IaSuper} and iceKnifePracticable true => require existence of iceKnife with extendsBelowLowerIceWaterline true.
+
+We can use sh:sparql constraint that checks for this condition and flags violation if missing.
+
+Better: separate property shapes? Use sh:property to ensure iceClass value; but that's a presence requirement not violation.
+
+Need sh:targetClass nltl:ship.
+
+Inside shape, we may have sh:or with two shapes (one for the rule) but sh:or is a list of shapes; they must all pass? Actually sh:or means must conform to at least one of the shapes.
+
+We could define a SHACL NodeShape "ship_RudderProtection_Practicable" with sh:targetClass nltl:ship, with a sh:sparql that asserts: if iceClass in Ia/IaSuper and iceKnifePracticable true then exists iceKnife with extendsBelowLowerIceWaterline true.
+
+SPARQL will use FILTER for condition and NOT EXISTS to detect missing.
+
+Need to include the prefixes inside query.
+
+Define tolerance? Not needed.
+
+Also need shape for iceClass membership maybe not required but we can include sh:property that enforces allowed values but not mandatory.
+
+Because requirement only applies for those ice classes; ships with other ice classes not subject.
+
+Thus shape:
+
+urn:nltl:generated-shape:TRF-066 a sh:NodeShape ;
+   sh:targetClass nltl:ship ;
+   sh:sparql [
+      a sh:SPARQLConstraint ;
+      sh:message "For ice class IA or IA Super, when practicable, an ice knife must extend below the lower ice waterline." ;
+      sh:select """
+        PREFIX nltl: <https://w3id.org/nltl/vocab#>
+        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+        SELECT $this (COUNT(*) AS ?count) WHERE {
+          $this nltl:iceClass ?ic .
+          FILTER(?ic = nltl:iceClassIa || ?ic = nltl:iceClassIaSuper)
+          $this nltl:iceKnifePracticable true .
+          # Check existence of iceKnife with extendsBelowLowerIceWaterline true
+          FILTER NOT EXISTS {
+            ?knife a nltl:iceKnife .
+            ?knife nltl:extendsBelowLowerIceWaterline true .
+          }
+        } GROUP BY $this
+        HAVING (?count > 0)
+      """ ;
+   ] .
+
+But need to also ensure iceKnife is linked? Not needed per spec.
+
+Also alternative: if iceKnifePracticable true false but equivalentRudderProtectionMeans exists, we could ignore; but not required.
+
+I'll generate shape only as above.
+
+Add property shape for iceClass allowed values maybe, but not required but could be part of verification of applicability.
+
+Better: produce two property constraints:
+
+- iceClass present with datatype? It's object property with range iceClassValue, so values are individuals. Use sh:class constraint maybe.
+
+- iceKnifePracticable boolean present? Not required for all ships? In order to evaluate the condition, we need that property; but if missing we can't determine. The requirement may require presence of this property? It might be needed to decide practicability; but maybe requirement demands reporting practicable. Not explicitly stated. However many regulatory rules require a boolean field indicating practicable. We could enforce presence of iceKnifePracticable boolean.
+
+Thus add property shape:
+
+sh:property [ sh:path nltl:iceKnifePracticable ; sh:datatype xsd:boolean ; sh:minCount 1 ; sh:maxCount 1 ].
+
+And iceClass property shape with sh:in list.
+
+sh:property [ sh:path nltl:iceClass ; sh:in ( nltl:iceClassIa nltl:iceClassIaSuper ) ; sh:minCount 0 ; ... maybe optional.
+
+But to enforce allowed values only if present. Use sh:class? Actually values are individuals, so we can use sh:in.
+
+Alright.
+
+Now produce final Turtle with prefixes.
+
+Make sure to use generatedShapeNamespace prefix: maybe define prefix gen: <urn:nltl:generated-shape:>.
+
+The shape IRI: gen:TRF-066.
+
+Ensure all brackets closed.
+
+Return inside <BEGIN_SHACL> ... <END_SHACL>.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-066 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    ## iceClass may be present; if present, restrict to IA / IA Super
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:in ( nltl:iceClassIa nltl:iceClassIaSuper ) ;
+        sh:message "Ice class, when declared, must be IA or IA Super for this requirement." ;
+    ] ;
+    ## iceKnifePracticable must be recorded (boolean)
+    sh:property [
+        sh:path nltl:iceKnifePracticable ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ice‑knife practicability must be indicated as a boolean." ;
+    ] ;
+    ## Conditional requirement: if iceClass is IA or IA Super and practicable,
+    ## an ice knife that extends below the lower ice waterline must exist.
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For ice class IA or IA Super, when practicable, an ice knife must extend below the lower ice waterline." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this (COUNT(*) AS ?violations) WHERE {
+                $this nltl:iceClass ?ic .
+                FILTER(?ic = nltl:iceClassIa || ?ic = nltl:iceClassIaSuper)
+                $this nltl:iceKnifePracticable true .
+                FILTER NOT EXISTS {
+                    ?knife a nltl:iceKnife .
+                    ?knife nltl:extendsBelowLowerIceWaterline true .
+                }
+            }
+            GROUP BY $this
+            HAVING (COUNT(*) > 0)
+        """ ;
+    ] .
+<END_SHACL>

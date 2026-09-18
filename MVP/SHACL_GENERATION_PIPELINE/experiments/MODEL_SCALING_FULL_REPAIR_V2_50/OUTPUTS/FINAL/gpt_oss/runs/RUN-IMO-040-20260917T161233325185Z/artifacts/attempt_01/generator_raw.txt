@@ -1,0 +1,115 @@
+We need to generate SHACL for the requirement: IF ice_accretion_likely = true, THEN every relevant hatch and door shall have an associated ice_or_snow_removal_or_prevention_means.
+
+We have vocabulary terms:
+
+- nltl:ship (class)
+- nltl:iceAccretionLikely (DatatypeProperty boolean, domain benchmarkEntity, requiredOwner ship)
+- nltl:relevantHatchOrDoor (DatatypeProperty string, domain benchmarkEntity, requiredOwner ship). Probably used for labeling each hatch/door? However actual items are represented as relevantHatchOrDoorItem (class) and hasRelevantHatchOrDoor relationship: ship -> relevantHatchOrDoorItem via nltl:hasRelevantHatchOrDoor (object property, domain ship, range relevantHatchOrDoorItem). Also each relevantHatchOrDoorItem may have a property linking to ice/snow removal means: via nltl:hasIceOrSnowRemovalOrPreventionMeans (domain equipmentItem, range iceSnowRemovalOrPreventionMeans). And iceSnowRemovalOrPreventionMeans is a class. The property nltl:iceOrSnowRemovalOrPreventionMeans is a datatype property string for maybe text description; but the requirement wants an associated "ice_or_snow_removal_or_prevention_means". Likely we need to ensure each relevantHatchOrDoorItem has at least one hasIceOrSnowRemovalOrPreventionMeans property linking to an iceSnowRemovalOrPreventionMeans instance.
+
+Also the condition depends on iceAccretionLikely boolean true on the ship.
+
+Thus shape: targetClass nltl:ship. Have a property shape for nltl:iceAccretionLikely datatype boolean, minCount 1 maxCount 1 maybe.
+
+But need conditional shape: If iceAccretionLikely true, then for each related relevant hatch/door item must have hasIceOrSnowRemovalOrPreventionMeans property.
+
+In SHACL, we can use sh:rule or sh:property with sh:condition? Actually SHACL has sh:property with sh:qualifiedValueShape? Or use sh:sparql constraints: a SPARQL query that checks violation when condition holds but missing property.
+
+We need to target ships, and for each ship with iceAccretionLikely true, find any relevantHatchOrDoorItem lacking a hasIceOrSnowRemovalOrPreventionMeans.
+
+Thus create a shape: sh:targetClass nltl:ship; then a sh:sparql constraint with select? The typical pattern: sh:sparql [ a sh:SPARQLConstraint ; sh:message "..."; sh:select """ ...""" ] where the SELECT returns the focus node and value causing violation.
+
+We must include prefixes inside SPARQL.
+
+The query:
+
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this
+WHERE {
+  $this nltl:iceAccretionLikely true .
+  # find any related relevant hatch/door items
+  $this nltl:hasRelevantHatchOrDoor ?hatchItem .
+  FILTER NOT EXISTS {
+    ?hatchItem nltl:hasIceOrSnowRemovalOrPreventionMeans ?means .
+  }
+}
+
+Thus violation if there exists a hatchItem without the means.
+
+Alternatively ensure each hatchItem has at least one of that property: could use sh:property with sh:path nltl:hasRelevantHatchOrDoor etc but conditional.
+
+We'll create a shape node: urn:nltl:generated-shape:IMO-040Shape (maybe). Use safe identifier.
+
+Include also base property shape for iceAccretionLikely required presence Boolean? Not required by requirement but to evaluate condition we need iceAccretionLikely present; if missing maybe not applicable? The requirement likely expects it. Could enforce presence minCount 1 maxCount 1. However might not be required if they want missing to be violative. The rule already checks existence of triple with true; if absent, the condition not triggered; but the requirement maybe requires you to record iceAccretionLikely. Not stated. We'll just enforce presence to be safe? There is no mention, but it's a canonical variable. Better to enforce boolean present at least once, and perhaps optionally also true/false value allowed. Use sh:minCount 1 sh:maxCount 1 and sh:datatype xsd:boolean.
+
+Now shape structure:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:IMO-040Shape a sh:NodeShape ;
+  sh:targetClass nltl:ship ;
+  sh:property [
+    sh:path nltl:iceAccretionLikely ;
+    sh:datatype xsd:boolean ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+  sh:sparql [
+    a sh:SPARQLConstraint ;
+    sh:message "When ice accretion is likely, each relevant hatch or door must have an associated ice or snow removal or prevention means." ;
+    sh:select """
+      PREFIX nltl: <https://w3id.org/nltl/vocab#>
+      PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+      SELECT $this WHERE {
+        $this nltl:iceAccretionLikely true .
+        $this nltl:hasRelevantHatchOrDoor ?hatch .
+        FILTER NOT EXISTS {
+          ?hatch nltl:hasIceOrSnowRemovalOrPreventionMeans ?means .
+        }
+      }
+    """ ;
+  ] .
+
+Make sure to use true literal xsd:boolean? In SPARQL, true is a boolean literal, no datatype needed. Use true.
+
+Check prefixes: include sh: prefix maybe not needed inside query but okay.
+
+Now ensure no extra constructions.
+
+Thus final answer.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:IMO-040Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceAccretionLikely ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When ice accretion is likely, each relevant hatch or door must have an associated ice or snow removal or prevention means." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:iceAccretionLikely true .
+                $this nltl:hasRelevantHatchOrDoor ?hatch .
+                FILTER NOT EXISTS {
+                    ?hatch nltl:hasIceOrSnowRemovalOrPreventionMeans ?means .
+                }
+            }
+        """
+    ] .
+<END_SHACL>

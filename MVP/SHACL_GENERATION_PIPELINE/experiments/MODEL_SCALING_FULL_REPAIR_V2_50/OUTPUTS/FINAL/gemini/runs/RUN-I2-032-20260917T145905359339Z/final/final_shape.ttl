@@ -1,0 +1,213 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix shape: <urn:nltl:generated-shape:> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+shape:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:peakPressureFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:shearArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M2 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:minCount 1 ;
+        sh:node shape:StructuralMemberShape
+    ] ;
+    sh:sparql [
+        sh:message "The actual net effective shear area A_w (converted to cm2) must be >= requiredTransverseFrameShearArea A_t, which is calculated as 100^2*0.5*LL*s*(AF*PPF*P_avg)/(0.577*sigma_y)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?member ?A_t_val ?calc_A_t
+            WHERE {
+                $this nltl:averageIcePressure/qudt:numericValue ?P_avg ;
+                      nltl:loadPatchHeight/qudt:numericValue ?b ;
+                      nltl:peakPressureFactor/qudt:numericValue ?PPF ;
+                      nltl:yieldStrength/qudt:numericValue ?sigma_y ;
+                      nltl:shearArea/qudt:numericValue ?shear_val ;
+                      nltl:hasStructuralMember ?member .
+
+                OPTIONAL { $this nltl:frameSpan/qudt:numericValue ?fs }
+                OPTIONAL { $this nltl:span/qudt:numericValue ?sp }
+                BIND(COALESCE(?fs, ?sp) AS ?a)
+                
+                FILTER(BOUND(?a) && BOUND(?b) && ?sigma_y > 0)
+
+                ?member nltl:frameSpacing/qudt:numericValue ?s ;
+                        nltl:selectedHullAreaFactor/qudt:numericValue ?AF ;
+                        nltl:requiredTransverseFrameShearArea/qudt:numericValue ?A_t_val .
+
+                # LL is the lesser of frame span a and load-patch height b
+                BIND(IF(?a < ?b, ?a, ?b) AS ?LL)
+
+                # A_t = 100^2 * 0.5 * LL * s * (AF * PPF * P_avg) / (0.577 * sigma_y)
+                BIND((10000.0 * 0.5 * ?LL * ?s * (?AF * ?PPF * ?P_avg)) / (0.577 * ?sigma_y) AS ?calc_A_t)
+
+                # Convert actual shearArea from m^2 to cm^2 (1 m^2 = 10000 cm^2)
+                BIND(?shear_val * 10000.0 AS ?A_w)
+
+                # Compare derived decimal result with 1e-6 relative tolerance or 1e-9 absolute fallback
+                BIND(ABS(?A_t_val - ?calc_A_t) AS ?diff)
+                BIND(IF(?calc_A_t > 1e-9, ?diff / ?calc_A_t, ?diff) AS ?rel_diff)
+                BIND(IF(?calc_A_t > 1e-9, 1e-6, 1e-9) AS ?tolerance)
+
+                FILTER(?rel_diff > ?tolerance || ?A_w < ?A_t_val)
+            }
+        """
+    ] .
+
+shape:StructuralMemberShape a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    sh:property [
+        sh:path nltl:frameSpacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:selectedHullAreaFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:requiredTransverseFrameShearArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:CentiM2 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] .

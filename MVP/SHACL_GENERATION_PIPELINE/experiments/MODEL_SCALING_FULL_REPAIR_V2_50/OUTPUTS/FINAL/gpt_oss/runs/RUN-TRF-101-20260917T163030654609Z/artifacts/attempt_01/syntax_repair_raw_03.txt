@@ -1,0 +1,246 @@
+We need to fix the syntax error. The error arises likely because after the sh:select triple-quoted string, they have a semicolon before the closing bracket of sh:sparql list, but also there may be a stray semicolon after the sh:select block? Let's locate the part causing error.
+
+At end of shape: 
+
+sh:sparql [
+        sh:message "...";
+        sh:select """ 
+            PREFIX ...
+            SELECT $this WHERE {
+               ...
+               FILTER ( ?status != true )
+            }
+        """ ;
+    ] .
+
+In Turtle, inside [] we separate predicates with ';' and end with '.' after the outer ]. Here they have sh:select "..."; (semicolon) then close bracket and period. That's fine.
+
+But likely the parser expects object after sh:select and sees triple quoted string and then semicolon, fine.
+
+But the error says objectList expected at point after triple quote ; maybe missing '.' before closing bracket? Actually inside [] we need predicateObjectList, ending with optional ';'. After last predicate (sh:select), we can have ';' but then there must be another predicate or we close the bracket without extra ';' maybe okay? In Turtle, a trailing semicolon before ']' is allowed? I think not: predicateObjectList is (verb object (',' object)*) (';' (verb object (',' object)*) )* . A trailing ';' with no following verb is not allowed. So having a semicolon after sh:select with no subsequent predicate is syntax error. Indeed they have:
+
+sh:select """...""" ;
+
+and then close bracket, no more predicates. That's illegal. Should remove the trailing semicolon after sh:select. Similarly earlier in the other sh:sparql block (Path B) they have sh:select """...""" ; and then close inner brackets? Let's check: they have
+
+[ sh:sparql [
+              sh:message "..." ;
+              sh:select """ ... """ ;
+          ] ]
+
+Again trailing semicolon after sh:select before closing the inner [] then outer [] also may be ok? Inside inner [] we have two predicates: sh:message and sh:select. After sh:select you can have trailing semicolon? Same issue: trailing ; not allowed. So we should remove the semicolon after sh:select in both SPARQL constraint blocks.
+
+Also ensure after closing inner [] there is no stray semicolon before outer ]. Currently they have "];" after inner ']'? Let's view:
+
+[ sh:sparql [ ... sh:select """...""" ; ] ]
+
+The inner [] ends with ']' after the statements; there is no semicolon after inner ']' because the semicolon belongs to the outer list? Actually they wrote:
+
+[ sh:sparql [ 
+      sh:message ... ;
+      sh:select """ ... """ ;
+  ] 
+]
+
+The inner ] after sh:select includes a semicolon before the closing bracket. That semicolon is part of the inner predicate list. Should be removed.
+
+Thus modify both.
+
+Also check the outer list body: The sh:or list has two items separated by whitespace. That's fine.
+
+Now also check after the sh:or they have a period: ") ." Good.
+
+Then after sh:sparql block (the last one) they have a period after the closing bracket. That's okay.
+
+But we also need to ensure that after sh:or block we still have sh:sparql ... ; maybe need semicolon after sh:or? They have:
+
+sh:or ( ... ) .
+ 
+sh:sparql [ ... ] .
+
+But they placed a period after sh:or. That ends the NodeShape's list of predicates. After that you cannot add more predicates; you must continue within same node shape before the period. Actually in Turtle, each '.' terminates the description of the subject. Since they used '.' after sh:or, further predicates on the same subject after that '.' would start a new description, but they didn't repeat the subject. They wrote:
+
+sh:or ( ... ) .
+ 
+sh:sparql [ ... ] .
+
+This is invalid because after '.' you need a new subject. They need to separate with ';' not '.' between sh:or and sh:sparql. So replace the '.' after sh:or with ';'.
+
+Thus modify: sh:or ( ... ) ;   sh:sparql [ ... ] .
+
+Now also check earlier where they end the list of required quantity inputs: They have many sh:property [ ... ] ; lines ending with semicolon, the last property before boolean evidence also ends with ';' then boolean property plus ; etc. That's fine.
+
+At the end after last sh:sparql block they have '.' to finish NodeShape. Good.
+
+Now incorporate changes.
+
+Let's write corrected candidate.
+
+
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+<urn:nltl:generated-shape:TRF-101>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # ---- required quantity inputs -------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeChordLengthAtWeakestSection ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMaximumThicknessAtWeakestSection ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeCylindricalRootRadius ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMinimumYieldStrength ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeUltimateTensileStrength ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureUltimateLoad ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeTipOffset ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # ---- boolean evidence ---------------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeFailureLoadWeakestDirectionConfirmed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+
+    # ---- alternative compliance paths (approved analysis OR calculation) ----------
+    sh:or (
+        # Path A: approved non‑linear stress analysis record must be present
+        [ sh:property [
+              sh:path nltl:approvedNonlinearBladeStressAnalysis ;
+              sh:minCount 1 ;
+              sh:maxCount 1
+          ]
+        ]
+
+        # Path B: formula‑based calculation must be consistent
+        [ sh:sparql [
+              sh:message "Calculated blade failure load does not match the provided bladeFailureUltimateLoad (kN) within tolerance." ;
+              sh:select """ 
+                  PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                  PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                  PREFIX qudt: <http://qudt.org/schema/qudt#>
+                  PREFIX unit: <http://qudt.org/vocab/unit/>
+
+                  SELECT $this WHERE {
+                    # No approved analysis present
+                    FILTER NOT EXISTS { $this nltl:approvedNonlinearBladeStressAnalysis ?any . }
+
+                    # Operand quantities
+                    $this nltl:bladeChordLengthAtWeakestSection ?cNode .
+                    ?cNode qudt:numericValue ?cVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeMaximumThicknessAtWeakestSection ?tNode .
+                    ?tNode qudt:numericValue ?tVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeCylindricalRootRadius ?rNode .
+                    ?rNode qudt:numericValue ?rVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeMinimumYieldStrength ?sigma0Node .
+                    ?sigma0Node qudt:numericValue ?sigma0Val ;
+                                qudt:unit unit:MegaPA .
+
+                    $this nltl:bladeUltimateTensileStrength ?sigmaUNode .
+                    ?sigmaUNode qudt:numericValue ?sigmaUVal ;
+                               qudt:unit unit:MegaPA .
+
+                    $this nltl:propellerDiameter ?DNode .
+                    ?DNode qudt:numericValue ?DVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeFailureUltimateLoad ?FNode .
+                    ?FNode qudt:numericValue ?FVal ;
+                          qudt:unit unit:KiloN .
+
+                    # Formula
+                    BIND ( (0.6 * ?sigma0Val + 0.4 * ?sigmaUVal) AS ?sigmaRef1 ) .
+                    BIND ( ?tVal * ?tVal AS ?tSq ) .
+                    BIND ( (0.8 * ?DVal - 2 * ?rVal) AS ?denom ) .
+                    BIND ( (300 * ?cVal * ?tSq * ?sigmaRef1) AS ?numer ) .
+                    BIND ( ?numer / ?denom AS ?calcF ) .
+
+                    # Tolerance (relative 1e-6, absolute fallback 1e-9)
+                    BIND ( 1e-6 AS ?relTol ) .
+                    BIND ( IF ( ?calcF = 0 , 1e-9 , ?relTol * ABS(?calcF) ) AS ?absTol ) .
+
+                    FILTER ( ABS(?FVal - ?calcF) > ?absTol )
+                  }
+              """
+          ]
+        ]
+    ) ;
+    
+    # ---- blade failure status based on tip offset ----------------------------------
+    sh:sparql [
+        sh:message "Blade failure status must be true when blade tip offset exceeds 10 % of propeller diameter." ;
+        sh:select """ 
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this WHERE {
+              $this nltl:bladeTipOffset ?offNode .
+              ?offNode qudt:numericValue ?offVal ;
+                       qudt:unit unit:M .
+
+              $this nltl:propellerDiameter ?DNode .
+              ?DNode qudt:numericValue ?DVal ;
+                     qudt:unit unit:M .
+
+              # Condition: offset > 0.10 * D
+              FILTER ( ?offVal > (0.10 * ?DVal) ) .
+
+              $this nltl:bladeFailureStatus ?status .
+              FILTER ( ?status != true )
+            }
+        """ ;
+    ] .
+<END_SHACL>

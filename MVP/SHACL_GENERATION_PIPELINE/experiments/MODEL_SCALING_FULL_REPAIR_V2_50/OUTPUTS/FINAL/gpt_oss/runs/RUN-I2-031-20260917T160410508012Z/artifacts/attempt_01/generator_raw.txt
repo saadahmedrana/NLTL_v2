@@ -1,0 +1,213 @@
+We need to generate a SHACL shape for this requirement. Requirement: The local frames in bottom structures (areas BIb, Mb, Sb) and transverse local frames in side structures must be dimensioned such that combined shear and bending demand <= plastic strength of the member. Plastic strength is magnitude of midspan load causing plastic collapse mechanism. For bottom structure patch load should be applied with dimension (b) parallel with frame direction.
+
+We have allowed vocabulary terms: combinedShearAndBendingDemand (QuantityProperty on loadCase), plasticStrength (QuantityProperty on structuralMember), midspanPlasticCollapseLoad (QuantityProperty on structuralMember), patchLoad (QuantityProperty on ship), bottomStructureLocation (NamedIndividual of structuralLocationValue), sideStructureLocation (NamedIndividual), loadPatchHeightParallelToFrame (NamedIndividual of loadPatchOrientationValue), etc.
+
+The dependency contract defines model paths: ship -> structuralMember via hasStructuralMember; structuralMember -> loadCase via hasStructuralMemberLoadCase; loadCase -> loadPatchOrientationValue via loadPatchOrientation; structuralMember -> structuralLocationValue via structuralLocation.
+
+The applicability: frames in bottom structures and transverse frames in side structures. That corresponds to structuralMember's structuralLocationValue being either bottomStructureLocation or sideStructureLocation. So we need to enforce constraint only for members whose structuralLocation is one of those.
+
+Thus shape target will be structuralMember? The requirement target owner is ship but we need to evaluate per structuralMember. Using SHACL we can target structuralMember class. Then we can add a SPARQL constraint that checks if structuralLocation is one of the controlled values (bottomStructureLocation or sideStructureLocation) then enforce combinedShearAndBendingDemand <= plasticStrength. But combinedShearAndBendingDemand is on loadCase; need to get loadCase via hasStructuralMemberLoadCase. And plasticStrength is on structuralMember directly as a quantity. Both are QUDT QuantityValue with numericValue.
+
+We also need to ensure patch load dimension orientation for bottom structures: patchLoad applied with dimension b parallel to frame direction. There is term loadPatchHeightParallelToFrame representing that dimension? The controlledValueTerms include loadPatchHeightParallelToFrame, which is a named individual of loadPatchOrientationValue. Probably indicate that for bottom structure the patch load orientation is that value. But the requirement about patch load orientation is more of a data presence; we can enforce that for bottomStructureLocation members, there exists a loadCase with loadPatchOrientation value equal to loadPatchHeightParallelToFrame. So we need a property shape or SPARQL.
+
+Simplify: enforce main inequality. Also enforce presence of loadPatchOrientation = loadPatchHeightParallelToFrame for bottom structures.
+
+We need to use only allowed vocab. Use sh:targetClass nltl:structuralMember.
+
+Define property shapes for structuralLocation (object property linking to structuralLocationValue). Use sh:in with bottomStructureLocation and sideStructureLocation? That would require that only those members are considered, but also others could exist. The requirement only applies to those; we can use sh:or with a SPARQL constraint that checks only when location is one of those.
+
+Better: SPARQL constraint that calculates if condition holds.
+
+Write SHACL:
+
+Prefixes: sh, xsd, nltl, qudt, rdf, rdfs maybe.
+
+Create shape ex:MemberStrengthCheck.
+
+TargetClass nltl:structuralMember.
+
+Add property shape for nltl:structuralLocation with sh:in list maybe but not required. We'll embed in constraint.
+
+Add sh:sparql with query:
+
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+
+SELECT $this ( ?demand ?strength ) WHERE {
+  # get structural location value
+  $this nltl:structuralLocation ?locValue .
+  FILTER(?locValue IN (nltl:bottomStructureLocation, nltl:sideStructureLocation))
+  # get load case
+  $this nltl:hasStructuralMemberLoadCase ?lc .
+  # get combined demand
+  ?lc nltl:combinedShearAndBendingDemand ?demandQty .
+  ?demandQty qudt:numericValue ?demand .
+  # get plastic strength
+  $this nltl:plasticStrength ?strengthQty .
+  ?strengthQty qudt:numericValue ?strength .
+  # check violation if demand > strength
+  FILTER(?demand > ?strength)
+}
+Then add sh:message "Combined shear and bending demand exceeds plastic strength for structural member."
+
+Also add check for bottom structures patch load orientation:
+
+We can add a second SPARQL constraint that only for bottomStructureLocation members ensures that there exists a load case with loadPatchOrientation equal to loadPatchHeightParallelToFrame.
+
+But loadPatchOrientation is an object property linking loadCase to loadPatchOrientationValue. The controlled value loadPatchHeightParallelToFrame is a NamedIndividual. So we check:
+
+SELECT $this WHERE {
+  $this nltl:structuralLocation nltl:bottomStructureLocation .
+  $this nltl:hasStructuralMemberLoadCase ?lc .
+  ?lc nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame .
+}
+If not present, then violation. So we need a SPARQL constraint that selects members where location is bottomStructureLocation and missing that triple. Use NOT EXISTS pattern.
+
+SELECT $this WHERE {
+  $this nltl:structuralLocation nltl:bottomStructureLocation .
+  $this nltl:hasStructuralMemberLoadCase ?lc .
+  FILTER NOT EXISTS {
+    ?lc nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame .
+  }
+}
+Add message.
+
+We must ensure prefixes inside each query.
+
+Also property shapes for presence of numeric values? Could require that combinedShearAndBendingDemand and plasticStrength have qudt:numericValue and unit but not required.
+
+But per rule, we should at least ensure these quantity values exist possibly with sh:minCount.
+
+We can add property shapes:
+
+- path nltl:plasticStrength with sh:node kind of sh:NodeShape? Actually object is a QuantityValue (class from QUDT). Could enforce that there is a node with qudt:numericValue xsd:decimal.
+
+Simplify: We'll rely on SPARQL.
+
+Thus shape includes two sh:sparql constraints.
+
+Need to use generatedShapeNamespace: urn:nltl:generated-shape:.
+
+Define shapes as ex:MemberStrengthCheck and ex:BottomPatchOrientationCheck.
+
+Let's produce Turtle:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <urn:nltl:generated-shape:> .
+
+ex:MemberStrengthCheck a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Combined shear and bending demand exceeds plastic strength for this structural member." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+              $this nltl:structuralLocation ?locValue .
+              FILTER(?locValue IN (nltl:bottomStructureLocation, nltl:sideStructureLocation))
+              $this nltl:hasStructuralMemberLoadCase ?lc .
+              ?lc nltl:combinedShearAndBendingDemand ?demandQty .
+              ?demandQty qudt:numericValue ?demand .
+              $this nltl:plasticStrength ?strengthQty .
+              ?strengthQty qudt:numericValue ?strength .
+              FILTER(?demand > ?strength)
+            }
+        """ ;
+    ] .
+
+ex:BottomPatchOrientationCheck a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For bottom structure members, patch load must be applied with dimension parallel to frame direction." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+              $this nltl:structuralLocation nltl:bottomStructureLocation .
+              $this nltl:hasStructuralMemberLoadCase ?lc .
+              FILTER NOT EXISTS {
+                ?lc nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame .
+              }
+            }
+        """ ;
+    ] .
+
+Check that prefixes are declared inside each query.
+
+Make sure shape uses correct IRIs: structuralLocation is property defined on structuralMember? It's defined as object property with domain structuralMember range structuralLocationValue. Yes.
+
+The controlled values bottomStructureLocation etc are NamedIndividual of structuralLocationValue. So test works.
+
+All terms used are from allowed vocabulary.
+
+No extra constructs.
+
+Return between markers.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <urn:nltl:generated-shape:> .
+
+ex:MemberStrengthCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Combined shear and bending demand exceeds plastic strength for this structural member." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+              $this nltl:structuralLocation ?locValue .
+              FILTER(?locValue IN (nltl:bottomStructureLocation, nltl:sideStructureLocation))
+              $this nltl:hasStructuralMemberLoadCase ?lc .
+              ?lc nltl:combinedShearAndBendingDemand ?demandQty .
+              ?demandQty qudt:numericValue ?demand .
+              $this nltl:plasticStrength ?strengthQty .
+              ?strengthQty qudt:numericValue ?strength .
+              FILTER(?demand > ?strength)
+            }
+        """ ;
+    ] .
+
+ex:BottomPatchOrientationCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For bottom‑structure members the patch load must be applied with the dimension (b) parallel to the frame direction." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+              $this nltl:structuralLocation nltl:bottomStructureLocation .
+              $this nltl:hasStructuralMemberLoadCase ?lc .
+              FILTER NOT EXISTS {
+                ?lc nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame .
+              }
+            }
+        """ ;
+    ] .
+<END_SHACL>

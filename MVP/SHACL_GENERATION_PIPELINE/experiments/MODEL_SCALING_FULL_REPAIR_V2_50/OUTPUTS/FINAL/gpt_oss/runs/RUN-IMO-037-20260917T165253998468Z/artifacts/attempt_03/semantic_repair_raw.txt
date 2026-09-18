@@ -1,0 +1,141 @@
+We need to modify the previous SHACL graph to address current issue: residualStabilityFactorSI property used in SPARQL check is not constrained by a SHACL property shape, allowing non-quantity values. Need to add sh:property for nltl:residualStabilityFactorSI with sh:datatype qudt:QuantityValue and optionally enforce unit UNITLESS.
+
+We must preserve everything else unchanged. Also must respect pastMistakesToAvoid: preserve correction for deterministic finding: COMPLEX_READINESS required input(s) absent from candidate: loadingConditionIdentifier. Already present in LoadingConditionCaseShape, good. Preserve correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#. Wait they mention "Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#" maybe we shouldn't introduce unapproved IRIs. However the current SHACL already uses prefix qudt: <http://qudt.org/schema/qudt#>. Is that allowed? Past mistake says "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#" This suggests they previously corrected something about unapproved external/generate IRI(s), maybe they want to keep that correction (i.e., avoid using external IRI) but the graph already uses qudt:. The issue earlier maybe about using qudt namespace is allowed? The past mistake note says "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#" maybe they previously corrected to avoid using generated IRI. Since it's already present, we keep it.
+
+But we need to add a property shape for residualStabilityFactorSI on ShipShape? Or maybe to LoadingConditionCaseShape? The property belongs to loadingConditionCase (domain). In node patterns there is pattern qudtQuantityValue which includes quantityNode qudt:numericValue xsd:decimal; qudt:unit recommendedUnit. The property shape should target loadingConditionCase, probably in LoadingConditionCaseShape. Add sh:property where sh:path nltl:residualStabilityFactorSI ; sh:nodeKind? Since it's a quantity value node, datatype is qudt:QuantityValue? The range is defined as qudt:QuantityValue (I guess class). The property shape should enforce sh:class qudt:QuantityValue, but also enforce that the node is a quantity with unit UNITLESS. In SHACL we can use sh:node with a nested shape: sh:node [ sh:class qudt:QuantityValue ; sh:property [ sh:path qudt:unit ; sh:hasValue <UNITLESS> ] ; sh:property [ sh:path qudt:numericValue ; sh:datatype xsd:decimal ] ] . However simpler: sh:datatype qudt:QuantityValue may not be valid because datatype expects XML Schema datatype. So better to enforce sh:class qudt:QuantityValue. The issue says "sh:datatype qudt:QuantityValue (and optionally enforce the unit UNITLESS)". That instruction is contradictory—datatype expects XSD types, but they gave that direction. So we follow: add sh:datatype qudt:QuantityValue. Probably accepted. We'll add also sh:hasValue for unit.
+
+We need to ensure no conflicting or duplication. Add to LoadingConditionCaseShape perhaps after evidence property. Also we need to add prefix for unit UNITLESS: there is IRI http://qudt.org/vocab/unit/UNITLESS, they used that earlier as recommendedUnit. So we can use that.
+
+Implementation: In LoadingConditionCaseShape add:
+
+sh:property [
+    sh:path nltl:residualStabilityFactorSI ;
+    sh:class qudt:QuantityValue ;
+    sh:minCount 1 ; # maybe optional? It's required for calculation but maybe optional; The SPARQL uses OPTIONAL. Register as optional? But we only need datatype constraint, not required. Add sh:node with nested constraints.
+
+Simpler: sh:property [
+    sh:path nltl:residualStabilityFactorSI ;
+    sh:datatype qudt:QuantityValue ;
+    sh:message "residualStabilityFactorSI must be a QUDT QuantityValue." ;
+] .
+
+But to enforce unit, we could add sh:node with unit check:
+
+sh:property [
+    sh:path nltl:residualStabilityFactorSI ;
+    sh:node [
+        sh:property [
+            sh:path qudt:unit ;
+            sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        ] ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:datatype xsd:decimal ;
+        ] ;
+        sh:class qudt:QuantityValue ;
+    ] ;
+] .
+
+But the instruction says "and optionally enforce the unit UNITLESS". We'll add both class and unit enforcement.
+
+Thus modify LoadingConditionCaseShape adding this property.
+
+Make sure prefixes: qudt already defined. Also need prefix for unit maybe already accessible via same namespace, UNITLESS is a resource under qudt vocab. Use <http://qudt.org/vocab/unit/UNITLESS>.
+
+Add property after evidence property.
+
+Now produce full revised graph.
+
+We keep previous definitions unchanged. Just insert the new property shape.
+
+Let's write final Turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # shipCategory must be A or B
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:in (nltl:polarShipCategoryA nltl:polarShipCategoryB) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ship category must be A or B." ;
+    ] ;
+    # constructionDate must be on or after 2017‑01‑01
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "2017-01-01"^^xsd:date ;
+        sh:message "Construction date must be on or after 2017‑01‑01." ;
+    ] ;
+    # at least one loading condition case (the detailed check is performed by SPARQL)
+    sh:property [
+        sh:path nltl:hasLoadingConditionCase ;
+        sh:minCount 1 ;
+        sh:message "At least one loading condition case must be provided." ;
+    ] ;
+    # Direct‑check SPARQL: each loading condition case satisfies SI=1 or allowed alternative
+    sh:sparql [
+        sh:message "Each loading condition case must have residualStabilityFactorSI = 1, or (alternativeInstrumentApplicable = true and alternativeInstrumentResidualStabilityStatus = true)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:shipCategory ?cat .
+                FILTER(?cat = nltl:polarShipCategoryA || ?cat = nltl:polarShipCategoryB) .
+                $this nltl:constructionDate ?cdate .
+                FILTER(?cdate >= "2017-01-01"^^xsd:date) .
+                $this nltl:hasLoadingConditionCase ?lc .
+
+                OPTIONAL { ?lc nltl:residualStabilityFactorSI ?val . }
+                OPTIONAL { ?lc nltl:alternativeInstrumentApplicable ?altApp . }
+                OPTIONAL { ?lc nltl:alternativeInstrumentResidualStabilityStatus ?altStat . }
+
+                FILTER( !( (BOUND(?val) && ABS(?val - 1) <= 1e-6) ||
+                          (BOUND(?altApp) && ?altApp = true && BOUND(?altStat) && ?altStat = true) ) )
+            }
+        """ ;
+    ] .
+
+:LoadingConditionCaseShape a sh:NodeShape ;
+    sh:targetClass nltl:loadingConditionCase ;
+    # evidence artifact for each loading condition result
+    sh:property [
+        sh:path nltl:hasLoadingConditionResultEvidence ;
+        sh:class nltl:evidenceArtifact ;
+        sh:minCount 1 ;
+        sh:message "Loading condition case must cite a result evidence artifact." ;
+    ] ;
+    # loadingConditionIdentifier is required for COMPLEX_READINESS
+    sh:property [
+        sh:path nltl:loadingConditionIdentifier ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Each loading condition case must have a loadingConditionIdentifier." ;
+    ] ;
+    # residualStabilityFactorSI must be a QUDT QuantityValue with unit UNITLESS
+    sh:property [
+        sh:path nltl:residualStabilityFactorSI ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:message "Unit of residualStabilityFactorSI must be UNITLESS." ;
+            ] ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:message "Numeric value of residualStabilityFactorSI must be decimal." ;
+            ] ;
+        ] ;
+        sh:message "residualStabilityFactorSI must be a QUDT QuantityValue (unit UNITLESS)." ;
+    ] .
+<END_SHACL>

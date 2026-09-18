@@ -1,0 +1,106 @@
+We need to generate a SHACL shape for the requirement: IF operating_area = Arctic_waters, THEN NLS_or_NLS_mixture_discharge_to_sea = false.
+
+We have allowedVocabulary entries: arcticWaters (DatatypeProperty string), operatingArea (DatatypeProperty string), noxiousLiquidSubstanceOrNoxiousLiquidSubstanceMixtureDischargeToSea (DatatypeProperty boolean). All have requiredOwner = ship. The class ship exists.
+
+Requirement target owner is ship, so shape target class ship.
+
+Need conditional constraint. Use sh:property with sh:path operatingArea and sh:hasValue "Arctic_waters" (string literal). But we need to enforce that when operatingArea equals Arctic_waters, then the boolean must be false. In SHACL we can use sh:or or sh:if/then? SHACL has sh:rule for SPARQL-based? Better to use sh:property constraints with sh:condition? Actually SHACL 1.1 has sh:property with sh:or for shapes, and sh:if "sh:property"? Not exactly. We can use sh:targetClass and then a sh:sparql constraint that checks the condition.
+
+Simplify: Use sh:property for operatingArea presence and datatype etc. Then a sh:sparql constraint that checks: if ?this nltl:operatingArea "Arctic_waters" then not(?this nltl:noxiousLiquidSubstanceOrNoxiousLiquidSubstanceMixtureDischargeToSea true). Equivalently enforce that (?this nltl:noxious... ) = false when operatingArea is Arctic_waters. Use sh:message.
+
+The constraint query must declare prefixes inside. Use PREFIX.
+
+We must include a datatype check for operatingArea (string) and for NLS boolean.
+
+We must not invent additional constraints.
+
+Also need to enforce that NLS property present? The requirement says must be false; likely must be present with false, maybe also ensure it's present when operatingArea is Arctic_waters. So include in SPARQL that either property is missing? To be safe, require it present and have value false.
+
+Thus, we have:
+
+Shape :urn:nltl:generated-shape:IMO-112Shape a sh:NodeShape ;
+   sh:targetClass nltl:ship ;
+   sh:property [ ... for operatingArea datatype and cardinality 1] ;
+   sh:property [ ... for NLS boolean (maybe not required globally) but we can require when condition true; could just rely on SPARQL.]
+
+But we can use sh:property for NLS with minCount 0, maxCount 1; not required.
+
+Better to keep simple: one property shape for operatingArea presence and its datatype. Then a SPARQL constraint.
+
+Now craft Turtle.
+
+We need prefixes: sh, xsd, nltl, rdf? maybe not needed.
+
+Define shape IRI: urn:nltl:generated-shape:IMO-112.
+
+Ok.
+
+SPARQL constraint block:
+
+sh:sparql [
+   a sh:SPARQLConstraint ;
+   sh:message "When operating area is Arctic waters, noxious liquid substance or mixture discharge to sea must be false." ;
+   sh:select """
+      PREFIX nltl: <https://w3id.org/nltl/vocab#>
+      PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+      SELECT $this ( ?operatingArea ?nls )
+      WHERE {
+        $this nltl:operatingArea ?operatingArea .
+        FILTER ( ?operatingArea = "Arctic_waters"^^xsd:string )
+        OPTIONAL { $this nltl:noxiousLiquidSubstanceOrNoxiousLiquidSubstanceMixtureDischargeToSea ?nls . }
+        FILTER ( !bound(?nls) || ?nls != false )
+      }
+   """ ;
+].
+
+But the SELECT should return violations: we need rows where violation occurs. Our query selects when condition is violated. That is: operatingArea = Arctic_waters and (nls not bound or nls != false). So filter accordingly.
+
+So filter: (bound(?nls) && ?nls = false) passes, else violation.
+
+Thus: FILTER ( !bound(?nls) || ?nls != false ) . That's correct.
+
+Now the property shape for operatingArea: ensure datatype xsd:string, minCount 1, maxCount 1.
+
+Also property shape maybe for NLS boolean? Not required.
+
+Now produce final output between <BEGIN_SHACL> and <END_SHACL>. Ensure all prefixes declared at top: @prefix sh: <http://www.w3.org/ns/shacl#> . @prefix nltl: <https://w3id.org/nltl/vocab#> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+Also ensure shape IRI: urn:nltl:generated-shape:IMO-112
+
+Add sh:property for operatingArea with sh:datatype xsd:string, sh:minCount 1, sh:maxCount 1.
+
+Optionally also require NLS property presence? Requirement only says must be false; could require existence but not mandated. However false indicates presence, but we can allow missing NLS to be violation because then cannot assert false. The SPARQL already flags missing as violation.
+
+Thus shape includes property shape for operatingArea; also could include property shape for NLS with datatype boolean, minCount 0 or 1? Not needed.
+
+Alright produce final.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:IMO-112 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:operatingArea ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When operating area is Arctic waters, discharge of noxious liquid substances or mixtures to sea must be false." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:operatingArea ?operatingArea .
+                FILTER ( ?operatingArea = "Arctic_waters"^^xsd:string )
+                OPTIONAL { $this nltl:noxiousLiquidSubstanceOrNoxiousLiquidSubstanceMixtureDischargeToSea ?nls . }
+                FILTER ( !bound(?nls) || ?nls != false )
+            }
+        """ ;
+    ] .
+<END_SHACL>

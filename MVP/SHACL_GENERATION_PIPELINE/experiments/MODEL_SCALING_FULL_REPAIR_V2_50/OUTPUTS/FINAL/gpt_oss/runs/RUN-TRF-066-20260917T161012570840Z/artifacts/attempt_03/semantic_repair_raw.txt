@@ -1,0 +1,70 @@
+We need to edit previousCandidateShacl to address currentIssues: IceKnifePracticable property should be optional, i.e., remove sh:minCount 1 (or set minCount 0). Also preserve other constraints.
+
+Also need to ensure not reintroducing regression guard: The guard says preserve optional nature, so we will remove minCount.
+
+Other past mistakes: "Preserve the correction for deterministic finding: COMPLETE dependency relationship(s) absent from candidate: hasRudderProtectionArrangement". So ensure hasRudderProtectionArrangement property is present; it already exists. Good.
+
+We must output full revised SHACL graph with unchanged content, only change property block for iceKnifePracticable to remove sh:minCount 1.
+
+We should keep sh:maxCount 1? Might keep, as optional still may have max 1. Usually minCount 0 default, so we can just delete minCount line.
+
+Thus produce revised Turtle.
+
+Check prefixes same.
+
+Make sure shape identifier gen:TRF-066 stays.
+
+Thus final.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-066 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    ## iceClass may be present; if present, restrict to IA / IA Super
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:in ( nltl:iceClassIa nltl:iceClassIaSuper ) ;
+        sh:message "Ice class, when declared, must be IA or IA Super for this requirement." ;
+    ] ;
+    ## iceKnifePracticable must be recorded (boolean)
+    sh:property [
+        sh:path nltl:iceKnifePracticable ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+        sh:message "Ice‑knife practicability must be indicated as a boolean." ;
+    ] ;
+    ## hasRudderProtectionArrangement must be present for each ship
+    sh:property [
+        sh:path nltl:hasRudderProtectionArrangement ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:rudderProtectionArrangement ;
+        sh:message "Ship must have a rudder protection arrangement (hasRudderProtectionArrangement)." ;
+    ] ;
+    ## Conditional requirement: if iceClass is IA or IA Super and practicable,
+    ## an ice knife that extends below the lower ice waterline must exist.
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For ice class IA or IA Super, when practicable, an ice knife must extend below the lower ice waterline." ;
+        sh:select """ 
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this (COUNT(*) AS ?violations) WHERE {
+                $this nltl:iceClass ?ic .
+                FILTER(?ic = nltl:iceClassIa || ?ic = nltl:iceClassIaSuper)
+                $this nltl:iceKnifePracticable true .
+                FILTER NOT EXISTS {
+                    ?knife a nltl:iceKnife .
+                    ?knife nltl:extendsBelowLowerIceWaterline true .
+                }
+            }
+            GROUP BY $this
+            HAVING (COUNT(*) > 0)
+        """ ;
+    ] .
+<END_SHACL>

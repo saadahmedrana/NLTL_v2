@@ -1,0 +1,256 @@
+We need to generate SHACL shape for this requirement. Requirement: IF sewage_discharge_uses_treatment_plant = true, THEN sewage_treatment_plant_approval_status = approved, MARPOL_IV_9_1_1_or_9_2_1_certification_status = compliant, MARPOL_IV_11_1_2_discharge_status = compliant, and distances to land, ice shelf, fast ice, and ice concentration greater than 1/10 shall be recorded. For distances, both distance properties are represented on each applicable dischargeDistanceRecords node; no numerical minimum for ice-concentration distance, but we need to require that a dischargeDistanceRecords node exists and the two quantities are present.
+
+The terms:
+- nltl:sewageDischargeUsesTreatmentPlant (DatatypeProperty, boolean)
+- nltl:sewageTreatmentPlantApprovalStatus (ObjectProperty range evidenceState)
+- Evidence state "approved" is nltl:evidenceStateApproved (individual)
+- nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus (ObjectProperty range evidenceState)
+- We need value "compliant" – note there is no "compliant" controlled value in vocab. We have evidenceState values like Approved, Draft, Expired, etc. The requirement says "certification status = compliant". Not represented. Our policy: report vocabulary gap instead of inventing a term. So we cannot assert compliance using a term not present. Must generate shapes for parts we can enforce; for missing term we may note as comment? Probably we should not generate a shape for that part; maybe generate shape with a comment about missing term, but rule says no comments? The instruction: "reportVocabularyGapInsteadOfInventingATerm". Means we should not invent a term; we could still generate shape that expects the property but not exact value? Might enforce presence only, but not value? The requirement says equality to compliant; but we can't encode that because term missing. Could we encode that the property must have some value? Possibly just presence required. But need to include that in shape; but the spec says do not add requirements not in requirement. However we need to reflect missing term gap – maybe we can include a sh:message stating missing term.
+
+Better: generate shapes for parts that have required terms: sewageDischargeUsesTreatmentPlant boolean, sewageTreatmentPlantApprovalStatus must be evidenceStateApproved, marpolDischargeStatus (maybe not, requirement mentions "MARPOL_IV_11_1_2_discharge_status = compliant". That's datatype boolean? Wait marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus is boolean. That indicates compliance; we can require it true. So we can enforce that when sewageDischargeUsesTreatmentPlant true, then that boolean must be true. Good.
+
+For certification status, we have marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus (object property range evidenceState). We need value "compliant". Not present. Maybe we ignore or require presence but not specific value. But better to note gap.
+
+For distances: need to ensure a dischargeDistanceRecords record exists, linked via hasDischargeDistanceRecord, and on that node, both distanceToNearestLandIceShelfOrFastIce and distanceToAreaWithIceConcentrationGreaterThanOneTenth are present (as QuantityValue). No numeric minimum for ice concentration, but we still need to ensure property present. For distance to nearest land etc., no numeric min either? The requirement says distances to land, ice shelf, fast ice, and ice concentration greater than 1/10 shall be recorded. For ice concentration distance, no numeric min. For other distances, also no numeric threshold, just record. So we just require presence of those two properties.
+
+Thus shape: targetClass ship.
+
+We need conditional constraint: if sewageDischargeUsesTreatmentPlant true then other constraints apply.
+
+Approach: Use sh:or maybe sh:property with sh:if? SHACL supports sh:qualifiedValueShape? There's sh:property with sh:condition? Actually SHACL has sh:if? Not standard. Use sh:property with sh:path ... and then sh:hasValue etc plus sh:filter? Usually one uses SHACL-SPARQL constraint that checks whole condition.
+
+Thus we can have one core property for sewageDischargeUsesTreatmentPlant (boolean) presence. Then a sh:rule? Not needed.
+
+Better: Use sh:node shape for ship with a sh:property that captures condition via SPARQL.
+
+Create a sh:property with sh:sparql constraint: check IF sewageDischargeUsesTreatmentPlant true then other constraints hold.
+
+Implementation: In sh:property, we can have sh:path nltl:sewageDischargeUsesTreatmentPlant; with datatype boolean, minCount 1, maxCount 1. Then another sh:sparql constraint that checks condition.
+
+But the condition involves other resources: the boolean property, the approval status, discharge status, etc, and existence of distance records.
+
+We can write a SPARQL expression inside sh:filter ?value = true etc.
+
+Define shape: nltl:ship as targetClass.
+
+Add property shapes for each required property (e.g., sewageDischargeUsesTreatmentPlant presence). But the conditional part: we can embed in SPARQL that only triggers when the boolean is true.
+
+Simplify: Write a sh:property with sh:sparql that queries subject ?this (ship) and checks condition.
+
+Inside query: prefix nltl, xsd, qudt, math maybe not needed.
+
+Construct: SELECT $this (or ?this) WHERE {
+  ?this nltl:sewageDischargeUsesTreatmentPlant ?use .
+  FILTER(?use = true)
+  # approval status
+  ?this nltl:sewageTreatmentPlantApprovalStatus ?approval .
+  FILTER(?approval = nltl:evidenceStateApproved)
+  # marpol discharge compliance boolean
+  ?this nltl:marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus ?compliance .
+  FILTER(?compliance = true)
+  # certification status presence
+  ?this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus ?cert .
+  # note missing compliance value; we cannot assert equality, maybe just presence
+  # distance records
+  ?this nltl:hasDischargeDistanceRecord ?distRec .
+  ?distRec nltl:distanceToNearestLandIceShelfOrFastIce ?dist1 .
+  ?dist1 qudt:numericValue ?val1 .
+  FILTER(datatype(?val1) = xsd:decimal)
+  ?dist1 qudt:unit nltl:?? actually recommendedUnit is QUDT unit MI_N. Use that IRI. It's http://qudt.org/vocab/unit/MI_N.
+  ?distRec nltl:distanceToAreaWithIceConcentrationGreaterThanOneTenth ?dist2 .
+  ?dist2 qudt:numericValue ?val2 .
+  FILTER(datatype(?val2) = xsd:decimal)
+}
+
+Note: distance property IRIs are as listed. We'll need to prefix qudt.
+
+But we need to include missing term: certification status compliance term not present. Might generate a sh:message about missing term.
+
+But requirement says report gap instead of inventing term. Maybe generate a comment shape with sh:message "Vocabulary gap: required value for marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus not available". However rule says avoid comments. But we can include sh:message inside constraint telling about gap.
+
+Probably okay.
+
+We'll produce one node shape with targetClass ship and inside sh:sparql constraint.
+
+Must declare prefixes at top of Turtle: sh, nltl, xsd, qudt, rdf? And maybe include math if needed (not).
+
+Now ensure shape URI under generatedShapeNamespace: e.g., urn:nltl:generated-shape:IMO-117-Shape
+
+Implementation in Turtle.
+
+Let's write:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+Then shape:
+
+urn:nltl:generated-shape:IMO-117 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:sewageDischargeUsesTreatmentPlant ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When sewageDischargeUsesTreatmentPlant is true, required approvals, compliance and distance records must be present." ;
+        sh:prefixes [
+            sh:declare [
+                sh:prefix "nltl" ;
+                sh:namespace "https://w3id.org/nltl/vocab#" ;
+            ] ,
+            sh:declare [
+                sh:prefix "xsd" ;
+                sh:namespace "http://www.w3.org/2001/XMLSchema#" ;
+            ] ,
+            sh:declare [
+                sh:prefix "qudt" ;
+                sh:namespace "http://qudt.org/schema/qudt#" ;
+            ] ,
+            sh:declare [
+                sh:prefix "unit" ;
+                sh:namespace "http://qudt.org/vocab/unit/" ;
+            ]
+        ] ;
+        sh:select """
+            SELECT $this (COUNT(*) AS ?violations) WHERE {
+                $this nltl:sewageDischargeUsesTreatmentPlant true .
+                # Approval status must be approved
+                $this nltl:sewageTreatmentPlantApprovalStatus nltl:evidenceStateApproved .
+                # MARPOL discharge compliance must be true
+                $this nltl:marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus true .
+                # Certification status existence (value not enforceable due to missing controlled term)
+                $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus ?certStatus .
+                # Distance records
+                $this nltl:hasDischargeDistanceRecord ?rec .
+                ?rec nltl:distanceToNearestLandIceShelfOrFastIce ?distLand .
+                ?distLand qudt:numericValue ?valLand .
+                FILTER(datatype(?valLand) = xsd:decimal) .
+                ?distLand qudt:unit unit:MI_N .
+                ?rec nltl:distanceToAreaWithIceConcentrationGreaterThanOneTenth ?distIce .
+                ?distIce qudt:numericValue ?valIce .
+                FILTER(datatype(?valIce) = xsd:decimal) .
+                ?distIce qudt:unit unit:MI_N .
+            } GROUP BY $this
+            HAVING (COUNT(*) = 0)
+        """ ;
+        sh:severity sh:Violation
+    ] .
+
+But SHACL-SPARQL constraint typical is sh:select with $this variable? Use $this for focus node. Use SELECT $this WHERE { ... FILTER NOT EXISTS ... } or using HAVING as above. Simpler: Use SELECT $this WHERE { ... FILTER (!condition) }. But typical pattern: shape with sh:sparql, using SELECT $this (WHERE { ... FILTER (!condition) }) to generate violations when query returns rows.
+
+Thus we want rows when condition fails. So we can write:
+
+SELECT $this WHERE {
+   $this nltl:sewageDischargeUsesTreatmentPlant true .
+   FILTER NOT EXISTS {
+      $this nltl:sewageTreatmentPlantApprovalStatus nltl:evidenceStateApproved .
+   }
+}
+UNION similar? That leads to many UNION.
+
+Better: Use a single SELECT with NOT EXISTS for each requirement, but combine with &&.
+
+In SPARQL, we can use FILTER ( ! EXISTS { ... } || ! EXISTS { ... } || ...). So if any missing, produce row.
+
+Thus:
+
+SELECT $this WHERE {
+  $this nltl:sewageDischargeUsesTreatmentPlant true .
+  FILTER (
+    NOT EXISTS { $this nltl:sewageTreatmentPlantApprovalStatus nltl:evidenceStateApproved } ||
+    NOT EXISTS { $this nltl:marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus true } ||
+    NOT EXISTS { $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus ?cert } ||
+    NOT EXISTS {
+        $this nltl:hasDischargeDistanceRecord ?rec .
+        ?rec nltl:distanceToNearestLandIceShelfOrFastIce ?distLand .
+        ?distLand qudt:numericValue ?valLand .
+        FILTER(datatype(?valLand) = xsd:decimal) .
+        ?distLand qudt:unit unit:MI_N .
+    } ||
+    NOT EXISTS {
+        $this nltl:hasDischargeDistanceRecord ?rec2 .
+        ?rec2 nltl:distanceToAreaWithIceConcentrationGreaterThanOneTenth ?distIce .
+        ?distIce qudt:numericValue ?valIce .
+        FILTER(datatype(?valIce) = xsd:decimal) .
+        ?distIce qudt:unit unit:MI_N .
+    }
+  )
+}
+
+Thus any missing triggers violation.
+
+Add sh:message about missing required info.
+
+Now produce SHACL shape.
+
+Make sure to include prefixes declarations inside query as per rule 10. In sh:prefixes list we can declare. But maybe easier: include PREFIX declarations inside query string. The rule says each SPARQL query must declare inside its own query prologue every prefix it uses. So we need to put PREFIX lines inside the query text. So no need for sh:prefixes.
+
+Thus inside sh:select we start with "PREFIX nltl: <...> PREFIX xsd: ... PREFIX qudt: ... PREFIX unit: ... SELECT $this WHERE { ... }".
+
+Ok.
+
+Now finalize Turtle.
+
+Make sure shape URI: urn:nltl:generated-shape:IMO-117.
+
+Let's craft final.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+urn:nltl:generated-shape:IMO-117
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # presence of the boolean flag
+    sh:property [
+        sh:path nltl:sewageDischargeUsesTreatmentPlant ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    # conditional constraints when the flag is true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When sewageDischargeUsesTreatmentPlant is true, required approvals, compliance flags and discharge‑distance records must be present." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            SELECT $this WHERE {
+                $this nltl:sewageDischargeUsesTreatmentPlant true .
+                FILTER (
+                    NOT EXISTS { $this nltl:sewageTreatmentPlantApprovalStatus nltl:evidenceStateApproved } ||
+                    NOT EXISTS { $this nltl:marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus true } ||
+                    NOT EXISTS { $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus ?cert } ||
+                    NOT EXISTS {
+                        $this nltl:hasDischargeDistanceRecord ?rec .
+                        ?rec nltl:distanceToNearestLandIceShelfOrFastIce ?distLand .
+                        ?distLand qudt:numericValue ?valLand .
+                        FILTER(datatype(?valLand) = xsd:decimal) .
+                        ?distLand qudt:unit unit:MI_N .
+                    } ||
+                    NOT EXISTS {
+                        $this nltl:hasDischargeDistanceRecord ?rec2 .
+                        ?rec2 nltl:distanceToAreaWithIceConcentrationGreaterThanOneTenth ?distIce .
+                        ?distIce qudt:numericValue ?valIce .
+                        FILTER(datatype(?valIce) = xsd:decimal) .
+                        ?distIce qudt:unit unit:MI_N .
+                    }
+                )
+            }
+        """ ;
+        sh:severity sh:Violation
+    ] .
+<END_SHACL>

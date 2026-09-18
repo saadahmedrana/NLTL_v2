@@ -1,0 +1,123 @@
+We need to modify the SHACL graph to address currentIssues: property hasUpperIceWaterlineCase currently has maxCount 1. Need to remove maxCount restriction or set higher. Regression guard says preserve corrected unbounded maxCount for hasUpperIceWaterlineCase. Since previous candidate already has maxCount 1, need to change it: either omit maxCount, or set maxCount to something >1 (or sh:maxCount not present). We'll omit maxCount. Must keep other constraints unchanged.
+
+Also must preserve everything else.
+
+Thus produce revised Turtle with same prefixes, shape definitions, but modify that property block: remove sh:maxCount 1 line.
+
+We need ensure shape still has sh:minCount 1 (still required at least one case), okay.
+
+Check if any other issues? Only one current issue. Past mistakes empty.
+
+Thus output revised graph.
+
+Let's copy previousCandidateShacl, modify.
+
+Original snippet:
+
+    sh:property [
+        sh:path nltl:hasUpperIceWaterlineCase ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            ...
+
+We need to remove sh:maxCount 1 line.
+
+Also ensure shape ends with '.' etc. The graph appears ending with ' .' after shape definition.
+
+We'll produce.
+
+Make sure all prefixes same.
+
+Return between <BEGIN_SHACL> and <END_SHACL>.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:UpperIceWaterlineDisplacementShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Ship displacement (DUI) – present, decimal, unit kt
+    sh:property [
+        sh:path nltl:upperIceWaterlineDisplacement ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloTON_Metric ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # At least one UIWL case linked to the ship
+    sh:property [
+        sh:path nltl:hasUpperIceWaterlineCase ;
+        sh:minCount 1 ;
+        # maxCount removed to allow multiple cases as required by the specification
+        sh:node [
+            sh:class nltl:upperIceWaterlineCase ;
+            # Each case must provide its displacement (decimal, unit kt)
+            sh:property [
+                sh:path nltl:waterlineCaseDisplacement ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:KiloTON_Metric ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+
+    # Consistency: ship DUI must equal the greatest waterline case displacement
+    sh:sparql [
+        sh:message "The ship displacement (upperIceWaterlineDisplacement) must be equal to the greatest waterline case displacement." ;
+        sh:select """
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?shipValue ?maxCaseVal
+            WHERE {
+                $this nltl:upperIceWaterlineDisplacement ?duiNode .
+                ?duiNode qudt:numericValue ?shipValue .
+                FILTER(datatype(?shipValue) = xsd:decimal)
+
+                $this nltl:hasUpperIceWaterlineCase ?case .
+                ?case nltl:waterlineCaseDisplacement ?caseNode .
+                ?caseNode qudt:numericValue ?caseValue .
+                FILTER(datatype(?caseValue) = xsd:decimal)
+            }
+            GROUP BY $this ?shipValue
+            HAVING (?shipValue != MAX(?caseValue))
+        """
+    ] .
+<END_SHACL>

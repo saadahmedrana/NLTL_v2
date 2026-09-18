@@ -1,0 +1,88 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+gen:TRF-055 a sh:NodeShape ;
+    sh:targetClass nltl:narrowDeckStrip ;
+    
+    # Applicability: abreast of hatch = true
+    sh:property [
+        sh:path nltl:abreastOfHatch ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "Narrow deck strip must be marked abreast of hatch (true)." ;
+    ] ;
+    
+    # Applicability: serves as ice stringer = true
+    sh:property [
+        sh:path nltl:servesAsIceStringer ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "Narrow deck strip must be marked as serving as ice stringer (true)." ;
+    ] ;
+    
+    # Core requirement: actualSectionModulus >= requiredSectionModulus
+    #               AND actualShearArea >= requiredShearArea
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Section modulus or shear area is below the required value." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:actualSectionModulus ?actModNode .
+                ?actModNode qudt:numericValue ?actModVal .
+                ?actModNode qudt:unit unit:CentiM3 .
+
+                $this nltl:requiredSectionModulus ?reqModNode .
+                ?reqModNode qudt:numericValue ?reqModVal .
+                ?reqModNode qudt:unit unit:CentiM3 .
+
+                $this nltl:actualShearArea ?actShearNode .
+                ?actShearNode qudt:numericValue ?actShearVal .
+                ?actShearNode qudt:unit unit:CentiM2 .
+
+                $this nltl:requiredShearArea ?reqShearNode .
+                ?reqShearNode qudt:numericValue ?reqShearVal .
+                ?reqShearNode qudt:unit unit:CentiM2 .
+
+                FILTER ( ?actModVal < ?reqModVal || ?actShearVal < ?reqShearVal )
+            }
+        """ ;
+    ] ;
+    
+    # Exception for very‑long hatch openings:
+    #   0.10 ≤ permittedReducedLineLoad < 0.15
+    #   AND reducedLineLoadApprovedByClassificationSociety = true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Permitted reduced line load for very‑long‑hatch opening is out of the allowed range or not approved." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:veryLongHatchOpening true .
+
+                $this nltl:permittedReducedLineLoad ?permLoadNode .
+                ?permLoadNode qudt:numericValue ?permLoadVal .
+                ?permLoadNode qudt:unit unit:KiloN-PER-M .
+
+                $this nltl:reducedLineLoadApprovedByClassificationSociety true .
+
+                FILTER ( ?permLoadVal < 0.10 || ?permLoadVal >= 0.15 )
+            }
+        """ ;
+    ] .

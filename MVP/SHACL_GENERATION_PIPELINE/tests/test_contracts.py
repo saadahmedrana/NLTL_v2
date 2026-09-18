@@ -2,7 +2,11 @@ from __future__ import annotations
 import json
 import unittest
 from nltl_pipeline.errors import ResponseContractError
-from nltl_pipeline.validation.contracts import parse_matcher_decision, parse_validator_decision
+from nltl_pipeline.validation.contracts import (
+    normalize_validator_response,
+    parse_matcher_decision,
+    parse_validator_decision,
+)
 
 ISSUE = {"category":"UNIT_CONVERSION","location":"ThicknessShape","problem":"Millimetres and metres are compared directly.","required_change":"Convert millimetres to metres before comparison.","regression_guard":"Preserve metre-normalized thickness comparison.","blocking":True,"needs_vocabulary_resolution":False}
 
@@ -32,5 +36,68 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ResponseContractError): parse_validator_decision(decision(issues=[item]))
     def test_matcher_contract_requires_empty_identity_on_no_match(self):
         with self.assertRaises(ResponseContractError): parse_matcher_decision('{"match_found":false,"canonical_local_name":"x","canonical_iri":"","feedback_appendix":"No."}')
+
+    def test_plain_sol_style_validator_object_remains_unchanged(self):
+        raw = decision()
+        normalized = normalize_validator_response(raw)
+        self.assertEqual(normalized.decision_text, raw)
+        self.assertFalse(normalized.text_outside_decision_block)
+        self.assertFalse(normalized.multiple_candidate_decision_blocks)
+
+    def test_gpt_oss_reasoning_before_final_object_is_ignored_not_modified(self):
+        final = decision()
+        raw = "We need inspect the constraint carefully.\nThe verdict follows.\n" + final
+        parsed = parse_validator_decision(raw)
+        normalized = normalize_validator_response(raw)
+        self.assertFalse(parsed.accept)
+        self.assertEqual(normalized.decision_text, final)
+        self.assertEqual(normalized.text_before_decision_block, "We need inspect the constraint carefully.\nThe verdict follows.\n")
+        self.assertTrue(parsed.text_outside_decision_block)
+
+    def test_validator_explanation_whitespace_is_not_rewritten(self):
+        item = dict(ISSUE)
+        item["problem"] = "  Exact explanation whitespace is retained.  "
+        parsed = parse_validator_decision(decision(issues=[item]))
+        self.assertEqual(parsed.current_issues[0].problem, item["problem"])
+
+    def test_gpt_oss_pretty_candidate_then_final_object_uses_final_and_records_multiple(self):
+        earlier_issue = dict(ISSUE)
+        earlier_issue["problem"] = "Earlier wording from analysis."
+        earlier = json.dumps({
+            "accept": False,
+            "activate_variable_matcher": False,
+            "currentIssues": [earlier_issue],
+        }, indent=2)
+        final_issue = dict(ISSUE)
+        final_issue["problem"] = "Final wording must be preserved exactly."
+        final = decision(issues=[final_issue])
+        raw = "Analysis:\n" + earlier + "\nReturn it in one line.\n" + final
+        parsed = parse_validator_decision(raw)
+        normalized = normalize_validator_response(raw)
+        self.assertEqual(normalized.decision_text, final)
+        self.assertEqual(parsed.current_issues[0].problem, "Final wording must be preserved exactly.")
+        self.assertTrue(parsed.multiple_candidate_decision_blocks)
+        self.assertEqual(parsed.candidate_decision_block_count, 2)
+
+    def test_conflicting_candidate_decisions_are_rejected(self):
+        accepted = decision(accept=True, issues=[])
+        rejected = decision()
+        with self.assertRaisesRegex(ResponseContractError, "Conflicting"):
+            parse_validator_decision(accepted + "\nFinal answer:\n" + rejected)
+
+    def test_incomplete_trailing_decision_is_rejected_without_falling_back(self):
+        raw = decision() + '\nCorrection: {"accept":'
+        with self.assertRaisesRegex(ResponseContractError, "Incomplete trailing"):
+            parse_validator_decision(raw)
+
+    def test_nested_decision_objects_are_ambiguous(self):
+        inner = json.loads(decision())
+        outer = {"accept": False, "activate_variable_matcher": False, "currentIssues": [inner]}
+        with self.assertRaisesRegex(ResponseContractError, "nested"):
+            parse_validator_decision(json.dumps(outer, separators=(",", ":")))
+
+    def test_missing_decision_is_rejected(self):
+        with self.assertRaisesRegex(ResponseContractError, "No complete"):
+            parse_validator_decision("Reasoning only; no decision object follows.")
 
 if __name__ == "__main__": unittest.main()

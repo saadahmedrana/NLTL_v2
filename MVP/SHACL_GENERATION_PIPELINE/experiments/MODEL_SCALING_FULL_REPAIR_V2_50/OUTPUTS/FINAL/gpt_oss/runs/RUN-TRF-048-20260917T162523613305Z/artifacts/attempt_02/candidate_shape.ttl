@@ -1,0 +1,123 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix math: <http://www.w3.org/2005/xpath-functions/math#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-048
+    a sh:NodeShape ;
+    sh:targetClass nltl:longitudinalFrame ;
+
+    # presence of condition indicators
+    sh:property [
+        sh:path nltl:frameBoundaryConditionType ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:significantlyDifferentBoundaryConditions ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # frameMomentFactorM – dimensionless quantity (UNITLESS)
+    sh:property [
+        sh:path nltl:frameMomentFactorM ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # longitudinalFrameLoadDistributionFactorF4 – dimensionless quantity (UNITLESS)
+    sh:property [
+        sh:path nltl:longitudinalFrameLoadDistributionFactorF4 ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # sectionModulus – area‑moment (cm³)
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # requiredShearArea – area (cm²)
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Conditional rule: m = 13.3 when continuous beam with brackets &
+    # no significantly different boundary conditions
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "When frameBoundaryConditionType = continuousBeamWithBracketsFrameCondition and significantlyDifferentBoundaryConditions = false, frameMomentFactorM must be 13.3 (UNITLESS)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameBoundaryConditionType nltl:continuousBeamWithBracketsFrameCondition .
+                $this nltl:significantlyDifferentBoundaryConditions false .
+                $this nltl:frameMomentFactorM ?mVal .
+                FILTER (datatype(?mVal) = xsd:decimal) .
+                BIND (13.3 AS ?expected) .
+                BIND (abs(?mVal - ?expected) AS ?diff) .
+                FILTER ( ?diff > 1e-6 )
+            }
+        """
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Calculation checks for f4, Z, and required shear area A
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "Calculated values for longitudinalFrameLoadDistributionFactorF4, sectionModulus, and requiredShearArea do not match the prescribed formulas." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+
+            SELECT $this
+            WHERE {
+                # operand literals
+                $this nltl:designIceLoadHeight ?hVal .
+                $this nltl:spacing ?sVal .
+                $this nltl:span ?lVal .
+                $this nltl:icePressure ?pVal .
+                $this nltl:yieldStrength ?sigVal .
+                $this nltl:frameMomentFactorM ?mVal .
+
+                FILTER (datatype(?hVal) = xsd:decimal && datatype(?sVal) = xsd:decimal && datatype(?lVal) = xsd:decimal &&
+                        datatype(?pVal) = xsd:decimal && datatype(?sigVal) = xsd:decimal && datatype(?mVal) = xsd:decimal) .
+
+                # result literals
+                $this nltl:longitudinalFrameLoadDistributionFactorF4 ?f4Val .
+                $this nltl:sectionModulus ?zVal .
+                $this nltl:requiredShearArea ?aVal .
+
+                FILTER (datatype(?f4Val) = xsd:decimal && datatype(?zVal) = xsd:decimal && datatype(?aVal) = xsd:decimal) .
+
+                # expected calculations (values are in the units defined by the ontology)
+                BIND (1 - (0.2 * ?hVal) / ?sVal AS ?expF4) .
+                BIND ( ?expF4 * ?pVal * ?hVal * (?lVal * ?lVal) /
+                       (4 * ?mVal * ?sigVal) * 1000000 AS ?expZ ) .
+                BIND ( math:sqrt(3) * ?expF4 * 2.16 * ?pVal * ?hVal * ?lVal /
+                       (2 * ?sigVal) * 10000 AS ?expA ) .
+
+                BIND (abs(?f4Val - ?expF4) AS ?diffF4) .
+                BIND (abs(?zVal - ?expZ) AS ?diffZ) .
+                BIND (abs(?aVal - ?expA) AS ?diffA) .
+
+                FILTER ( ?diffF4 > 1e-6 || ?diffZ > 1e-6 || ?diffA > 1e-6 )
+            }
+        """
+    ] .

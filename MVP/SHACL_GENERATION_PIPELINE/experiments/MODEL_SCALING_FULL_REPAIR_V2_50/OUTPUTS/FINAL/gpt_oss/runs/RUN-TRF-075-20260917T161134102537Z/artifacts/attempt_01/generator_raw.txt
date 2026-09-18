@@ -1,0 +1,136 @@
+We need to generate SHACL shape(s) for this requirement.
+
+Requirement: Each applicable propellerBladeLoadCase links to its propellerBlade and iceBlock and has exactly one of backwardBladeForce or forwardBladeForce. Category: Static, verificationMode DIRECT_STATIC. So we need direct constraints over static RDF graph: ensure that each propellerBladeLoadCase (that is linked to a ship via hasPropellerBladeLoadCase) must have exactly one of backwardBladeForce or forwardBladeForce, and must have both a propellerBlade (via propellerBladeLoadCaseBlade) and iceBlock (via propellerBladeLoadCaseIceBlock).
+
+Also likely need to check backwardBladeForce and forwardBladeForce are quantity values with numericValue decimal and unit KiloN.
+
+The dependency contract says directConstraintTerms include ship, hasPropellerBladeLoadCase, propellerBladeLoadCase, propellerBladeLoadCaseBlade, propellerBlade, propellerBladeLoadCaseIceBlock, iceBlock, backwardBladeForce, forwardBladeForce.
+
+Thus shape should target ship class. Within shape, we need property shape for hasPropellerBladeLoadCase linking to propellerBladeLoadCase nodes. For each such load case, we need constraints: (1) at least one propellerBladeLoadCaseBlade and propellerBladeLoadCaseIceBlock (presence). Probably exactly one each? Not specified but "links to its propellerBlade and iceBlock" - likely mandatory presence, cardinality 1. Use sh:minCount 1, sh:maxCount 1. Then for backwardBladeForce and forwardBladeForce, enforce exclusive choice (exactly one). Use sh:xone with two property shapes.
+
+Also need for each force property, the quantity node must be a qudt:QuantityValue, numericValue decimal, unit KiloN.
+
+We should use prefixes: sh, nltl, qudt, unit, xsd, math perhaps not needed.
+
+Define a shape for ship: targetClass nltl:ship. Then property shape for hasPropellerBladeLoadCase leading to a node shape for load case.
+
+Define a reusable node shape for propellerBladeLoadCase (e.g., ns:PropBladeLoadCaseShape). That shape's targetClass could be nltl:propellerBladeLoadCase but we can embed via sh:node.
+
+Within that shape, we need property shapes for propellerBladeLoadCaseBlade (path to propellerBlade) and propellerBladeLoadCaseIceBlock (path to iceBlock) with minCount and maxCount =1.
+
+And an xone for exclusive choice of backwardBladeForce or forwardBladeForce. Use sh:xone with two property shapes: each as property path to one of those forces. For each, need node constraint about quantity.
+
+Implementation details:
+
+Define shape URIs under generatedShapeNamespace: e.g., urn:nltl:generated-shape:ShipShape, PropBladeLoadCaseShape.
+
+Will need to reference qudt:QuantityValue and unit:KiloN (prefix unit for qudt unit).
+
+Define a reusable quantity node shape for forces: ForceQuantityShape with sh:class qudt:QuantityValue, property for numericValue (datatype xsd:decimal) and unit hasValue unit:KiloN.
+
+Simplify: embed directly inside property shapes.
+
+sh:xone expects an array of shapes. We'll use: sh:xone ( [ sh:property [sh:path nltl:backwardBladeForce; sh:node ...] ] , [ sh:property [sh:path nltl:forwardBladeForce; sh:node ...] ] ). Actually each entry of xone is a shape. The shape can be a NodeShape with sh:property.
+
+Simpler: Use sh:xone with two node shapes: each with sh:property targeting the force property and also enforce node shape? Might be easier to use sh:or with minCount and maxCount? But exclusive choice requires exactly one of the two properties present. SHACL provides sh:xone for exactly one of the shapes must conform. So define two node shapes each expecting one property present and the other absent? Actually shape for backwardBladeForce expects presence of that property, and also need to ensure forwardBladeForce absent. Could also combine with maxCount 0 on opposite? However easier: Use sh:xone with two property shapes each defined as a node shape that expects one of the properties and also expects the other not present. But we can do simpler: Use sh:xone containing two sh:property constraints? but spec expects shape constraints. Typically you define two node shapes referenced by node at load case. For each shape: one expects backwardBladeForce present, forwardBladeForce absent, and vice versa. Use sh:property for each. For absence enforce sh:maxCount 0 on the other property.
+
+We'll implement: define shape: PropBladeLoadCaseShape a sh:NodeShape; sh:targetClass nltl:propellerBladeLoadCase; sh:property [sh:path nltl:propellerBladeLoadCaseBlade; sh:minCount 1; sh:maxCount 1]; sh:property [sh:path nltl:propellerBladeLoadCaseIceBlock; sh:minCount 1; sh:maxCount 1]; sh:xone ( ex:BackwardForceChoice ex:ForwardForceChoice ).
+
+Define ex:BackwardForceChoice a sh:NodeShape; sh:property [sh:path nltl:backwardBladeForce; sh:minCount 1; sh:maxCount 1; sh:node ex:ForceQuantityShape]; sh:property [sh:path nltl:forwardBladeForce; sh:maxCount 0].
+
+Similarly ForwardForceChoice.
+
+Define ex:ForceQuantityShape a sh:NodeShape; sh:class qudt:QuantityValue; sh:property [sh:path qudt:numericValue; sh:datatype xsd:decimal; sh:minCount 1; sh:maxCount 1]; sh:property [sh:path qudt:unit; sh:hasValue unit:KiloN; sh:minCount 1; sh:maxCount 1].
+
+All prefixes: ex for generated shapes, nltl, sh, qudt, unit, xsd.
+
+Make sure to include full Turtle with prefix declarations.
+
+No directives about repairFeedback.
+
+Return within <BEGIN_SHACL> ... <END_SHACL>.
+
+Let's construct.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <urn:nltl:generated-shape:> .
+
+# Shape targeting each Ship
+ex:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPropellerBladeLoadCase ;
+        sh:minCount 1 ;
+        sh:node ex:PropBladeLoadCaseShape
+    ] .
+
+# Shape for a propeller blade load case
+ex:PropBladeLoadCaseShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:propellerBladeLoadCase ;
+    sh:property [
+        sh:path nltl:propellerBladeLoadCaseBlade ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:propellerBlade
+    ] ;
+    sh:property [
+        sh:path nltl:propellerBladeLoadCaseIceBlock ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:iceBlock
+    ] ;
+    sh:xone ( ex:BackwardForceChoice ex:ForwardForceChoice ) .
+
+# Exclusive choice: exactly one of backwardBladeForce or forwardBladeForce must be present
+
+ex:BackwardForceChoice
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:backwardBladeForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node ex:ForceQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:forwardBladeForce ;
+        sh:maxCount 0
+    ] .
+
+ex:ForwardForceChoice
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:forwardBladeForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node ex:ForceQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:backwardBladeForce ;
+        sh:maxCount 0
+    ] .
+
+# Quantity shape for backwardBladeForce / forwardBladeForce
+ex:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

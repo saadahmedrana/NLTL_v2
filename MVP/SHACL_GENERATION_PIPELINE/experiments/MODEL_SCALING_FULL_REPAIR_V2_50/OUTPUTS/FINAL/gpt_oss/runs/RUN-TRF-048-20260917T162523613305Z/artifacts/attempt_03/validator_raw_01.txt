@@ -1,0 +1,40 @@
+We must evaluate candidateShacl against requirement. Need to find concrete blocking defects. Deterministic validation says valid true. But we must check semantics: target class, applicability, mandatory conditions, property definitions, conditional rule, calculations etc.
+
+Requirement: It's static calculation, with conditional rule: if frameBoundaryConditionType = continuousBeamWithBracketsFrameCondition AND significantlyDifferentBoundaryConditions = false, then frameMomentFactorM = 13.3. In SHACL, there is a sparql constraint that checks when values differ from 13.3 and raises message. The rule is: selects $this where condition holds and diff > tolerance. That is correct constraint ensuring M must be 13.3. Good.
+
+But also requirement includes calculation of f4, Z, A using formula. The SHACL includes a sparql that compares computed values to stored values using numeric calculations. Need to see if formulas match requirement: requirement: f4 = 1 - 0.2*h/s. SHACL uses BIND (1 - (0.2 * ?hVal) / ?sVal AS ?expF4). That's correct.
+
+Z formula: Z_cm3 = f4 * p_MPa * h_m * l_m^2 /(4*m*sigma_y_N_mm2) *10^6. SHACL: BIND ( ?expF4 * ?pVal * ?hVal * (?lVal * ?lVal) / (4 * ?mVal * ?sigVal) * 1000000 AS ?expZ ). Yes matches.
+
+A formula: A_cm2 = sqrt(3) * f4 * 2.16 * p_MPa * h_m * l_m /(2*sigma_y_N_mm2) *10^4. SHACL uses: BIND ( math:sqrt(3) * ?expF4 * 2.16 * ?pVal * ?hVal * ?lVal / (2 * ?sigVal) * 10000 AS ?expA ). That's correct.
+
+Potential issues: The SHACL property shapes for required input operands are missing. Requirement expects presence of designIceLoadHeight, spacing, span, icePressure, yieldStrength, frameMomentFactorM etc. The candidate defines properties for frameMomentFactorM, longitudinalFrameLoadDistributionFactorF4, sectionModulus, requiredShearArea, and also presence of indicators (frameBoundaryConditionType, significantlyDifferentBoundaryConditions). However, it does NOT enforce presence (minCount) for designIceLoadHeight, spacing, span, icePressure, yieldStrength. The calculation constraint uses them; if they are missing, the SPARQL will not match? But missing properties could be considered a blocking defect: mandatory condition that required inputs must be present. The requirement's "requiredInputs": "yieldStrength_MPa, sectionModulusZ, shearAreaA" Actually normalizedRequirement says requiredInputs are yieldStrength, sectionModulus, shearArea, but that's weird: requiredInputs list seems mismatched (should be operands). But requirement also says "requiredInputs": "yieldStrength_MPa, sectionModulusZ, shearAreaA" but these are result terms? Wait. In the requirement: "requiredInputs": "yieldStrength_MPa, sectionModulusZ, shearAreaA". Might be a mistake. Yet the selection's "operandTerms": list includes "icePressure, designIceLoadHeight, spacing, span, frameMomentFactorM, yieldStrength". So those likely need to be present. The candidate includes shape for frameMomentFactorM but not for the others. So missing mandatory property constraints for those operand terms is a blocking defect: the shape does not require them. Are they required by requirement? The requirement describes calculation uses these inputs. So they should be required.
+
+Thus we can flag WRONG_TARGET? Not target. Category likely "MISSING_VALUE_BEHAVIOR" or "MANDATORY_CONDITION". The allowed categories list: WRONG_TARGET, APPLICABILITY, OWNERSHIP, AND/OR/NOT/XONE, CARDINALITY, THRESHOLD, CALCULATION, TABLE, UNIT, DATATYPE, MISSING_VALUE, COMPLETENESS, INVENTED_CONSTRAINT, CANONICAL_VOCAB. Need to choose one that matches missing mandatory property. "MISSING_VALUE" is for missing-value behavior. "CARDINALITY" could be missing minCount of 1 for those properties. So we can call category "CARDINALITY". The location: the shape definition missing property constraints for designIceLoadHeight etc. We'll specify location "MainShape" (gen:TRF-048). Provide problem description. Need also required_change: add sh:property with minCount 1 for each missing input.
+
+Check also that sh:targetClass is nltl:longitudinalFrame, correct.
+
+Check that controlled value term used in rule uses IRI correctly: they use $this nltl:frameBoundaryConditionType nltl:continuousBeamWithBracketsFrameCondition . The property expects an object property; they also check boolean false with literal false (untyped?). In data, boolean value likely typed xsd:boolean. In SPARQL pattern they use $this nltl:significantlyDifferentBoundaryConditions false . That lacks datatype; should be xsd:boolean false (or typed). Might be a defect: need typed literal "false"^^xsd:boolean. However many SPARQL engines treat false literal as boolean? I think need typed literal. Might be considered a concrete defect. Category could be DATA_TYPE or WRONG_LITERAL. The spec expects boolean. The shape defines property datatype xsd:boolean for significantlyDifferentBoundaryConditions with minCount etc. The SPARQL condition uses plain false which may bind to a literal with datatype xsd:boolean? In RDF 1.1, false without datatype is an illegal lexical form; but plain literals are strings. So it's a mismatched datatype. That is a blocking issue because the rule may not fire correctly. Category perhaps "DATATYPE". Location "MainShape". Problem: using untyped boolean literal in SPARQL condition, should be xsd:boolean literal.
+
+We need decide whether to report one issue or multiple. If multiple issues, list each separate issue object. Response format: "currentIssues": [ {...}, {...} ]. Each issue must have exactly the keys. So we can include both CARDINALITY (missing required operand properties) and DATATYPE (untyped boolean literal). Both are concrete blocking defects.
+
+Check also that frameMomentFactorM unit is UNITLESS, defined correctly.
+
+Check that property for frameBoundaryConditionType does not enforce datatype; it's object property, that's fine.
+
+Thus produce JSON with accept:false, activate_variable_matcher false (no vocabulary needed), list two issues.
+
+Need category values as strings exactly one of allowed categories. We'll use "CARDINALITY" and "DATATYPE".
+
+Provide location "gen:TRF-048" maybe they want "MainShape". In example they used "MainShape". We'll use "MainShape".
+
+Provide problem messages.
+
+Provide required_change description.
+
+Blocking true etc.
+
+Now construct JSON line.
+
+
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"CARDINALITY","location":"MainShape","problem":"The shape does not require the presence (minCount = 1) of several operand properties needed for the calculations (designIceLoadHeight, spacing, span, icePressure, yieldStrength). Without these mandatory inputs the calculation constraint cannot be evaluated correctly.","required_change":"Add sh:property blocks for each missing operand with sh:path to the corresponding nltl: property and sh:minCount 1 (and appropriate sh:node shape for QuantityValue).","regression_guard":"Preserve the added cardinality constraints for the operand properties.","blocking":true,"needs_vocabulary_resolution":false},{"category":"DATATYPE","location":"MainShape","problem":"In the conditional SPARQL rule the literal 'false' is used without an explicit xsd:boolean datatype, which mismatches the datatype defined for nltl:significantlyDifferentBoundaryConditions (xsd:boolean). This can prevent the rule from activating correctly.","required_change":"Change the pattern to use a typed boolean literal, e.g., \"false\"^^xsd:boolean, in the SPARQL where clause.","regression_guard":"Maintain the corrected datatype literal for the boolean condition.","blocking":true,"needs_vocabulary_resolution":false}]}

@@ -1,0 +1,157 @@
+We need to repair syntax errors. The error: Unknown namespace prefix : qudt. Need to define prefix for qudt. We already added @prefix qudt: <http://qudt.org/schema/qudt#> . That is defined. Maybe the issue is that the prefix is defined after use? In Turtle, prefix definitions can be anywhere before usage. Our order: we placed prefixes at top: sh, nltl, xsd, unit, qudt, gen. That's fine. Why unknown prefix? Possibly the prefix name 'qudt' conflicts because we used unit: prefix already defined, but qudt is correct. Maybe the validator expects a full IRI with trailing slash? Actually QUDT schema uses http://qudt.org/schema/qudt#. That is fine.
+
+Maybe the problem is that we used qudt:numericValue and qudt:unit, but we didn't import the QUDT vocabulary definitions; but unknown prefix means prefix not recognized, perhaps due to missing colon after prefix definition? Look at our prefix line: @prefix qudt: <http://qudt.org/schema/qudt#> . That's correct.
+
+Maybe the issue is that the validator didn't see the prefix because of a stray character before it, like a missing newline or something. Let's double-check the content: we have
+
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix gen:  <urn:nltl:generated-shape:> .
+
+Looks fine.
+
+Maybe the error arose because the validator sees "qudt:numericValue" inside a literal string? No.
+
+Could be that the QUDT schema is not allowed in SHACL? The error message says unknown prefix, maybe the prefix "qudt" is not allowed because it's not declared with a valid IRI syntax? The IRI ends with #, ok.
+
+Maybe the validator expects the prefix to be declared before usage but our usage appears before it's declared? Actually we use qudt only after prefix declarations, all good.
+
+Potential issue: The prefix 'unit:' also uses http://qudt.org/vocab/unit/. That's fine.
+
+Maybe the error is due to the missing closing dot after the last shape. We have a dot after gen:DailyLowTempObsShape shape. That's fine.
+
+Check syntax: In sh:sparql [ a sh:SPARQLConstraint ; ... ; ]; We used a semicolon after sh:select triple-quoted string, but missing a dot after the list? Actually we have sh:sparql [ a sh:SPARQLConstraint ; sh:message "..."; sh:select """...""" ; ] . That's correct: semicolons inside list, then close bracket, then dot.
+
+But reading our code: 
+
+sh:sparql [ 
+    a sh:SPARQLConstraint ; 
+    sh:message "..."; 
+    sh:select """ ... """ ; 
+] .
+
+Yes.
+
+Potential unknown prefix because "sh:SPARQLConstraint" is not a class; should be sh:SPARQLConstraint? Actually SHACL uses sh:SPARQLConstraintComponent, but with property sh:select inside constraint. But using sh:SPARQLConstraint as type is allowed? Usually you use sh:SPARQLConstraintComponent as a class. However unknown prefix is about qudt not about SPARQL.
+
+Maybe there is stray invisible character before @prefix qudt line. Hard to know.
+
+Alternative: To avoid unknown prefix, we could avoid using qudt prefix entirely and use full IRI <http://qudt.org/schema/qudt#numericValue>. That eliminates prefix usage. Let's replace all uses of qudt: with full IRI. That ensures no unknown prefix. Similarly for qudt:unit.
+
+Implement changes: replace sh:path qudt:numericValue with sh:path <http://qudt.org/schema/qudt#numericValue> and same for unit.
+
+Thus we can remove @prefix qudt: line too, but it's okay to keep it but not required. Remove to avoid potential conflict.
+
+Let's modify the Turtle accordingly.
+
+Also need to adjust the SELECT query's use of qudt:numericValue; replace with full IRI.
+
+Make those changes, ensure syntax.
+
+Return corrected candidate.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen:  <urn:nltl:generated-shape:> .
+
+gen:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # dataPeriod must be a QUDT QuantityValue (years)
+    sh:property [
+        sh:path nltl:dataPeriod ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path <http://qudt.org/schema/qudt#numericValue> ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path <http://qudt.org/schema/qudt#unit> ;
+                sh:hasValue unit:YR
+            ]
+        ] ;
+        sh:minCount 1
+    ] ;
+    # meanDailyLowTemperature must be a QUDT QuantityValue (deg C)
+    sh:property [
+        sh:path nltl:meanDailyLowTemperature ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path <http://qudt.org/schema/qudt#numericValue> ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path <http://qudt.org/schema/qudt#unit> ;
+                sh:hasValue unit:DEG_C
+            ]
+        ] ;
+        sh:minCount 1
+    ] ;
+    # administrationDatasetApprovalStatus limited to Approved
+    sh:property [
+        sh:path nltl:administrationDatasetApprovalStatus ;
+        sh:class nltl:evidenceState ;
+        sh:in ( nltl:evidenceStateApproved )
+    ] ;
+    # ship must have at least one daily low temperature observation
+    sh:property [
+        sh:path nltl:hasDailyLowTemperatureObservation ;
+        sh:node gen:DailyLowTempObsShape ;
+        sh:minCount 1
+    ] ;
+    # Conditional rule: if dataPeriod < 10 years then approval must be Approved
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When dataPeriod is less than 10 years, administrationDatasetApprovalStatus must be Approved." ;
+        sh:select """ 
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qdt: <http://qudt.org/schema/qudt#>
+
+            SELECT $this WHERE {
+                $this nltl:dataPeriod ?dpNode .
+                ?dpNode qdt:numericValue ?dp .
+                FILTER ( ?dp < 10 ) .
+                FILTER NOT EXISTS { $this nltl:administrationDatasetApprovalStatus nltl:evidenceStateApproved . }
+            }
+        """ ;
+    ] .
+
+gen:DailyLowTempObsShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:dailyLowTemperatureObservation ;
+    # observation date
+    sh:property [
+        sh:path nltl:dailyTemperatureObservationDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1
+    ] ;
+    # daily low temperature value as QUDT QuantityValue (deg C)
+    sh:property [
+        sh:path nltl:dailyLowTemperature ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path <http://qudt.org/schema/qudt#numericValue> ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path <http://qudt.org/schema/qudt#unit> ;
+                sh:hasValue unit:DEG_C
+            ]
+        ] ;
+        sh:minCount 1
+    ] .
+<END_SHACL>

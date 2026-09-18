@@ -1,0 +1,80 @@
+We need to validate candidate SHACL against requirement, focusing on concrete blocking defects (wrong target, applicability, ownership/path, mandatory condition, logic, cardinality, thresholds, formula/table, unit, datatype, missing-value behavior, canonical term, etc.)
+
+We must return JSON with accept false if any blocking defects, else accept true with empty issues.
+
+We must examine candidate SHACL shapes:
+
+- ex:MemberStrengthCheck: targetClass nltl:ship (correct target owner ship). Path nltl:hasStructuralMember; qualifiedValueShape ex:MemberStrengthCheck_QV; qualifiedMinCount 0 (means zero or more members must satisfy? Actually qualifiedMinCount 0 essentially always passes, but we want to enforce condition for each structural member? Possibly should be qualifiedMinCount 1? The requirement: The local frames in bottom structures ... dimensioned such that combined shear and bending does not exceed plastic strength. So we need to check each structural member maybe with a constraint that if location is bottom or side, demand <= strength. The shape currently uses qualifiedMinCount 0, which means no requirement to have any member that satisfies constraint. That could be a defect: not enforcing mandatory check. But is it considered blocking? It means the constraint may not be enforced. For a requirement that must hold for each member, we should use qualifiedMinCount 1 (or maybe sh:property with path to structural member and then apply a SPARQL constraint that fails if demand > strength). However they used MIN=0, which essentially makes constraint optional, not blocking. But does that constitute a concrete blocking defect? The requirement states something that must hold for every applicable member. Using 0 may permit non-compliance. That is a logic/cardinality defect. So I think there is a defect: qualifiedMinCount 0 should be 1 (or maybe not using qualified min count at all, just use property shape with SPARQL constraint; but still shape will evaluate on each member because property path selects members and then inner shape runs for each value. If qualifiedMinCount 0, absence of member still passes, but presence of member with failing constraint would still cause violation because the qualifiedValueShape constraints each value? Actually qualifiedValueShape imposes constraint on each value that matches the shape; qualifiedMinCount is the minimum number of those values that must conform. With 0, even if none conform, passes. If there are members, the SPARQL shape will be applied to each? In SHACL, qualifiedValueShape with qualifiedMinCount applies to number of values that conform. If you have members, but some fail, the shape still might pass because you can have 0 members that conform (choose zero). Thus it does not enforce validation. So it's a defect.
+
+- ex:BottomPatchOrientationCheck similarly uses qualifiedMinCount 0, same issue.
+
+- ex:StructuralMemberFrameProfileTypeCheck also uses qualifiedMinCount 0; but it ensures each member has frameProfileType minCount 1 within inner shape, but outer qualifiedMinCount 0 again makes it optional. Should be 1 at least maybe.
+
+- ex:ShipHasStructuralMemberCheck has sh:minCount 1 on hasStructuralMember, good. This ensures ship has at least one structural member. That's fine.
+
+Now check other aspects:
+
+- Paths used are correct: nltl:hasStructuralMember exists and is object property linking ship to structuralMember.
+
+- In MemberStrengthCheck_QV SPARQL query: selects $this where $this structuralLocation ?locValue etc. However $this refers to structural member? In the qualifiedValueShape context, $this is the value (structural member) because the property shape's path is hasStructuralMember. That matches. They test structuralLocation property on the member, which is correct. They also retrieve demand and strength quantity values. For demand they use nltl:combinedShearAndBendingDemand on load case, get numeric value. For strength they use nltl:plasticStrength on structural member.
+
+- Use of ?locValue IN (nltl:bottomStructureLocation, nltl:sideStructureLocation). Good.
+
+- The requirement includes also orientation of patch load for bottom structure. BottomPatchOrientationCheck uses structuralLocation bottomStructureLocation and ensures NOT EXISTS a loadPatchOrientation of specific individual. That seems correct.
+
+- FrameProfileTypeCheck ensures each member has frameProfileType minCount 1, but outer qualifiedMinCount 0 again optional.
+
+Now also check missing mandatory condition: requirement includes "plastic strength is defined by the magnitude of midspan load that causes the development of a plastic collapse mechanism". Are we using plasticStrength property correctly? plasticStrength is a quantity property; they compare demand > strength. That aligns.
+
+Do we need to check that plasticStrength is defined for structuralMember; but no explicit mandatory presence in shape (except inner shape in frameProfile... maybe elsewhere). Not required here.
+
+Now check canonical terms: All IRIs used are in canonical namespace; they are listed in candidateUsedCanonicalTerms, and deterministicValidation shows used canonical IRIs correct. So no missing.
+
+Check units: plasticStrength recommended unit KiloN, demand also same. No unit conversion needed. Not explicit.
+
+Check target is correct: requiredTargetOwner ship. Yes.
+
+Check applicability: The requirement applies to bottom and side location members. The shape correctly filters.
+
+Potential issue: The requirement includes "For bottom structure the patch load shall be applied with the dimension (b) parallel with the frame direction." The shape checks that loadPatchOrientation is loadPatchHeightParallelToFrame. That matches.
+
+Now any other defects: The shape names ex:MemberStrengthCheck etc., but naming not required.
+
+The descriptive property: In ex:MemberStrengthCheck_QV they use PREFIX nltl: <https://w3id.org/nltl/vocab#> but in earlier shapes they had nltl prefix with same, okay.
+
+Potential issue: The SPARQL variable ?strengthQty qudt:numericValue ?strength. The plasticStrength property has range QuantityValue; okay.
+
+One more: The SPARQL in MemberStrengthCheck does not enforce that demand <= strength; instead they filter demand > strength (violation). That's typical pattern: select violations. Good.
+
+Cardinality for qualifiedMinCount 0 is definitely a defect because it does not enforce requirement. The requirement is mandatory: for each applicable member must satisfy inequality. So shape should enforce at least one conforming member; but the logic of using filter for demand > strength means we select members where demand > strength; So we want shape to raise violation when any such member exists. Using qualifiedMinCount 0 will not raise violation because the condition is to have at least 0 members that satisfy the shape (i.e., members where demand > strength). The shape selects members that violate; but then qualifiedMinCount 0 is fine because we want to assert 0 violations? Actually typical pattern: Use sh:property with sh:qualifiedValueShape referencing a shape that selects the values that are INVALID? I'm not sure. Usually you would use sh:qualifiedValueShape with sh:qualifiedMaxCount 0 to enforce no value matches shape (i.e., no violations). Or you could use sh:node with sh:message inside shape (not qualified), but they used qualifiedMinCount 0, which is likely wrong. Usually you'd set sh:qualifiedMaxCount 0 and qualifiedValueShape that matches violating condition. Or use sh:node with SPARQL constraint directly on ship, not via qualified. So configuration seems incorrect.
+
+Thus this is a concrete blocking defect: WRONG cardinality (qualifiedMinCount 0 instead of qualifiedMaxCount 0 or 1). Category: CARDINALITY? The list includes cardinality, thresholds, etc. So category could be "CARDINALITY". The required_change: change sh:qualifiedMinCount 0 to sh:qualifiedMaxCount 0 (or maybe remove qualifiedMinCount). Provide correction.
+
+Need to produce JSON with at least one issue.
+
+Select location field: "MainShape". Which shape? Probably ex:MemberStrengthCheck (the primary shape). Could list separate issues for each wrapper shape. But we need at least one; can include multiple issues.
+
+But each issue must include category, location, problem, required_change, regression_guard, blocking, needs_vocabulary_resolution.
+
+We'll produce one issue for MemberStrengthCheck (WRONG_CARDINALITY?) The category list not specified to be limited to defined set; but examples earlier say categories like WRONG_TARGET. The spec: "Return all concrete blocking issues actually present. Each issue must contain exactly all seven issue keys shown." The example shows category "WRONG_TARGET". But acceptable categories can be any as long as they are meaningful? Probably must be one of the defined categories: WRONG_TARGET, APPLICABILITY, OWNERSHIP_PATH, MANDATORY_CONDITION, LOGIC, CARDINALITY, THRESHOLD, FORMULA, UNIT, DATATYPE, MISSING_VALUE_BEHAVIOR, CANONICAL_TERM, etc. Use "CARDINALITY".
+
+Location: "ex:MemberStrengthCheck" or "MemberStrengthCheck". Use shape name.
+
+Problem description: "sh:qualifiedMinCount is set to 0, which makes the constraint optional and fails to enforce the requirement that no structural member may have combined shear and bending demand exceeding plastic strength."
+
+Required_change: "Replace sh:qualifiedMinCount 0 with sh:qualifiedMaxCount 0 (or remove qualifiedMinCount and use sh:qualifiedMaxCount 0) to ensure violations are prohibited."
+
+Regression_guard: "Preserve the corrected cardinality constraint."
+
+blocking: true.
+
+needs_vocabulary_resolution: false (no new term needed).
+
+We may also include issue for other wrapper shapes similarly. Could include multiple issues. The JSON expects currentIssues array; can contain multiple objects. That's fine.
+
+Return accept false.
+
+Construct JSON line.
+
+
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"CARDINALITY","location":"ex:MemberStrengthCheck","problem":"sh:qualifiedMinCount is set to 0, making the constraint optional and allowing violations of the requirement that combined shear and bending demand must not exceed plastic strength.","required_change":"Replace sh:qualifiedMinCount 0 with sh:qualifiedMaxCount 0 (or remove qualifiedMinCount and use sh:qualifiedMaxCount 0) to ensure no violating members are allowed.","regression_guard":"Preserve the corrected cardinality constraint.","blocking":true,"needs_vocabulary_resolution":false},{"category":"CARDINALITY","location":"ex:BottomPatchOrientationCheck","problem":"sh:qualifiedMinCount is set to 0, which does not enforce the mandatory orientation requirement for bottom‑structure members.","required_change":"Replace sh:qualifiedMinCount 0 with sh:qualifiedMaxCount 0 to prohibit members lacking the required loadPatchOrientation.","regression_guard":"Preserve the corrected cardinality constraint for orientation check.","blocking":true,"needs_vocabulary_resolution":false},{"category":"CARDINALITY","location":"ex:StructuralMemberFrameProfileTypeCheck","problem":"sh:qualifiedMinCount is set to 0, so the requirement that every structural member must have a frameProfileType is not enforced.","required_change":"Replace sh:qualifiedMinCount 0 with sh:qualifiedMaxCount 0 (or set sh:qualifiedMinCount 1) to guarantee each member includes a frameProfileType.","regression_guard":"Preserve the corrected cardinality constraint for frame profile type check.","blocking":true,"needs_vocabulary_resolution":false}]}

@@ -1,0 +1,126 @@
+We need to repair SHACL graph to fix deterministic validation issues: quantity properties must point to QUDT QuantityValue node instead of literal datatype. So need to replace sh:datatype xsd:decimal with constraints that enforce node shape using qudt:QuantityValue pattern: use sh:node with shape that asserts property path to numeric value and unit.
+
+We have previousCandidateShacl with shapes: ShipShape and StructuralMemberShape. For each quantity property we currently specify sh:datatype xsd:decimal. Need to change to shape that expects a node of type qudt:QuantityValue with required unit.
+
+Also need to avoid unapproved external/generated IRIs: "http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". Actually those are standard QUDT properties, so allowed? The past mistake says "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". That suggests previously they corrected such by using qudt:numericValue and qudt:unit? The guard says preserve correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit. Wait that indicates these IRIs were considered unapproved? Might be they want to avoid using those as they are external but approved? The guard says "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". Could mean they previously flagged usage of those IRIs as problematic and corrected them. We need to preserve that correction; i.e., not re-introduce them incorrectly. However the issue requires using QUDT QuantityValue node, which typically uses properties qudt:numericValue and qudt:unit. Those are the same IRIs. So maybe they had to use them but target shape must use those. The guard maybe about avoiding using them as datatype IRIs not shape? Hard to interpret.
+
+Given current issue, we must modify shapes to require that property points to a node that conforms to a quantity shape using those QUDT properties. We can define a generic QuantityValueShape with sh:class qudt:QuantityValue, and require sh:property sub constraints: sh:path qudt:numericValue, sh:datatype xsd:decimal; sh:path qudt:unit with sh:hasValue of recommendedUnit? We can use sh:hasValue referencing IRI.
+
+Implementation: Add shapes gen:QuantityValueShape with sh:targetClass qudt:QuantityValue? Or just node shape.
+
+But simplest: For each property, replace block with:
+
+sh:node [
+   sh:property [
+      sh:path qudt:numericValue ;
+      sh:datatype xsd:decimal ;
+   ] ;
+   sh:property [
+      sh:path qudt:unit ;
+      sh:hasValue <recommendedUnit> ;
+   ] ;
+] 
+
+But need to import qudt prefix: @prefix qudt: <http://qudt.org/schema/qudt#> . Also maybe prefix unit: not needed.
+
+We must also adjust using recommendedUnit IRIs from vocabulary: netAttachedShellPlateThickness recommendedUnit is http://qudt.org/vocab/unit/MilliM ; yieldStrength recommendedUnit http://qudt.org/vocab/unit/MegaPA ; netWebThickness recommendedUnit also milliM. So include sh:hasValue with those IRIs.
+
+Thus update SHACL.
+
+Now preserve other content unchanged.
+
+Add prefix qudt.
+
+Make sure shapes use correct IRIs.
+
+Let's construct revised graph.
+
+We'll keep ShipShape unchanged.
+
+StructuralMemberShape: modify each property.
+
+Define a generic shape? Not needed.
+
+Proceed.
+
+Output.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+# Ship level shape – requires at least one structural member
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:minCount 1 ;
+        sh:node gen:StructuralMemberShape ;
+        sh:message "A ship must be linked to at least one structural member via nltl:hasStructuralMember." ;
+    ] .
+
+# Structural member shape – required quantity values (QUDT QuantityValue nodes)
+gen:StructuralMemberShape a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+
+    # net attached shell plate thickness (t_pn)
+    sh:property [
+        sh:path nltl:netAttachedShellPlateThickness ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:message "netAttachedShellPlateThickness numeric value must be a decimal." ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+                sh:message "netAttachedShellPlateThickness unit must be milli‑metre (mm)." ;
+            ] ;
+        ] ;
+        sh:message "netAttachedShellPlateThickness (t_pn) must be provided as a QUDT QuantityValue node." ;
+    ] ;
+
+    # yield strength (sigma_y)
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:message "yieldStrength numeric value must be a decimal." ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+                sh:message "yieldStrength unit must be megapascals (MPa)." ;
+            ] ;
+        ] ;
+        sh:message "yieldStrength must be provided as a QUDT QuantityValue node." ;
+    ] ;
+
+    # net web thickness (t_wn) – result term
+    sh:property [
+        sh:path nltl:netWebThickness ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:message "netWebThickness numeric value must be a decimal." ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+                sh:message "netWebThickness unit must be milli‑metre (mm)." ;
+            ] ;
+        ] ;
+        sh:message "netWebThickness (t_wn) must be provided as a QUDT QuantityValue node." ;
+    ] .
+<END_SHACL>

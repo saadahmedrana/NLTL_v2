@@ -1,0 +1,144 @@
+We need to generate SHACL shape for the requirement. Requirement: "In order to retain ice class IB or IC a ship, ... shall comply with the required minimum engine output as defined in section 3.2.1". So applicability: ship must have iceClass of IB or IC (these are individuals of iceClassValue) and applicableIceClassRegulationEdition maybe? Actually we have terms: iceClass (object property from ship to iceClassValue). Also maximumContinuousRatingPower (quantity property) and requiredPowerUnder1985Rules (quantity property). The rule: For ships that have iceClass IB or IC AND applicableIceClassRegulationEdition is the 1985 edition? Actually iceClassRuleEdition1985 is a controlled value of iceClassRegulationEditionValue. Probably we need to check that ship's applicableIceClassRegulationEdition is iceClassRuleEdition1985 (i.e., edition 1985). Then the ship must have maximumContinuousRatingPower >= requiredPowerUnder1985Rules (minimum engine output). So constraints:
+- ship must have iceClass property linking to either iceClassIb or iceClassIc (the two allowed values). This is a presence/valued constraint: iceClass must be one of those individuals.
+- ship must have applicableIceClassRegulationEdition linking to iceClassRuleEdition1985 (maybe this is implicit). The requirement text mentions "to which ice class regulations 1985 apply". So we need that applicableIceClassRegulationEdition is iceClassRuleEdition1985.
+- Then engine output: maxContinuousRatingPower must be >= requiredPowerUnder1985Rules. Both are quantity values. They are represented as qudt:QuantityValue nodes with numericValue and unit. So we need a SHACL-SPARQL constraint to compare numeric values after maybe unit conversion. Since both recommended units are kW, we can compare numericValue directly. Use tolerance? Not needed; direct >=.
+
+We must target class ship (owner class). So shape target is nltl:ship.
+
+We must use only allowed terms. allowedVocabulary includes all needed terms (iceClass, applicableIceClassRegulationEdition, iceClassRuleEdition1985, iceClassIb, iceClassIc, maximumContinuousRatingPower, requiredPowerUnder1985Rules, qudt:QuantityValue, qudt:numericValue, qudt:unit, unit KiloW). We can also use xsd:decimal, sh:NodeShape, sh:property, sh:targetClass, etc.
+
+We need to encode applicability: maybe split into two shapes: one for applicability check: iceClass must be IB or IC and applicableIceClassRegulationEdition must be iceClassRuleEdition1985. Then a validation for power: if applicable, compare values.
+
+Simplify: Since SHACL doesn't support conditional with separate shapes, we can use sh:rule? Better: Use sh:property with sh:path iceClass and sh:in [list]. Use sh:property for applicableIceClassRegulationEdition with sh:hasValue iceClassRuleEdition1985? but must be object property; could use sh:hasValue to enforce specific node. Yes.
+
+Then combine with sh:property for maximumContinuousRatingPower and requiredPowerUnder1985Rules presence (both must exist). Then separate sh:SPARQLConstraint to enforce numeric comparison only when applicable. But the property shapes already ensure presence for all ships; but we may want them only when applicability holds. However spec says may use sh:condition? Not in SHACL core. We could enforce both presence always, but likely okay: requirement likely expects those properties to exist for ships anyway. We'll just enforce them always.
+
+Comparison: Use sh:property? Could use sh:node with SPARQL. Use sh:sparql constraint on ship.
+
+Write shape:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF023Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:iceClassIb nltl:iceClassIc ) ;
+        sh:message "Ship must have ice class IB or IC." ;
+    ] ;
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:hasValue nltl:iceClassRuleEdition1985 ;
+        sh:message "Applicable ice class regulation edition must be 1985 edition." ;
+    ] ;
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:nodeKind sh:BlankNode ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Maximum continuous rating power must be provided as a QuantityValue." ;
+    ] ;
+    sh:property [
+        sh:path nltl:requiredPowerUnder1985Rules ;
+        sh:nodeKind sh:BlankNode ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Required power under 1985 rules must be provided as a QuantityValue." ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Maximum continuous rating power must be greater than or equal to required power under 1985 rules." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ( ?mcrVal AS ?value1 ) ( ?reqVal AS ?value2 )
+            WHERE {
+                $this nltl:maximumContinuousRatingPower ?mcrQty .
+                ?mcrQty qudt:numericValue ?mcrVal .
+                $this nltl:requiredPowerUnder1985Rules ?reqQty .
+                ?reqQty qudt:numericValue ?reqVal .
+                FILTER ( ?mcrVal < ?reqVal )
+            }
+        """ ;
+    ] .
+
+Need to ensure prefixes inside SPARQL query include all used. Already included.
+
+Make sure we used only allowed terms: nltl:iceClass, nltl:iceClassIb, nltl:iceClassIc, nltl:applicableIceClassRegulationEdition, nltl:iceClassRuleEdition1985, nltl:maximumContinuousRatingPower, nltl:requiredPowerUnder1985Rules, qudt:QuantityValue, qudt:numericValue. Also used sh:hasValue (allowed), sh:in (allowed). The shape uses sh:minCount, sh:maxCount.
+
+Check allowedVocabulary includes sh prefixes? Yes core.
+
+Now output between markers.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF023Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Applicability: ice class must be IB or IC
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:iceClassIb nltl:iceClassIc ) ;
+        sh:message "Ship must have ice class IB or IC." ;
+    ] ;
+    # Applicability: regulation edition must be the 1985 edition
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:hasValue nltl:iceClassRuleEdition1985 ;
+        sh:message "Applicable ice class regulation edition must be the 1985 edition." ;
+    ] ;
+    # Required input: maximum continuous rating power
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:nodeKind sh:BlankNode ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Maximum continuous rating power must be provided as a QuantityValue." ;
+    ] ;
+    # Required input: required power under 1985 rules
+    sh:property [
+        sh:path nltl:requiredPowerUnder1985Rules ;
+        sh:nodeKind sh:BlankNode ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Required power under 1985 rules must be provided as a QuantityValue." ;
+    ] ;
+    # Comparison: MCR power >= required power
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Maximum continuous rating power must be greater than or equal to required power under 1985 rules." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ( ?mcrVal AS ?value1 ) ( ?reqVal AS ?value2 )
+            WHERE {
+                $this nltl:maximumContinuousRatingPower ?mcrQty .
+                ?mcrQty qudt:numericValue ?mcrVal .
+                $this nltl:requiredPowerUnder1985Rules ?reqQty .
+                ?reqQty qudt:numericValue ?reqVal .
+                FILTER ( ?mcrVal < ?reqVal )
+            }
+        """ ;
+    ] .
+<END_SHACL>

@@ -1,0 +1,77 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:ShipShape> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:ownerRequested2008EngineOutputRequirements ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:engineOutputRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:class nltl:iceClassValue ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Cohort-specific regulation edition constraints violated." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?value ?message
+            WHERE {
+              $this nltl:constructionStageDate ?date .
+              FILTER (?date >= "1986-11-01"^^xsd:date && ?date < "2003-09-01"^^xsd:date)
+              
+              {
+                $this nltl:applicableIceClassRegulationEdition ?appEd .
+                FILTER (?appEd != nltl:iceClassRuleEdition1985)
+                BIND(?appEd AS ?value)
+                BIND("For ships constructed between 1986-11-01 and 2003-09-01, applicableIceClassRegulationEdition must be iceClassRuleEdition1985." AS ?message)
+              }
+              UNION
+              {
+                FILTER NOT EXISTS { $this nltl:applicableIceClassRegulationEdition ?anyApp }
+                BIND($this AS ?value)
+                BIND("Missing applicableIceClassRegulationEdition for cohort." AS ?message)
+              }
+              UNION
+              {
+                OPTIONAL { $this nltl:ownerRequested2008EngineOutputRequirements ?requested }
+                BIND(COALESCE(?requested, false) AS ?reqBool)
+                BIND(IF(?reqBool, nltl:iceClassRegulationEdition2008, nltl:iceClassRuleEdition1985) AS ?expectedEngEd)
+                
+                $this nltl:engineOutputRegulationEdition ?engEd .
+                FILTER (?engEd != ?expectedEngEd)
+                BIND(?engEd AS ?value)
+                BIND("Incorrect engine output regulation edition for cohort." AS ?message)
+              }
+              UNION
+              {
+                FILTER NOT EXISTS { $this nltl:engineOutputRegulationEdition ?anyEng }
+                BIND($this AS ?value)
+                BIND("Missing engineOutputRegulationEdition for cohort." AS ?message)
+              }
+            }
+        """ ;
+    ] .
+<END_SHACL>

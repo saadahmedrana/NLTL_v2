@@ -1,0 +1,386 @@
+We need to generate SHACL shape for this requirement.
+
+Requirement: Compute C_spex = max(0.3, 0.7*(1 - ((4*EAR)/Z)^3)) and Q_sex_kNm = max(C_LE0.8, 0.8*C_TE0.8)*C_spex*F_ex_kN, unless an appropriate stress analysis directly determines the maximum spindle torque.
+
+But this is DIRECT_CALCULATION. The dependency contract lists operandTerms and resultTerms. The resultTerms includes bladeFailureSpindleTorqueFactor (C_spex), bladeFailureSpindleTorque (Q_sex), maximumSpindleTorque (maybe the "maximum spindle torque" alternative if analysis exists). There's also a relationshipTerm: approvedSpindleTorqueStressAnalysis. Means if there is such a linked analysis that directly determines maximumSpindleTorque, perhaps the calculation is not needed? Let's read contract: comparisonModel same as formulaExpression with "unless approvedSpindleTorqueStressAnalysis directly determines maximumSpindleTorque". So SHACL should enforce: If ship does NOT have approvedSpindleTorqueStressAnalysis (or the analysis does not provide max spindle torque), then we must compute bladeFailureSpindleTorqueFactor and bladeFailureSpindleTorque and ensure they satisfy formulas with given inputs.
+
+But according to rules, we should encode required inputs presence and data types/units. Also, for calculation, we need to derive values and compare.
+
+We have allowedVocabulary terms for: bladeExpandedAreaRatio, propellerBladeCount, leadingEdgeChordPortionAtZeroPointEightRadius, trailingEdgeChordPortionAtZeroPointEightRadius, extremeIceForce, bladeFailureSpindleTorqueFactor, bladeFailureSpindleTorque, maximumSpindleTorque, approvedSpindleTorqueStressAnalysis.
+
+We also have for each quantity property's unit.
+
+Our shape target class: nltl:ship.
+
+We need property shapes for each operand term: ensure they exist, each must be a QuantityValue node with numericValue (xsd:decimal) and unit correct.
+
+- bladeExpandedAreaRatio: unit UNITLESS (dimensionless)
+- propellerBladeCount: datatype integer? Actually it's DatatypeProperty integer; it's not a quantity property. It is not in allowed list as quantity property; it's a datatype property. However, it's listed as operand term. So we need shape property for propellerBladeCount with datatype integer, minCount 1 maxCount 1.
+
+- leadingEdgeChordPortionAtZeroPointEightRadius: unit m
+- trailingEdgeChordPortionAtZeroPointEightRadius: unit m
+- extremeIceForce: unit kN
+
+Result terms:
+
+- bladeFailureSpindleTorqueFactor: unit UNITLESS, dimensionless quantity.
+- bladeFailureSpindleTorque: unit kN*m (as per "kNm").
+- maximumSpindleTorque: unit kN*m also.
+
+Potentially need shape for approvedSpindleTorqueStressAnalysis relationship. It's an ObjectProperty linking ship to approvalRecord. Requirement: If such an analysis exists, we don't need to enforce the calculation? The requirement says "unless an appropriate stress analysis directly determines the maximum spindle torque." That suggests that if there is an approvedSpindleTorqueStressAnalysis that links to an approvalRecord (maybe containing the calculated maximum spindle torque), then we accept. For SHACL, we can implement conditional logic: If there is no such analysis, enforce calculations; if there is, maybe not required to have the calculated values? However, still maybe need to ensure that if analysis exists, it provides max spindle torque value? But not defined. Simpler: Enforce calculations only when there is NOT an approvedSpindleTorqueStressAnalysis. That is typical.
+
+Implementation: Use sh:property with sh:path nltl:approvedSpindleTorqueStressAnalysis ...? Not sure if property belongs to ship. The property has domain ship, range approvalRecord (which is also vessel?). So we can have a property shape where presence of this link means we skip calculation.
+
+Implementation of conditional via two node shapes? Use sh:rule with sh:condition? But SHACL spec offers sh:targetClass and sh:property constraints; conditional can be expressed with sh:or containing two branches: one where approvedSpindleTorqueStressAnalysis exists (then maybe no further constraints) and another where it does NOT exist, which includes calculation constraints. Approach: Use sh:or with two sh:NodeShape elements as inline shapes? Or use sh:property with sh:node? Possibly better: create a top-level sh:NodeShape with sh:targetClass nltl:ship and then a sh:or with two branches: (1) has approvedSpindleTorqueStressAnalysis, (2) does not have it, but includes operand presence and calculation constraint. However sh:or works at node shape level, not per property. We can implement with sh:property where we use sh:or with two shapes for that property? Might be simpler to use sh:property constraints for operands regardless, and then a sh:sparql constraint that only triggers if NOT EXISTS approvedSpindleTorqueStressAnalysis.
+
+Thus we have a SPARQL constraint:
+
+SELECT $this WHERE {
+  FILTER NOT EXISTS { $this nltl:approvedSpindleTorqueStressAnalysis ?analysis . }
+  ... get operand values and compute C_spex and Q_sex etc, then check they are present and consistent.
+}
+
+But need also ensure that result terms exist (bladeFailureSpindleTorqueFactor, bladeFailureSpindleTorque) and meet the formula. So shape:
+
+- Required operand properties (presence).
+- Required result properties (presence) maybe? Actually calculation yields those results; we could require presence of the result values, then check they equal the formulas. For max function: define formulas.
+
+Compute C_spex = max(0.3, 0.7*(1 - ((4*EAR)/Z)^3))
+
+EAR = bladeExpandedAreaRatio numericValue
+Z = propellerBladeCount (integer count)
+So ((4*EAR)/Z)^3 = ((4*EAR)/Z) ^ 3
+
+C_temp = 0.7 * (1 - ((4*EAR)/Z)^3)
+
+C_spex = max(0.3, C_temp)
+
+Compute Q_sex = max(C_LE0.8, 0.8*C_TE0.8) * C_spex * F_ex
+
+Where C_LE0.8 = leadingEdgeChordPortionAtZeroPointEightRadius numericValue
+C_TE0.8 = trailingEdgeChordPortionAtZeroPointEightRadius numericValue
+F_ex = extremeIceForce numericValue
+
+Compute max(C_LE0.8, 0.8*C_TE0.8)
+
+Now compare with result values:
+
+bladeFailureSpindleTorqueFactor numericValue must be within tolerance of calculated C_spex.
+
+bladeFailureSpindleTorque numericValue must be within tolerance of Q_sex.
+
+Define tolerance maybe 1e-6 relative.
+
+We also need to ensure units are correct, but that's handled via property shape.
+
+Implementation details:
+
+- For QuantityProperty shapes: Use sh:node with class qudt:QuantityValue and nested sh:property for numericValue and unit.
+
+Now also ensure that maximumSpindleTorque property (maybe optional) must match either the calculated bladeFailureSpindleTorque if no analysis? The spec says unless analysis directly determines max spindle torque, the calculation yields Q_sex which is maybe the maximum spindle torque. So we can require that maximumSpindleTorque matches bladeFailureSpindleTorque (or its own value). But contract lists resultTerms includes maximumSpindleTorque as separate. Might require that maximumSpindleTorque equals bladeFailureSpindleTorque (or provided by analysis). In absence of analysis, probably maximumSpindleTorque should be equal to the calculated bladeFailureSpindleTorque. We'll encode that.
+
+Thus we will have shape also for maximumSpindleTorque numericValue equality to bladeFailureSpindleTorque numericValue within tolerance.
+
+Now, we must reference qudt prefixes: qudt: and unit:.
+
+Define prefixes at top of SHACL: sh:, nltl:, xsd:, qudt:, unit:.
+
+Also need math prefix for exponent? We can use ^ for power; SPARQL uses pow()? Actually SPARQL 1.1 supports pow() function for numeric. It can be fn:pow? But we can use pow()? Not sure. Simpler: use math:power if allowed? There's math prefix for trig but not power. Better to compute exponent via multiplication: ((4*EAR)/Z) * ((4*EAR)/Z) * ((4*EAR)/Z). Let's assign variable x = (4*EAR)/Z; then x3 = x*x*x.
+
+Let's write SPARQL:
+
+SELECT $this WHERE {
+  FILTER NOT EXISTS { $this nltl:approvedSpindleTorqueStressAnalysis ?analysis . }
+
+  $this nltl:bladeExpandedAreaRatio ?earQty .
+  ?earQty qudt:numericValue ?ear .
+  FILTER (datatype(?ear) = xsd:decimal || datatype(?ear) = xsd:float || datatype(?ear) = xsd:double)
+
+  $this nltl:propellerBladeCount ?bladeCount .
+  FILTER (datatype(?bladeCount) = xsd:integer)
+
+  $this nltl:leadingEdgeChordPortionAtZeroPointEightRadius ?cLeQty .
+  ?cLeQty qudt:numericValue ?cLe .
+  $this nltl:trailingEdgeChordPortionAtZeroPointEightRadius ?cTeQty .
+  ?cTeQty qudt:numericValue ?cTe .
+
+  $this nltl:extremeIceForce ?iceForceQty .
+  ?iceForceQty qudt:numericValue ?Fex .
+
+  # compute C_spex
+  BIND ((4.0 * ?ear) / ?bladeCount AS ?x)
+  BIND (?x * ?x * ?x AS ?x3)
+  BIND (0.7 * (1.0 - ?x3) AS ?cTemp)
+  BIND (IF(?cTemp > 0.3, ?cTemp, 0.3) AS ?cSpexCalc)
+
+  # compute max(C_LE0.8, 0.8*C_TE0.8)
+  BIND (0.8 * ?cTe AS ?cTeScaled)
+  BIND (IF(?cLe > ?cTeScaled, ?cLe, ?cTeScaled) AS ?cChordMax)
+
+  BIND (?cChordMax * ?cSpexCalc * ?Fex AS ?qSexCalc)
+
+  # retrieve reported factor and torque
+  $this nltl:bladeFailureSpindleTorqueFactor ?factorQty .
+  ?factorQty qudt:numericValue ?factorReported .
+  $this nltl:bladeFailureSpindleTorque ?torqueQty .
+  ?torqueQty qudt:numericValue ?torqueReported .
+  $this nltl:maximumSpindleTorque ?maxTorqueQty .
+  ?maxTorqueQty qudt:numericValue ?maxTorqueReported .
+
+  # tolerance
+  BIND (1e-6 AS ?relTol)
+  BIND (ABS(?factorReported - ?cSpexCalc) AS ?diffFactor)
+  BIND (ABS(?torqueReported - ?qSexCalc) AS ?diffTorque)
+  BIND (ABS(?maxTorqueReported - ?qSexCalc) AS ?diffMaxTorque)
+
+  FILTER (?diffFactor > (IF(?cSpexCalc = 0, 0.0, ?relTol * ABS(?cSpexCalc))))
+  FILTER (?diffTorque > (IF(?qSexCalc = 0, 0.0, ?relTol * ABS(?qSexCalc))))
+  FILTER (?diffMaxTorque > (IF(?qSexCalc = 0, 0.0, ?relTol * ABS(?qSexCalc))))
+}
+
+But we need to cause violation when mismatched, i.e., select $this when any violation occurs. So the FILTER conditions should be > tolerance (i.e., differences beyond tolerance). That's what we wrote.
+
+Now need to include prefixes within the SPARQL block.
+
+Also need to include other property shapes.
+
+Now shape ID: maybe generated as urn:nltl:generated-shape:TRF-102
+
+Now construct Turtle.
+
+Make sure to include sh:property for each operand term with correct node constraints.
+
+For QuantityProperties:
+
+- bladeExpandedAreaRatio: path nltl:bladeExpandedAreaRatio; node shape class qudt:QuantityValue; with sh:property for qudt:numericValue datatype decimal, and qudt:unit hasValue unit:UNITLESS (the IRI "http://qudt.org/vocab/unit/UNITLESS").
+
+- leadingEdgeChordPortion..., trailingEdge..., extremeIceForce all similar with units M, M, kN respectively.
+
+For factor and torque, also similar but they are result terms; we also need property shapes ensuring presence.
+
+For propellerBladeCount: sh:datatype xsd:integer.
+
+Add sh:minCount 1 sh:maxCount 1 for each required.
+
+Now the relationship: approvedSpindleTorqueStressAnalysis property maybe not required; we just need to detect its absence. So we don't enforce presence.
+
+Now overall shape includes sh:sparql constraint with message.
+
+Remember each SPARQL block needs prefix declarations inside query. So we need to embed them at beginning of select string.
+
+We will include prefixes: PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+
+Now final shape.
+
+Let's assemble.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:TRF-102 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    #--- Operand properties -------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeExpandedAreaRatio ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:propellerBladeCount ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ; sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:leadingEdgeChordPortionAtZeroPointEightRadius ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:trailingEdgeChordPortionAtZeroPointEightRadius ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:extremeIceForce ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:kN ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    #--- Result properties ---------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeFailureSpindleTorqueFactor ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureSpindleTorque ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:kN.m ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:maximumSpindleTorque ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:kN.m ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    #--- Calculation check (applies only if no approved analysis) ------------
+    sh:sparql [
+        sh:message "Calculated spindle‑torque values do not match the formula defined in TRF‑102." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this WHERE {
+                # If a stress‑analysis record exists, skip the calculation check
+                FILTER NOT EXISTS { $this nltl:approvedSpindleTorqueStressAnalysis ?analysis . }
+
+                # ---- retrieve operands ------------------------------------------------
+                $this nltl:bladeExpandedAreaRatio ?earQty .
+                ?earQty qudt:numericValue ?ear .
+                $this nltl:propellerBladeCount ?bladeCount .
+
+                $this nltl:leadingEdgeChordPortionAtZeroPointEightRadius ?cLeQty .
+                ?cLeQty qudt:numericValue ?cLe .
+                $this nltl:trailingEdgeChordPortionAtZeroPointEightRadius ?cTeQty .
+                ?cTeQty qudt:numericValue ?cTe .
+
+                $this nltl:extremeIceForce ?iceForceQty .
+                ?iceForceQty qudt:numericValue ?Fex .
+
+                # ---- compute C_spex ---------------------------------------------------
+                BIND ( (4.0 * ?ear) / ?bladeCount AS ?x )
+                BIND ( ?x * ?x * ?x AS ?x3 )
+                BIND ( 0.7 * (1.0 - ?x3) AS ?cTemp )
+                BIND ( IF ( ?cTemp > 0.3 , ?cTemp , 0.3 ) AS ?cSpexCalc )
+
+                # ---- compute Q_sex ----------------------------------------------------
+                BIND ( 0.8 * ?cTe AS ?cTeScaled )
+                BIND ( IF ( ?cLe > ?cTeScaled , ?cLe , ?cTeScaled ) AS ?cChordMax )
+                BIND ( ?cChordMax * ?cSpexCalc * ?Fex AS ?qSexCalc )
+
+                # ---- retrieve reported results ----------------------------------------
+                $this nltl:bladeFailureSpindleTorqueFactor ?factorQty .
+                ?factorQty qudt:numericValue ?factorReported .
+                $this nltl:bladeFailureSpindleTorque ?torqueQty .
+                ?torqueQty qudt:numericValue ?torqueReported .
+                $this nltl:maximumSpindleTorque ?maxTorqueQty .
+                ?maxTorqueQty qudt:numericValue ?maxTorqueReported .
+
+                # ---- tolerance (relative 1e-6) ---------------------------------------
+                BIND (1e-6 AS ?relTol)
+
+                BIND (ABS(?factorReported - ?cSpexCalc) AS ?diffFactor)
+                BIND (ABS(?torqueReported - ?qSexCalc) AS ?diffTorque)
+                BIND (ABS(?maxTorqueReported - ?qSexCalc) AS ?diffMax)
+
+                FILTER ( ?diffFactor > (IF(?cSpexCalc = 0, 0.0, ?relTol * ABS(?cSpexCalc))) )
+                FILTER ( ?diffTorque > (IF(?qSexCalc = 0, 0.0, ?relTol * ABS(?qSexCalc))) )
+                FILTER ( ?diffMax   > (IF(?qSexCalc = 0, 0.0, ?relTol * ABS(?qSexCalc))) )
+            }
+        """
+    ] .
+<END_SHACL>

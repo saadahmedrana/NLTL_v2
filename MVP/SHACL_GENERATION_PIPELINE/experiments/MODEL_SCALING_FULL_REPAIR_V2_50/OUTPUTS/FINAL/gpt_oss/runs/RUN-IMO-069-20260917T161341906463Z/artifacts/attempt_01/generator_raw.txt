@@ -1,0 +1,148 @@
+We need to produce SHACL graph for requirement:
+
+IF addedLifeSavingDeviceRequiresPower = true THEN devicePowerSourceIndependentOfMainPower = true.
+
+Both properties are datatype properties of boolean, requiredOwner ship, domain benchmarkEntity (but they have requiredOwner ship). The target class should be ship? Actually the requiredOwner is ship, so target class is nltl:ship.
+
+We need to enforce conditional constraint: If first property is true, then second must be true. Also we should ensure both properties are present? The requirement only says if addedLifeSavingDeviceRequiresPower true, then devicePowerSourceIndependentOfMainPower must be true. So we need to ensure that when addedLifeSavingDeviceRequiresPower is true, the second property must be true. If first is false or absent, no requirement. Probably also require both properties to be present? The requirement may expect presence of second when needed. For safety, we can require presence of addedLifeSavingDeviceRequiresPower (maybe mandatory). But spec says conditional boolean constraint, we can require that property exists with boolean datatype and cardinality 1 (maybe) as many boolean constraints examples used minCount 1 maxCount1 and hasValue true. But here we need to capture any boolean value, not forced true. So for property addedLifeSavingDeviceRequiresPower we need datatype boolean, minCount 1 maxCount1 (presence). For second property, requirement only when first true. Could enforce via SHACL-SPARQL constraint shape that checks condition.
+
+Thus shape: NodeShape targeting nltl:ship. Have core property shapes for both booleans with minCount 1 maxCount 1 maybe.
+
+But we don't want to force devicePowerSourceIndependentOfMainPower true always, only when first true. Could use property shape with sh:node to another shape? Perhaps easier: use sh:sparql constraint that checks: FILTER NOT EXISTS { ?this nltl:addedLifeSavingDeviceRequiresPower true . } # if no true, ok. Or if true, then enforce second true.
+
+SPARQL could be:
+
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+ASK WHERE {
+  FILTER NOT EXISTS { 
+    ?this nltl:addedLifeSavingDeviceRequiresPower true .
+  }
+  UNION
+  {
+    ?this nltl:addedLifeSavingDeviceRequiresPower true .
+    ?this nltl:devicePowerSourceIndependentOfMainPower true .
+  }
+}
+
+But SHACL-SPARQL uses SELECT ?this WHERE { ... } returning violating nodes. Usually you write sh:sparql with a SELECT that returns result set of violating focus nodes. Use pattern where condition fails.
+
+Better: SELECT ?this WHERE {
+  ?this a nltl:ship .
+  ?this nltl:addedLifeSavingDeviceRequiresPower true .
+  FILTER NOT EXISTS { ?this nltl:devicePowerSourceIndependentOfMainPower true . }
+}
+
+Thus any ship where first true and second not true will be violation.
+
+We also need presence of addedLifeSavingDeviceRequiresPower property, maybe optional? However if missing then can't evaluate condition, maybe should not be violation. But maybe requirement expects explicit recording. Could include a property shape asserting its presence (minCount 1). That ensures data includes that boolean for evaluation. But original conditional requirement says IF ... = true, then ... = true. Could be that missing considered non-conforming? The spec not explicit. We could enforce minCount 1 for addedLifeSavingDeviceRequiresPower. That aligns with examples where boolean presence required.
+
+Thus shape:
+
+- NodeShape targeting nltl:ship.
+- property shape for addedLifeSavingDeviceRequiresPower: datatype xsd:boolean, minCount 1 maxCount 1.
+- property shape for devicePowerSourceIndependentOfMainPower: datatype xsd:boolean, minCount 1 maxCount 1 maybe? Actually must be present when needed, but may be present anyway for completeness; we can still require presence (makes sense). But has to be true when first true; we could set sh:hasValue true? No can't because only needed when first true. So we can't set hasValue true globally.
+
+Simplify: we require both present with datatype boolean. Additional SPARQL constraint for conditional.
+
+Implement in Turtle with generated shape namespace: urn:nltl:generated-shape:.
+
+Define shape URIs maybe :ConditionalPowerShape.
+
+Thus produce within <BEGIN_SHACL> ... <END_SHACL>.
+
+Need prefixes: sh, nltl, xsd, rdf maybe.
+
+For SPARQL inside shape, declare prefixes inside query as per rule 10.
+
+Write:
+
+sh:sparql [
+  a sh:SPARQLConstraint ;
+  sh:select """
+    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+    SELECT $this WHERE {
+      $this nltl:addedLifeSavingDeviceRequiresPower true .
+      FILTER NOT EXISTS { $this nltl:devicePowerSourceIndependentOfMainPower true . }
+    }
+  """ ;
+  sh:message "If a ship has a life‑saving device that requires power, its power source must be independent of the main power." ;
+] .
+
+Use $this variable as per SHACL spec; recommended to use $this or ?this? The spec: inside SPARQL constraint, the focus node is bound as $this (sh:variable). Use $this.
+
+Thus final Turtle.
+
+Make sure property shapes:
+
+sh:property [
+    sh:path nltl:addedLifeSavingDeviceRequiresPower ;
+    sh:datatype xsd:boolean ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+] .
+
+And similarly for devicePowerSourceIndependentOfMainPower but not requiring true:
+
+sh:property [
+    sh:path nltl:devicePowerSourceIndependentOfMainPower ;
+    sh:datatype xsd:boolean ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+] .
+
+Include sh:targetClass nltl:ship.
+
+Now ensure prefixes:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gs: <urn:nltl:generated-shape:> .
+
+Define shape as gs:PowerDependencyShape.
+
+Everything is present.
+
+Check no extra tokens.
+
+Now produce final answer with markers.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gs: <urn:nltl:generated-shape:> .
+
+gs:PowerDependencyShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:addedLifeSavingDeviceRequiresPower ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:devicePowerSourceIndependentOfMainPower ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "If a ship has a life‑saving device that requires power, its power source must be independent of the ship's main power." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:addedLifeSavingDeviceRequiresPower true .
+                FILTER NOT EXISTS { $this nltl:devicePowerSourceIndependentOfMainPower true . }
+            }
+        """ ;
+    ] .
+<END_SHACL>

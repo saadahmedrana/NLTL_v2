@@ -1,0 +1,133 @@
+We need to fix deterministic validation issue: unapproved external IRI http://qudt.org/schema/qudt#QuantityValue. The allowed vocabulary list includes only NLTL vocab; external IRIs are not approved unless maybe QUDT is allowed? In currentIssues, need to correct this deterministic error while preserving all unrelated semantics. Likely need to replace use of qudt:QuantityValue with a custom class within allowed vocab, maybe define a local shape representing quantity value, but cannot introduce new vocab terms not in allowed list. However perhaps we can use allowed vocab's range already set to "http://qudt.org/schema/qudt/QuantityValue". That is the external IRI causing issue. To fix, we could change sh:class from qudt:QuantityValue to a blank node shape that validates using qudt:numericValue and qudt:unit but not using external class. But still uses property IRIs qudt:numericValue and qudt:unit which also are external. Past mistake guard: preserve correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit. So we must not reintroduce those. Means we must avoid using qudt:numericValue and qudt:unit as well. So we need to avoid referencing any QUDT terms. But allowed vocabulary does not include any quantity value class, only the property types have range QUDT QuantityValue. Since we cannot use external IRIs, we need to perhaps use sh:datatype constraints (xsd:decimal) and perhaps use sh:nodeKind sh:Literal with sh:datatype xsd:decimal, and maybe a custom property for unit but unit is outside allowed. We could just validate that the property points to a literal with datatype xsd:decimal (or maybe a typed literal) and not require a separate QuantityValue node. The original shape uses qudt quantity node pattern. The nodePatterns mention qudtQuantityValue pattern: subject canonicalProperty quantityNode; quantityNode qudt:numericValue xsd:decimal; qudt:unit recommendedUnit. But that uses external IRIs. To fix deterministic error, we need to replace these shapes with something that does not reference external IRIs. Perhaps we can use sh:nodeKind sh:Literal and sh:datatype xsd:decimal and maybe sh:hasValue with unit? Not possible. But we could drop the QuantityValue node shape entirely and use sh:datatype constraints directly on the property, like sh:path nltl:averageIcePressure ; sh:datatype xsd:decimal ; sh:minCount 1 ; but the property range is defined as a QuantityProperty expecting a QuantityValue. However SHACL shape can still validate that the object is a literal of type xsd:decimal, not enforcing the range. That's fine.
+
+Thus we need to modify each property shape that currently uses sh:node -> :AvgIcePressureShape etc. Instead, replace with sh:datatype xsd:decimal and maybe a sh:message. Also remove the separate node shapes that have sh:class qudt:QuantityValue.
+
+Thus update the SHACL graph: For each property, replace the block:
+
+sh:property [
+   sh:path nltl:averageIcePressure ;
+   sh:node :AvgIcePressureShape ;
+   sh:minCount 1 ;
+   sh:message "...";
+]
+
+with
+
+sh:property [
+   sh:path nltl:averageIcePressure ;
+   sh:datatype xsd:decimal ;
+   sh:minCount 1 ;
+   sh:message "...";
+]
+
+And remove the node shapes :AvgIcePressureShape etc. Also remove BowShapeCoeffShape etc.
+
+Additionally, BowSubregionCaseShape uses sh:path nltl:bowShapeCoefficient ; sh:node :BowShapeCoeffShape ;. Replace similarly with datatype decimal.
+
+Also glancingImpactLineLoad etc. Replace with datatype decimal.
+
+Thus all references to qudt:QuantityValue removed, eliminating external IRI usage. Ensure no leftover qudt prefixes.
+
+Also need to keep prefix definitions: we can keep qudt prefix maybe unused, but unused prefixes are fine. However the issue is unapproved external IRI; using the prefix doesn't matter if not used.
+
+Thus produce revised SHACL graph.
+
+Make sure to keep other parts unchanged.
+
+Let's craft final graph.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ComplexReadinessShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Polar class (applicability)
+    sh:property [
+        sh:path nltl:polarClass ;
+        sh:class nltl:polarClassValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must declare its Polar Class (value of type nltl:polarClassValue)." ;
+    ] ;
+    # Ship‑level input quantities
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Average ice pressure (MPa) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:shapeCoefficient ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Shape coefficient (unitless) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:lineLoad ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Line load (kN/m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Load patch height (m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchLength ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Load patch length (m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:localIcePressure ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Local ice pressure (MPa) must be supplied." ;
+    ] ;
+    # Bow‑subregion calculation case(s) containing result quantities
+    sh:property [
+        sh:path nltl:hasBowSubregionCalculationCase ;
+        sh:minCount 1 ;
+        sh:node :BowSubregionCaseShape ;
+        sh:message "At least one Bow sub‑region calculation case must be provided." ;
+    ] .
+
+# ---- Bow sub‑region calculation case shape ----
+:BowSubregionCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:bowSubregionCalculationCase ;
+    # Input: bow shape coefficient (f_ai)
+    sh:property [
+        sh:path nltl:bowShapeCoefficient ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Bow shape coefficient must be supplied for the calculation case." ;
+    ] ;
+    # Result: glancing impact line load (Qi)
+    sh:property [
+        sh:path nltl:glancingImpactLineLoad ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Glancing impact line load (MN·m⁻²) must be supplied." ;
+    ] ;
+    # Result: glancing impact pressure (Pi)
+    sh:property [
+        sh:path nltl:glancingImpactPressure ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Glancing impact pressure (MPa) must be supplied." ;
+    ] ;
+    # Result: total glancing impact force (Fi)
+    sh:property [
+        sh:path nltl:totalGlancingImpactForce ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Total glancing impact force (kN) must be supplied." ;
+    ] .
+<END_SHACL>

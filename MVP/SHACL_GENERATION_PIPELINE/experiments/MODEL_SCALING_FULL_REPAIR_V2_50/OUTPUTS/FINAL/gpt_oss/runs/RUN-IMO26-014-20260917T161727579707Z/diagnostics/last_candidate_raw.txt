@@ -1,0 +1,134 @@
+We need to generate a SHACL graph for the requirement:
+
+"If solely_24_hour_daylight_operation = false, then visual_ice_detection_illumination_means_count >= 2."
+
+Terms: operatesOnlyInContinuousDaylight (boolean) (aliased solely_24_hour_daylight_operation). visualIceDetectionIlluminationMeansCount (integer).
+
+RequiredOwner for both terms is ship. So Shape targetClass nltl:ship.
+
+We need conditional minimum-count constraint: only apply the count requirement if operatesOnlyInContinuousDaylight is false.
+
+Thus we need to enforce that visualIceDetectionIlluminationMeansCount exists with at least 2 when operatesOnlyInContinuousDaylight false.
+
+Implementation: Use sh:property for boolean presence? Actually we need to ensure boolean property present, and integer property present with min >=2 conditionally.
+
+SHACL best approach: Use sh:or with two shapes? Or use sh:rule? But requirement: If boolean false, then integer >=2. If boolean true, then no minimum count requirement (could be any number or omitted). So we can create a shape that has a sh:property for boolean with datatype boolean and required (minCount 1). Then we need a sh:property for integer that is optional but with a constraint via sh:sparql (or sh:qualifiedValueShape?). We could use sh:sparql constraint that checks condition.
+
+Simplify: Use sh:property for integer with sh:datatype xsd:integer, sh:minCount 0 (optional). Then add a sh:sparql constraint that asserts: either operatesOnlyInContinuousDaylight = true, or visualIceDetectionIlluminationMeansCount >= 2. Also ensure integer present if false? The condition requires count >=2, which implies that property must exist. So the SPARQL can check either boolean true or (integer >=2). Additionally we may still want presence requirement when false, but SPARQL can enforce that as integer >=2 (which implicitly fails if missing). So we don't need separate minCount.
+
+So shape will have targetClass nltl:ship.
+
+Define prefixes: nltl, sh, xsd.
+
+Add property shape for operatesOnlyInContinuousDaylight with datatype xsd:boolean, minCount 1, maxCount 1 (presence).
+
+Add SPARQL constraint maybe at node shape level: sh:message "If ship does not operate only in continuous daylight, it must have at least two visual ice detection illumination means."
+
+Inside sh:sparql, we declare prefixes.
+
+The query: SELECT $this (?), but the pattern: FILTER NOT EXISTS { ... } to detect violation. The typical pattern: SELECT $this WHERE { FILTER ( ... ) }. But we can use sh:message and sh:sparql selects $this where condition fails.
+
+Constraint: SELECT $this WHERE {
+   $this nltl:operatesOnlyInContinuousDaylight ?daylight .
+   FILTER ( ?daylight = false && NOT EXISTS {
+        $this nltl:visualIceDetectionIlluminationMeansCount ?cnt .
+        FILTER ( ?cnt >= 2 )
+   } )
+}
+
+But also need to handle case where daylight false and count missing, will cause NOT EXISTS, causing violation.
+
+Alternatively use a single pattern: { $this nltl:operatesOnlyInContinuousDaylight ?daylight . OPTIONAL { $this nltl:visualIceDetectionIlluminationMeansCount ?cnt . } FILTER ( ?daylight = false && ( !BOUND(?cnt) || ?cnt < 2 ) ) }
+
+That ensures violation when day false and count missing or less than 2.
+
+Need to have prefix declarations inside the query for nltl and xsd (daylight boolean?). No need for xsd.
+
+Make sure constant false typed correctly. In SPARQL boolean literal is "false"^^xsd:boolean. So use xsd:boolean.
+
+Thus:
+
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this WHERE {
+  $this nltl:operatesOnlyInContinuousDaylight ?daylight .
+  OPTIONAL { $this nltl:visualIceDetectionIlluminationMeansCount ?cnt . }
+  FILTER ( ?daylight = "false"^^xsd:boolean && ( !BOUND(?cnt) || ?cnt < 2 ) )
+}
+
+Now shape.
+
+Need to use generatedShapeNamespace: urn:nltl:generated-shape:.
+
+Name shape perhaps :ShipDaylightIlluminationShape.
+
+Prefix for generated: gen: <urn:nltl:generated-shape:>
+
+But the requirement says use ASCII-safe readable identifiers for generated shape resources under the supplied generatedShapeNamespace. So we can define <urn:nltl:generated-shape:ShipDaylightIlluminationShape>.
+
+Now produce Turtle.
+
+Will also include sh:property for boolean with minCount 1, maxCount 1.
+
+Sh:property for integer maybe optional, but we can also include datatype check. However could be part of SPARQL only. Might still want to enforce datatype integer if present. Since it's integer type.
+
+We can add separate property shape for visualIceDetectionIlluminationMeansCount with datatype integer, minCount 0 (optional). Not required.
+
+Maybe we add sh:property with sh:datatype xsd:integer for that property; but minCount 0; maxCount 1 perhaps.
+
+Given we need to enforce integer type; include.
+
+Now compile final answer.
+
+Check no prohibited constructs. No VALUES, SERVICE, MINUS.
+
+Make sure each query includes PREFIX declarations.
+
+Now produce final output with <BEGIN_SHACL> and <END_SHACL> wrappers.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:ShipDaylightIlluminationShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # presence of the daylight‑operation flag (boolean)
+    sh:property [
+        sh:path nltl:operatesOnlyInContinuousDaylight ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "The ship must indicate whether it operates only in continuous daylight." ;
+    ] ;
+
+    # optional illumination‑means count (integer) – datatype enforced
+    sh:property [
+        sh:path nltl:visualIceDetectionIlluminationMeansCount ;
+        sh:datatype xsd:integer ;
+        sh:maxCount 1 ;
+        sh:message "If present, the illumination‑means count must be an integer." ;
+    ] ;
+
+    # conditional rule: when not continuous‑daylight, count must be ≥ 2
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Ships that do not operate only in continuous daylight must have at least two visual ice‑detection illumination means." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:operatesOnlyInContinuousDaylight ?daylight .
+                OPTIONAL { $this nltl:visualIceDetectionIlluminationMeansCount ?cnt . }
+                FILTER (
+                    ?daylight = "false"^^xsd:boolean &&
+                    ( !BOUND(?cnt) || ?cnt < 2 )
+                )
+            }
+        """ ;
+    ] .
+<END_SHACL>

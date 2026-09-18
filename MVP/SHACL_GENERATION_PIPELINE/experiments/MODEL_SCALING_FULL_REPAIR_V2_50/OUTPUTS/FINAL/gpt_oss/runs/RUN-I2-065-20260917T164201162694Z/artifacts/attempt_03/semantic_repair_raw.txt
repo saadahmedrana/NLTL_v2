@@ -1,0 +1,213 @@
+The task: repair SHACL graph to fix deterministic validation error: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#QuantityValue. The SHACL uses qudt:QuantityValue as a class for nodes. That IRI is considered external/unapproved. Need to replace with approved internal representation. In vocabulary list, there is no class for QuantityValue. However they have pattern node qudtQuantityValue that uses quantityNode qudt:numericValue xsd:decimal; qudt:unit recommendedUnit. But the allowed vocabulary may include qudt:QuantityValue? Not listed; only canonical vocabulary is nltl. The rule says use only allowed canonical terms. So we must replace the use of qudt:QuantityValue with something in allowed vocabulary.
+
+Which term can represent quantity values? Possibly they have QuantityProperty for fractureMargin etc., which have range qudt:QuantityValue and recommendedUnit. The shape constraints require that the object is a node with class qudt:QuantityValue, and then inside we need numericValue and unit.
+
+But the issue is just the class IRI is unapproved. Could we replace the class constraint with a node shape that validates the pattern using qudt:numericValue and unit, without referencing the class. In SHACL, we can use sh:node with a shape that contains constraints on qudt:numericValue and unit. That shape would not require the class. The pattern "qudtQuantityValue" suggests they intended to model such. So fix by removing sh:class qudt:QuantityValue and instead embed the pattern.
+
+Thus for each property (fractureMargin, majorBucklingMargin, etc.) we can define sh:node [ a sh:NodeShape; sh:property [ sh:path qudt:numericValue; sh:datatype xsd:decimal; sh:minCount 1 ]; sh:property [ sh:path qudt:unit; sh:hasValue <recommendedUnit> ; sh:minCount 1 ] ].
+
+But we need to reference the recommended unit per property: the vocab entries include recommendedUnit URIs. Should we embed them? Possibly using sh:hasValue with the unit IRI.
+
+Simplify: For each property, replace node shape with sh:node that enforces qudt:numericValue a decimal and sh:property for unit, but not use external class.
+
+Thus modify the SHACL accordingly.
+
+Also need to preserve other parts unchanged.
+
+Implementation: For each sh:property block for those six properties, change:
+
+sh:node [
+   a sh:NodeShape ;
+   sh:class qudt:QuantityValue
+]
+
+to something like:
+
+sh:node [
+   a sh:NodeShape ;
+   sh:property [
+       sh:path qudt:numericValue ;
+       sh:datatype xsd:decimal ;
+       sh:minCount 1 ;
+   ] ;
+   sh:property [
+       sh:path qudt:unit ;
+       sh:hasValue <unitIRI> ;
+       sh:minCount 1 ;
+   ]
+]
+
+We need unit IRI for each property from vocabulary list: fractureMargin recommendedUnit UNITLESS (http://qudt.org/vocab/unit/UNITLESS). majorBucklingMargin same. permanentLateralDeformation unit mm (http://qudt.org/vocab/unit/MilliM). permanentOutOfPlaneDeformation same. relevantStructuralDimension same. yieldingMargin UNITLESS.
+
+Add sh:node shape accordingly.
+
+Make sure to import prefix qudt, xsd.
+
+Everything else unchanged.
+
+Now produce revised graph.
+
+Let's craft the Turtle.
+
+We need to include prefixes same as before.
+
+Will edit each property accordingly.
+
+Also the sh:targetClass remains nltl:ship.
+
+Let's write.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # calculation case required for non‑linear assessment
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:targetClass nltl:calculationCase ;
+            # the calculation method must be the controlled non‑linear method value
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:class nltl:calculationMethodValue ;
+                sh:hasValue nltl:nonlinearCalculationMethodValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            # evidence that the non‑linear analysis was accepted
+            sh:property [
+                sh:path nltl:nonlinearAnalysisAcceptanceEvidence ;
+                sh:class nltl:evidenceArtifact ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            # result of the assessment – must be true
+            sh:property [
+                sh:path nltl:minorPermanentDeformationAssessmentSatisfied ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    # operand terms that must be present (quantities with units)
+
+    # fractureMargin
+    sh:property [
+        sh:path nltl:fractureMargin ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    # majorBucklingMargin
+    sh:property [
+        sh:path nltl:majorBucklingMargin ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    # permanentLateralDeformation
+    sh:property [
+        sh:path nltl:permanentLateralDeformation ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MilliM ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    # permanentOutOfPlaneDeformation
+    sh:property [
+        sh:path nltl:permanentOutOfPlaneDeformation ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MilliM ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    # relevantStructuralDimension
+    sh:property [
+        sh:path nltl:relevantStructuralDimension ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MilliM ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    # yieldingMargin
+    sh:property [
+        sh:path nltl:yieldingMargin ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1
+            ]
+        ]
+    ] .
+<END_SHACL>

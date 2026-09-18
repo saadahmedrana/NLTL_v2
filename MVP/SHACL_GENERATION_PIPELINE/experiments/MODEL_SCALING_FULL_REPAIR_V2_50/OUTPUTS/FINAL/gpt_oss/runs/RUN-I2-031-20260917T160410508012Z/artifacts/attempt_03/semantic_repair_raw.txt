@@ -1,0 +1,183 @@
+We need to repair the SHACL graph per currentIssues: change targetClass of three shapes from nltl:structuralMember to nltl:ship, and nest constraints under property shape qualifiedValueShape targeting structural members via nltl:hasStructuralMember.
+
+We must preserve other parts unchanged, including other shapes and any regression guards (preserve corrected target). There's a regression guard: preserve corrected target (nltl:ship) for these shapes.
+
+We also must maintain other shapes: ex:ShipHasStructuralMemberCheck and maybe others.
+
+We need to adjust each shape:
+
+1. ex:MemberStrengthCheck: currently a NodeShape targeting structuralMember, with SPARQL constraint that uses $this as structuralMember. Need to change to target ship, and apply constraint to each structuralMember of the ship. Use sh:qualifiedValueShape maybe with sh:path nltl:hasStructuralMember and sh:qualifiedValueShape referencing a shape that contains the SPARQL constraint but applied to each structuralMember.
+
+Simpler: have ex:MemberStrengthCheck be a property shape on ship with path nltl:hasStructuralMember and sh:qualifiedValueShape referencing an inner shape (maybe ex:MemberStrengthInner) that contains the SPARQL constraint referencing $value (or $this?). In SHACL, for qualifiedValueShape, the inner shape is evaluated with $value as the focus node. In SPARQL constraint inside inner shape, use $this referring to the structuralMember (the value). So we need to create a new inner shape (maybe ex:MemberStrengthInner) or repurpose ex:MemberStrengthCheck as the inner shape and create a wrapper shape ex:MemberStrengthCheckWrapper? Since we must preserve location ex:MemberStrengthCheck - the shape identifier must stay same? The currentIssue says change sh:targetClass to nltl:ship and use property shape (e.g., sh:qualifiedValueShape) to apply constraint to each ship's structural members via nltl:hasStructuralMember. So we should modify ex:MemberStrengthCheck: keep same IRI, change to sh:NodeShape? Actually property shape can be a NodeShape or PropertyShape? The shape with sh:targetClass is NodeShape. We'll change to sh:NodeShape with targetClass nltl:ship, and add sh:property with path nltl:hasStructuralMember, sh:qualifiedValueShape pointing to an inner shape (maybe ex:MemberStrengthCheck_QV). We need to define the inner shape separate: maybe ex:MemberStrengthCheck_Qualified as a sh:NodeShape with a SPARQL constraint same as before, and no targetClass (or perhaps targetClass not needed). We need to include it in the graph.
+
+But we are told "do not invent canonical vocabulary". We can add new shapes with URNs of generated namespace, which is allowed. Use generatedShapeNamespace: urn:nltl:generated-shape:. So we can define inner shapes like ex:MemberStrengthCheck_QV.
+
+Similarly for ex:BottomPatchOrientationCheck and ex:StructuralMemberFrameProfileTypeCheck.
+
+For the frame profile type check originally a property shape on structuralMember ensuring frameProfileType minCount 1. For ship target, we need to apply on each structuralMember. So we need a wrapper shape targeting ship with property path nltl:hasStructuralMember and qualifiedValueShape referencing a shape that has the property shape path nltl:frameProfileType minCount 1. So we could define ex:StructuralMemberFrameProfileTypeCheck as the wrapper, and inner shape ex:StructuralMemberFrameProfileTypeCheck_QV.
+
+But we need to preserve the shape identifier location but we can change its contents.
+
+Thus final graph:
+
+prefixes stay.
+
+Define inner shapes maybe using same namespace ex (generated). Let's name inner shapes with suffix "MemberShape" etc.
+
+Implementation details:
+
+ex:MemberStrengthCheck
+ a sh:NodeShape ;
+ sh:targetClass nltl:ship ;
+ sh:property [
+   sh:path nltl:hasStructuralMember ;
+   sh:qualifiedValueShape ex:MemberStrengthCheck_QV ;
+   sh:qualifiedMinCount 1 ; # maybe not needed, we just want to validate each member, so minCount 0? Not required.
+   sh:message "...???"
+ ] .
+
+But messages should be within inner shape's SPARQL constraint.
+
+The inner shape ex:MemberStrengthCheck_QV a sh:NodeShape ; sh:sparql ... same as before (with $this referencing each structuralMember). No targetClass.
+
+Similarly define ex:MemberStrengthCheck_QV containing SPARQL constraint.
+
+For BottomPatchOrientationCheck similar: inner shape ex:BottomPatchOrientationCheck_QV with SPARQL constraint referencing structuralMember.
+
+Outer shape ex:BottomPatchOrientationCheck targeting ship, property path nltl:hasStructuralMember, qualifiedValueShape ex:BottomPatchOrientationCheck_QV.
+
+For StructuralMemberFrameProfileTypeCheck: inner shape ex:StructuralMemberFrameProfileTypeCheck_QV a sh:NodeShape ; sh:property [sh:path nltl:frameProfileType; sh:minCount 1; sh:message "..."]; The outer shape similarly.
+
+Note: The messages need to be preserved; messages are in inner shapes.
+
+Make sure to keep other shapes unchanged: ex:ShipHasStructuralMemberCheck, ex:StructuralMemberFrameProfileTypeCheck old? We'll replace old one; need to rename or remove old. We will change that shape; previously it targeted structuralMember. We'll replace that definition entirely.
+
+Thus the updated graph includes:
+
+- Prefix definitions.
+- ex:MemberStrengthCheck (wrapper) with target ship and property shape referencing inner shape.
+- ex:MemberStrengthCheck_QV (inner) with SPARQL constraint.
+
+- ex:BottomPatchOrientationCheck wrapper similar.
+
+- ex:BottomPatchOrientationCheck_QV inner with SPARQL constraint.
+
+- ex:ShipHasStructuralMemberCheck unchanged.
+
+- ex:StructuralMemberFrameProfileTypeCheck wrapper (new) replacing old.
+
+- ex:StructuralMemberFrameProfileTypeCheck_QV inner with property shape frameProfileType.
+
+We must ensure no duplicate shape definitions for same IRI; remove previous definitions. We will just output new definitions; the previous content will be overwritten.
+
+Also ensure use of correct prefixes.
+
+Now produce the Turtle output.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex: <urn:nltl:generated-shape:> .
+
+# -----------------------------------------------------------------
+# Wrapper shape for member strength check – now targets ship
+# -----------------------------------------------------------------
+ex:MemberStrengthCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:qualifiedValueShape ex:MemberStrengthCheck_QV ;
+    ] .
+
+ex:MemberStrengthCheck_QV
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Combined shear and bending demand exceeds plastic strength for this structural member." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+              $this nltl:structuralLocation ?locValue .
+              FILTER(?locValue IN (nltl:bottomStructureLocation, nltl:sideStructureLocation))
+              $this nltl:hasStructuralMemberLoadCase ?lc .
+              ?lc nltl:combinedShearAndBendingDemand ?demandQty .
+              ?demandQty qudt:numericValue ?demand .
+              $this nltl:plasticStrength ?strengthQty .
+              ?strengthQty qudt:numericValue ?strength .
+              FILTER(?demand > ?strength)
+            }
+        """ ;
+    ] .
+
+# -----------------------------------------------------------------
+# Wrapper shape for bottom‑patch orientation check – now targets ship
+# -----------------------------------------------------------------
+ex:BottomPatchOrientationCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:qualifiedValueShape ex:BottomPatchOrientationCheck_QV ;
+    ] .
+
+ex:BottomPatchOrientationCheck_QV
+    a sh:NodeShape ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For bottom‑structure members the patch load must be applied with the dimension (b) parallel to the frame direction." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+
+            SELECT $this
+            WHERE {
+              $this nltl:structuralLocation nltl:bottomStructureLocation .
+              $this nltl:hasStructuralMemberLoadCase ?lc .
+              FILTER NOT EXISTS {
+                ?lc nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame .
+              }
+            }
+        """ ;
+    ] .
+
+# -----------------------------------------------------------------
+# Existing shape: ensure every ship has at least one structural member
+# -----------------------------------------------------------------
+ex:ShipHasStructuralMemberCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:minCount 1 ;
+        sh:message "A ship must have at least one structural member linked via nltl:hasStructuralMember." ;
+    ] .
+
+# -----------------------------------------------------------------
+# Wrapper shape for frame‑profile‑type check – now targets ship
+# -----------------------------------------------------------------
+ex:StructuralMemberFrameProfileTypeCheck
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:qualifiedValueShape ex:StructuralMemberFrameProfileTypeCheck_QV ;
+    ] .
+
+ex:StructuralMemberFrameProfileTypeCheck_QV
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:minCount 1 ;
+        sh:message "Every structural member must have a frame profile type defined via nltl:frameProfileType." ;
+    ] .
+
+<END_SHACL>

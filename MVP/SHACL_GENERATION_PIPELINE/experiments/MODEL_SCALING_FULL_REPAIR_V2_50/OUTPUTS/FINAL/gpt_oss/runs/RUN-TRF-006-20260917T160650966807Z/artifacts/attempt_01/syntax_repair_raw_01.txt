@@ -1,0 +1,118 @@
+We need to fix the Turtle/SHACL syntax errors. The error is inside the sh:select query: it starts with FILTER without a preceding WHERE clause. The SHACL SPARQL constraint expects a SELECT query; they provided SELECT $this (COUNT(*) AS ?violations) WHERE { FILTER EXISTS { ... } FILTER NOT EXISTS { ... } } HAVING ... That's okay, but the error says incorrectly placed FILTER before SELECT? Wait in the snippet, the SELECT line is present. Let's view the snippet: lines:
+
+0005: SELECT $this (COUNT(*) AS ?violations) WHERE {
+0006:   FILTER EXISTS {
+0007:     $this nltl:ownerRequested2008EngineOutputRequirements true^^xsd:boolean .
+0008:   }
+0009:   FILTER NOT EXISTS {
+...
+
+The query looks fine. However the parser error says at line 6 column 19 (the FILTER line) expecting SelectQuery. Perhaps the issue is the use of $this variable. In SHACL SPARQL constraints, you use ?this not $this. According to SHACL spec, $this is allowed? Actually SHACL uses $this as variable for focus node in constraints in SPARQL SELECT queries? I think the placeholder is $this not ?this. But many implementations accept both. The error may be due to preceding whitespace or that the query needs to start with SELECT not include $this variable? The problem may be that the SELECT clause includes $this which is not a variable? In SPARQL, variables start with ?. The spec for SHACL says you can use $this in place, but you need to use ?this? I recall that $this is allowed in SPARQLSelect but not in standard SPARQL parsers. To be safe, replace $this with ?this and also use ?this in triple patterns. Also need to adjust SELECT expression to SELECT ?this (COUNT(*) AS ?violations) WHERE { ... }.
+
+Also we need to ensure the query returns a binding for ?this maybe not needed. For SPARQLConstraint, result set rows indicate violations. The query should return any rows that represent violations. So we can do SELECT ?this WHERE { ... }.
+
+Simplify: Use sh:select with a SELECT query that returns ?this where violation condition holds:
+
+SELECT ?this WHERE {
+  FILTER EXISTS { ?this nltl:ownerRequested2008EngineOutputRequirements true^^xsd:boolean . }
+  FILTER NOT EXISTS { ?this nltl:engineOutputRegulationEdition nltl:iceClassRegulationEdition2008 . }
+}
+
+That should work. no HAVING. So we fix query.
+
+Also any other syntax errors? Let's scan the Turtle.
+
+The shape has property definitions: sh:in ( nltl:iceClassRuleEdition1985 ) ; ok.
+
+sh:class nltl:iceClassRegulationEditionValue ; Ensure that class exists, but syntax okay.
+
+URN prefix : declared correctly.
+
+The last triple ends with . after the final shape. The property shape list ends with ]. Ensure all semicolons correct. Let's check:
+
+:TRF-006_Shape a sh:NodeShape ; sh:targetClass nltl:ship ;
+    sh:property [ ... ] ;
+    sh:property [ ... ] ;
+    sh:property [ ... ] ;
+    sh:property [ ... ] .
+
+Yes.
+
+Make sure we close brackets correctly. Each sh:property [ ... ] ; okay.
+
+Within SPARQL constraint block:
+
+sh:sparql [
+    a sh:SPARQLConstraint ;
+    sh:message ... ;
+    sh:select """ ... """ ;
+]
+
+Make sure triple quotes inside Turtle need to escape properly. The original used triple double quotes inside string literal. That's fine.
+
+Make sure there is no stray ; after sh:select literal before closing bracket. The current format: sh:select """ ... """ ; inside the block. That is okay.
+
+Now craft corrected candidate.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:TRF-006_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Construction stage must be >= 1986-11-01 and < 2003-09-01
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "1986-11-01"^^xsd:date ;
+        sh:maxExclusive "2003-09-01"^^xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Owner request flag must be present and boolean
+    sh:property [
+        sh:path nltl:ownerRequested2008EngineOutputRequirements ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Applicable Ice‑Class Regulation Edition is fixed to 1985 rule edition
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:in ( nltl:iceClassRuleEdition1985 ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Conditional: when owner requests 2008 engine‑output requirements,
+    # the engineOutputRegulationEdition must be the 2008 edition.
+    sh:property [
+        sh:path nltl:engineOutputRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:sparql [
+            a sh:SPARQLConstraint ;
+            sh:message "When ownerRequested2008EngineOutputRequirements is true, engineOutputRegulationEdition must be iceClassRegulationEdition2008." ;
+            sh:select """\
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT ?this WHERE {
+    FILTER EXISTS {
+        ?this nltl:ownerRequested2008EngineOutputRequirements true^^xsd:boolean .
+    }
+    FILTER NOT EXISTS {
+        ?this nltl:engineOutputRegulationEdition nltl:iceClassRegulationEdition2008 .
+    }
+}
+""" ;
+        ]
+    ] .
+<END_SHACL>

@@ -1,0 +1,122 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:ShipShape> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node <urn:nltl:generated-shape:StructuralMemberShape>
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Structural member does not comply with the plastic strength or patch load orientation requirements." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this (nltl:hasStructuralMember as ?path) (?member as ?value) (?msg as ?message)
+WHERE {
+  $this nltl:hasStructuralMember ?member .
+  ?member nltl:structuralLocation ?loc .
+  
+  FILTER (
+    (?loc = nltl:bottomStructureLocation) ||
+    (?loc = nltl:sideStructureLocation && EXISTS { ?member nltl:transverseFrameOrientation true })
+  )
+
+  {
+    FILTER NOT EXISTS {
+      ?member nltl:plasticStrength/qudt:numericValue ?psVal .
+    }
+    BIND("Applicable structural member is missing plastic strength value." AS ?msg)
+  } UNION {
+    FILTER NOT EXISTS {
+      ?member nltl:hasStructuralMemberLoadCase ?lc .
+    }
+    BIND("Applicable structural member has no associated load cases." AS ?msg)
+  } UNION {
+    ?member nltl:plasticStrength/qudt:numericValue ?psVal .
+    ?member nltl:hasStructuralMemberLoadCase ?lc .
+    ?lc nltl:combinedShearAndBendingDemand/qudt:numericValue ?demandVal .
+    FILTER (?demandVal > ?psVal)
+    BIND(CONCAT("Combined shear and bending demand (", STR(?demandVal), ") exceeds plastic strength (", STR(?psVal), ").") AS ?msg)
+  } UNION {
+    FILTER (?loc = nltl:bottomStructureLocation)
+    ?member nltl:hasStructuralMemberLoadCase ?lc .
+    FILTER NOT EXISTS {
+      ?lc nltl:loadPatchOrientation nltl:loadPatchHeightParallelToFrame .
+    }
+    BIND("Bottom structure load case is missing or has incorrect load patch orientation (must be loadPatchHeightParallelToFrame)." AS ?msg)
+  }
+}
+"""
+    ] .
+
+<urn:nltl:generated-shape:StructuralMemberShape> a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:structuralLocation ;
+        sh:class nltl:structuralLocationValue ;
+    ] ;
+    sh:property [
+        sh:path nltl:transverseFrameOrientation ;
+        sh:datatype xsd:boolean ;
+    ] ;
+    sh:property [
+        sh:path nltl:frameProfileType ;
+        sh:class nltl:frameProfileTypeValue ;
+    ] ;
+    sh:property [
+        sh:path nltl:plasticStrength ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:midspanPlasticCollapseLoad ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMemberLoadCase ;
+        sh:node <urn:nltl:generated-shape:LoadCaseShape>
+    ] .
+
+<urn:nltl:generated-shape:LoadCaseShape> a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:combinedShearAndBendingDemand ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchOrientation ;
+        sh:class nltl:loadPatchOrientationValue ;
+    ] .
+<END_SHACL>

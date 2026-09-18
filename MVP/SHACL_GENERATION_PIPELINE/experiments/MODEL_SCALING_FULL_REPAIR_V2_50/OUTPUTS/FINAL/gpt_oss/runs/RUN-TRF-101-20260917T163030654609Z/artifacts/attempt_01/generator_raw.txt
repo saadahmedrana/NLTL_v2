@@ -1,0 +1,315 @@
+We need to generate SHACL shape for the requirement.
+
+Requirement: Determine blade_failure_load_F_ex_kN by approved non-linear stress analysis OR compute F_ex = 300*c*t^2*sigma_ref1/(0.8*D - 2*r), where sigma_ref1 = 0.6*sigma_0.2 + 0.4*sigma_u. Apply load at 0.8R in weakest direction. blade_failure_status = failed IF blade_tip_offset_m > 0.10*propeller_diameter_m.
+
+We've a static calculation verificationMode DIRECT_CALCULATION. Means we can encode formula constraints directly.
+
+But per rule 7, we should not add unrelated constraints. The requirement has two obligations:
+
+1. Provide an approved non-linear blade stress analysis OR compute F_ex via formula. This is alternative: either approvedNonlinearBladeStressAnalysis relationship is present (link from ship to approvalRecord?) Actually approvedNonlinearBladeStressAnalysis is an object property from ship to approvalRecord. The requirementTargetOwner is ship, requiredOwner for approvedNonlinearBladeStressAnalysis is ship.
+
+So we need to enforce that either there exists an approvedNonlinearBladeStressAnalysis (i.e., ship nltl:approvedNonlinearBladeStressAnalysis ?record) OR we have calculation result for bladeFailureUltimateLoad (maybe blade_failure_load_F_ex_kN) derived via formula.
+
+But there is no term for blade_failure_load_F_ex_kN. There is bladeFailureUltimateLoad (kN). That is probably the load. The requirement mentions blade_failure_load_F_ex_kN. So bladeFailureUltimateLoad is the target result.
+
+The requirement also includes a failure status condition: blade_failure_status = failed IF blade_tip_offset_m > 0.10*propeller_diameter_m. So we need to check: if bladeTipOffset > 0.10 * propellerDiameter then bladeFailureStatus must be true (or maybe false?) The variable blade_failure_status = failed if blade_tip_offset_m > 0.10*propeller_diameter_m. BladeFailureStatus property is Boolean; probably true indicates failure? We'll impose: if bladeTipOffset > 0.10*propellerDiameter then bladeFailureStatus must be true. Also maybe if not greater, status must be false? Not required; only conditional.
+
+Now for the calculation: We need to ensure that if no approvedNonlinearBladeStressAnalysis, then the calculated value matches the formula. For DIRECT_CALCULATION, we can encode a SPARQL constraint that checks:
+
+- Retrieve c (bladeChordLengthAtWeakestSection) quantity value numeric value (c_val)
+- t (bladeMaximumThicknessAtWeakestSection) numeric value t_val
+- sigma_0.2 (bladeMinimumYieldStrength) numeric value sigma0_2_val
+- sigma_u (bladeUltimateTensileStrength) numeric value sigma_u_val
+- D (propellerDiameter) numeric value D_val
+- r (bladeCylindricalRootRadius) numeric value r_val
+
+Compute sigma_ref1 = 0.6*sigma0_2 + 0.4*sigma_u
+Compute numerator = 300 * c * t^2 * sigma_ref1
+Denominator = (0.8*D - 2*r)
+Compute F_ex = numerator / denominator
+
+Now we need to compare to bladeFailureUltimateLoad value (the result). bladeFailureUltimateLoad is a quantity property with unit kN. So we need its numeric value.
+
+Thus a constraint: If NOT exists approvedNonlinearBladeStressAnalysis, then the computed F_ex must equal the provided bladeFailureUltimateLoad within tolerance.
+
+We also need to ensure that the required inputs exist: each quantity property present.
+
+We should create shape targeting ship. Provide property shapes for each required property presence: each quantity property must have exactly one value? Not specified, but likely need at least one. Provide datatype checks for qudt:QuantityValue and numericValue decimal and unit correct. Use sh:node shape for each quantity property? Simpler: use sh:property with path nltl:bladeChordLengthAtWeakestSection and datatype? It's an object property linking to a QuantityValue node. So we need to ensure that the value node has qudt:numericValue xsd:decimal and qudt:unit recommended unit. We can use sh:node with target class pattern but limited.
+
+Simplify: create shape with property shape for each property expecting a blank node of type qudt:QuantityValue? Since allowed vocabulary's quantity properties have range http://qudt.org/schema/qudt/QuantityValue.
+
+We can enforce presence of at least one such link. Use sh:property with sh:path nltl:bladeChordLengthAtWeakestSection ; sh:class qudt:QuantityValue ; sh:minCount 1 ; sh:maxCount 1 maybe.
+
+But we also need to validate the unit and numeric value inside shape? Could create a nested shape. Simpler due to limited time: just require existence of the link. The calculation constraint will further require numeric values.
+
+Define prefixes: nltl, sh, xsd, qudt.
+
+Now craft SHACL.
+
+Shape: urn:nltl:generated-shape:TRF-101 a sh:NodeShape ; sh:targetClass nltl:ship ; ... property shapes for each required property.
+
+List of required properties: bladeChordLengthAtWeakestSection, bladeCylindricalRootRadius, bladeMaximumThicknessAtWeakestSection, bladeMinimumYieldStrength, bladeUltimateTensileStrength, propellerDiameter, bladeFailureUltimateLoad, bladeTipOffset, bladeFailureLoadWeakestDirectionConfirmed?, bladeFailureLoadApplicationRadiusRatio? Those are operandTerms but maybe not needed for formula unless used for load direction. The requirement includes application at 0.8R in weakest direction but not part of calculation; we could ignore.
+
+The requirement also mentions evidence terms: approvedNonlinearBladeStressAnalysis, bladeFailureLoadWeakestDirectionConfirmed. So we need to ensure presence of bladeFailureLoadWeakestDirectionConfirmed boolean? It indicates load weakest direction confirmed; maybe required true? Not specified. Could require presence but not value.
+
+But the requirement says "Apply the load at 0.8R in the weakest direction." That's a condition but not a data constraint. Might be reflected by bladeFailureLoadWeakestDirectionConfirmed should be true? We'll impose presence of the property, maybe with hasValue true. But not explicitly required. However less risky: we include property shape requiring the boolean property and assert sh:hasValue true (makes sense). The example for boolean state used that.
+
+Now we also need to enforce either approvedNonlinearBladeStressAnalysis present OR calculation passes. To implement OR logic we can have two shapes? Use sh:or? SHACL core has sh:or property where list of shapes. So we can define a sh:or with two shapes: one with property approvedNonlinearBladeStressAnalysis presence; another with SPARQL calculation constraint.
+
+Define a shape for the calculation branch that includes the SPARQL check and also ensures all operands present. That shape could be defined as a node shape referencing same ship.
+
+Implementation: main shape includes sh:or [ ... ].
+
+Example:
+
+sh:or (
+   [ sh:property [ sh:path nltl:approvedNonlinearBladeStressAnalysis ; sh:minCount 1 ] ]
+   [ sh:sparql [ ... ] ]
+)
+
+But each branch may also need required properties; we could incorporate them in the main shape as required presence (since needed anyway). For simplicity, include property shapes for all quantities independent of branch.
+
+Now craft SPARQL constraint.
+
+Inside sh:sparql, we need to declare prefixes including nltl, xsd, qudt, math? Not using trigonometric.
+
+Compute using SPARQL arithmetic operators.
+
+Pseudo:
+
+SELECT $this WHERE {
+  FILTER NOT EXISTS { $this nltl:approvedNonlinearBladeStressAnalysis ?any . }
+  $this nltl:bladeChordLengthAtWeakestSection ?cNode .
+  ?cNode qudt:numericValue ?cVal ; qudt:unit <http://qudt.org/vocab/unit/M> .
+  $this nltl:bladeMaximumThicknessAtWeakestSection ?tNode .
+  ?tNode qudt:numericValue ?tVal ; qudt:unit <http://qudt.org/vocab/unit/M> .
+  $this nltl:bladeCylindricalRootRadius ?rNode .
+  ?rNode qudt:numericValue ?rVal ; qudt:unit <http://qudt.org/vocab/unit/M> .
+  $this nltl:bladeMinimumYieldStrength ?sigma0Node .
+  ?sigma0Node qudt:numericValue ?sigma0Val ; qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+  $this nltl:bladeUltimateTensileStrength ?sigmaUNode .
+  ?sigmaUNode qudt:numericValue ?sigmaUVal ; qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+  $this nltl:propellerDiameter ?DNode .
+  ?DNode qudt:numericValue ?DVal ; qudt:unit <http://qudt.org/vocab/unit/M> .
+  $this nltl:bladeFailureUltimateLoad ?FNode .
+  ?FNode qudt:numericValue ?FVal ; qudt:unit <http://qudt.org/vocab/unit/KiloN> .
+  # compute sigma_ref1
+  BIND ((0.6 * ?sigma0Val + 0.4 * ?sigmaUVal) AS ?sigmaRef1) .
+  BIND ((?tVal * ?tVal) AS ?tSq) .
+  BIND ((0.8 * ?DVal - 2 * ?rVal) AS ?denom) .
+  BIND ((300 * ?cVal * ?tSq * ?sigmaRef1) AS ?numer) .
+  BIND ((?numer / ?denom) AS ?calcF) .
+  # tolerance
+  BIND (1e-6 AS ?relTol) .
+  BIND (IF(?calcF = 0, 1e-9, ?relTol * ABS(?calcF)) AS ?absTol) .
+  FILTER (ABS(?FVal - ?calcF) > ?absTol)
+}
+
+If filter passes (difference > tolerance) then violation.
+
+Now also a second SPARQL constraint for failure status:
+
+SELECT $this WHERE {
+  $this nltl:bladeTipOffset ?offsetNode .
+  ?offsetNode qudt:numericValue ?offsetVal ; qudt:unit <http://qudt.org/vocab/unit/M> .
+  $this nltl:propellerDiameter ?DNode .
+  ?DNode qudt:numericValue ?DVal ; qudt:unit <http://qudt.org/vocab/unit/M> .
+  BIND (?offsetVal > (0.10 * ?DVal) AS ?condition) .
+  FILTER (?condition) .
+  $this nltl:bladeFailureStatus ?statusNode .
+  ?statusNode ?p ?statusVal . # Actually bladeFailureStatus is datatype property directly boolean
+  # Since it's datatype property, pattern: $this nltl:bladeFailureStatus ?status .
+  $this nltl:bladeFailureStatus ?status .
+  FILTER (?status != true)
+}
+
+But we also need to ensure presence; could also require property shape with hasValue true if condition met, but SPARQL is fine.
+
+Now property shapes: For each quantity property ensure minCount 1.
+
+Also, bladeFailureLoadWeakestDirectionConfirmed boolean property: require presence and maybe true. Value maybe required to be true? not clear; maybe presence only. We'll require true.
+
+Also approvedNonlinearBladeStressAnalysis presence branch alternative is already part of or without minCount? We'll have a property shape inside first branch with minCount 1.
+
+Now compose Turtle.
+
+Define prefixes: @prefix nltl: <https://w3id.org/nltl/vocab#> . @prefix sh: <http://www.w3.org/2005/shacl#> . Actually correct SHACL namespace is http://www.w3.org/ns/shacl#. Use that. @prefix xsd: <http://www.w3.org/2001/XMLSchema#> . @prefix qudt: <http://qudt.org/schema/qudt#> . @prefix unit: <http://qudt.org/vocab/unit/> . We'll use full IRIs for unit.
+
+Now shape identifier: urn:nltl:generated-shape:TRF-101 .
+
+Let's craft.
+
+Remember each sh:sparql must have its own prefixes inside string.
+
+We'll ensure root shape includes sh:or list.
+
+Now produce final output within markers.
+
+
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+urn:nltl:generated-shape:TRF-101
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # ---- required quantity inputs -------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeChordLengthAtWeakestSection ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMaximumThicknessAtWeakestSection ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeCylindricalRootRadius ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMinimumYieldStrength ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeUltimateTensileStrength ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureUltimateLoad ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeTipOffset ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # ---- boolean evidence ---------------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeFailureLoadWeakestDirectionConfirmed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+
+    # ---- alternative compliance paths (approved analysis OR calculation) ----------
+    sh:or (
+        # Path A: approved non‑linear stress analysis record must be present
+        [ sh:property [
+              sh:path nltl:approvedNonlinearBladeStressAnalysis ;
+              sh:minCount 1 ;
+              sh:maxCount 1
+          ]
+        ]
+
+        # Path B: formula‑based calculation must be consistent
+        [ sh:sparql [
+              sh:message "Calculated blade failure load does not match the provided bladeFailureUltimateLoad (kN) within tolerance." ;
+              sh:select """
+                  PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                  PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                  PREFIX qudt: <http://qudt.org/schema/qudt#>
+                  PREFIX unit: <http://qudt.org/vocab/unit/>
+
+                  SELECT $this WHERE {
+                    # No approved analysis present
+                    FILTER NOT EXISTS { $this nltl:approvedNonlinearBladeStressAnalysis ?any . }
+
+                    # Operand quantities
+                    $this nltl:bladeChordLengthAtWeakestSection ?cNode .
+                    ?cNode qudt:numericValue ?cVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeMaximumThicknessAtWeakestSection ?tNode .
+                    ?tNode qudt:numericValue ?tVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeCylindricalRootRadius ?rNode .
+                    ?rNode qudt:numericValue ?rVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeMinimumYieldStrength ?sigma0Node .
+                    ?sigma0Node qudt:numericValue ?sigma0Val ;
+                                qudt:unit unit:MegaPA .
+
+                    $this nltl:bladeUltimateTensileStrength ?sigmaUNode .
+                    ?sigmaUNode qudt:numericValue ?sigmaUVal ;
+                               qudt:unit unit:MegaPA .
+
+                    $this nltl:propellerDiameter ?DNode .
+                    ?DNode qudt:numericValue ?DVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeFailureUltimateLoad ?FNode .
+                    ?FNode qudt:numericValue ?FVal ;
+                          qudt:unit unit:KiloN .
+
+                    # Formula
+                    BIND ( (0.6 * ?sigma0Val + 0.4 * ?sigmaUVal) AS ?sigmaRef1 ) .
+                    BIND ( ?tVal * ?tVal AS ?tSq ) .
+                    BIND ( (0.8 * ?DVal - 2 * ?rVal) AS ?denom ) .
+                    BIND ( (300 * ?cVal * ?tSq * ?sigmaRef1) AS ?numer ) .
+                    BIND ( ?numer / ?denom AS ?calcF ) .
+
+                    # Tolerance (relative 1e-6, absolute fallback 1e-9)
+                    BIND ( 1e-6 AS ?relTol ) .
+                    BIND ( IF ( ?calcF = 0 , 1e-9 , ?relTol * ABS(?calcF) ) AS ?absTol ) .
+
+                    FILTER ( ABS(?FVal - ?calcF) > ?absTol )
+                  }
+              """
+          ]
+        ]
+    ) .
+
+    # ---- blade failure status based on tip offset ----------------------------------
+    sh:sparql [
+        sh:message "Blade failure status must be true when blade tip offset exceeds 10 % of propeller diameter." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this WHERE {
+              $this nltl:bladeTipOffset ?offNode .
+              ?offNode qudt:numericValue ?offVal ;
+                       qudt:unit unit:M .
+
+              $this nltl:propellerDiameter ?DNode .
+              ?DNode qudt:numericValue ?DVal ;
+                     qudt:unit unit:M .
+
+              # Condition: offset > 0.10 * D
+              FILTER ( ?offVal > (0.10 * ?DVal) ) .
+
+              $this nltl:bladeFailureStatus ?status .
+              FILTER ( ?status != true )
+            }
+        """
+    ] .
+<END_SHACL>

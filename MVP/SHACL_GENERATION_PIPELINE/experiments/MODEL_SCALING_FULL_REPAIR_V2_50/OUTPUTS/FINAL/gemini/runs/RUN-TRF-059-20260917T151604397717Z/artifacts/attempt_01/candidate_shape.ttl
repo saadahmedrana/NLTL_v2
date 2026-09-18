@@ -1,0 +1,161 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix shape: <urn:nltl:generated-shape:> .
+
+shape:WebFrameCalculationShape a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+    sh:property [
+        sh:path nltl:maximumCalculatedShearForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:webFrameShearFactorAlpha ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:freeFlangeToWebAreaRatio ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:CentiM2 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        sh:message "The required shear area or shear factor alpha does not comply with TRF-059 calculation rules." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:freeFlangeToWebAreaRatio/qudt:numericValue ?r .
+                $this nltl:webFrameShearFactorAlpha/qudt:numericValue ?alpha .
+                $this nltl:maximumCalculatedShearForce/qudt:numericValue ?q_val .
+                $this nltl:yieldStrength/qudt:numericValue ?sigma_y .
+                $this nltl:requiredShearArea/qudt:numericValue ?a_reported .
+                
+                OPTIONAL {
+                    $this nltl:webFrameShearDistributionFactorF13/qudt:numericValue ?f13_val .
+                }
+                BIND(COALESCE(?f13_val, 1.1) AS ?f13)
+
+                # Table 4-8 interpolation of alpha
+                BIND(IF(?r <= 0, 1.5,
+                     IF(?r <= 0.2, 1.5 + (1.23 - 1.5) * (?r - 0) / 0.2,
+                     IF(?r <= 0.4, 1.23 + (1.16 - 1.23) * (?r - 0.2) / 0.2,
+                     IF(?r <= 0.6, 1.16 + (1.11 - 1.16) * (?r - 0.4) / 0.2,
+                     IF(?r <= 0.8, 1.11 + (1.09 - 1.11) * (?r - 0.6) / 0.2,
+                     IF(?r <= 1.0, 1.09 + (1.07 - 1.09) * (?r - 0.8) / 0.2,
+                     IF(?r <= 1.2, 1.07 + (1.06 - 1.07) * (?r - 1.0) / 0.2,
+                     IF(?r <= 1.4, 1.06 + (1.05 - 1.06) * (?r - 1.2) / 0.2,
+                     IF(?r <= 1.6, 1.05,
+                     IF(?r <= 1.8, 1.05 + (1.04 - 1.05) * (?r - 1.6) / 0.2,
+                     1.04)))))))))) AS ?expected_alpha)
+
+                # A_required = sqrt(3) * alpha * f_13 * Q_MN / sigma_y_MPa * 10^4 [cm^2]
+                # Q is stored in kN, so Q_MN = Q_kN / 1000
+                BIND(1.73205080757 * ?alpha * ?f13 * (?q_val / 1000.0) / ?sigma_y * 10000.0 AS ?a_expected)
+
+                BIND(ABS(?alpha - ?expected_alpha) AS ?alpha_diff)
+                BIND(IF(?expected_alpha > 0, ?alpha_diff / ?expected_alpha, ?alpha_diff) AS ?alpha_rel_diff)
+
+                BIND(ABS(?a_reported - ?a_expected) AS ?a_diff)
+                BIND(IF(?a_expected > 0, ?a_diff / ?a_expected, ?a_diff) AS ?a_rel_diff)
+
+                FILTER (
+                    (?alpha_diff > 0.01 && ?alpha_rel_diff > 0.01) ||
+                    (?a_diff > 0.1 && ?a_rel_diff > 1e-4)
+                )
+            }
+        """
+    ] .

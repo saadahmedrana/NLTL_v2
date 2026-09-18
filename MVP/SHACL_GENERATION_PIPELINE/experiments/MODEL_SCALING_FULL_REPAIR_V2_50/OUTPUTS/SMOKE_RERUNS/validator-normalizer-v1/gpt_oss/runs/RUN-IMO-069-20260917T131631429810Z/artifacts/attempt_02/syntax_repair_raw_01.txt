@@ -1,0 +1,67 @@
+We need to output corrected SHACL Turtle, fixing syntax errors. The error is about bad escape in the message literal containing an apostrophe? The message string: "If an added life\u2011saving device requires power, its power source must be independent of the ship's main power."
+
+In Turtle, inside double quotes, apostrophe is fine, but the problem likely is the line break indentation? Actually error shows bad escape at \"...ship\\'s main power.\" ; So they escaped apostrophe with backslash within double quotes which is not needed. In Turtle single quotes need escaping? Double-quoted strings can contain apostrophe directly. So remove the backslash before the apostrophe.
+
+Also need to ensure proper escaping of backslashes in multi-line string. The SPARQL select string uses triple double quotes with a backslash at start to avoid leading newline. That's fine.
+
+Check overall Turtle syntax: each statement ends with ; except last with . Ensure prefixes and shape definitions.
+
+We have comment lines starting with # inside Turtle, okay.
+
+Potential other syntax issues: The blank node property definition uses ; after each property [ ... ] . At the end of shape, we have . after closing ]. Seems fine.
+
+But we must ensure that there is a '.' after the shape definition. In provided candidate, after sh:sparql [ ... ] . (dot inside the shape); yes they have a dot after the list before closing shape? Actually shape is a node shape with triples: sh:targetClass ..., sh:property ..., sh:property ..., sh:sparql ... . The dot ends the subject's description. The syntax: :IMO-069 a sh:NodeShape ; sh:targetClass ... ; sh:property [...] ; sh:property [...] ; sh:sparql [...] . That's right.
+
+Check the message literal: double quotes around text; internal backslash before apostrophe need removal. Also ensure that Unicode escape \u2011 is okay inside double quotes? That's hyphen? It's a non-breaking hyphen? Should be fine.
+
+Maybe also the triple-quoted string for sh:select includes triple double quotes inside double quotes? They use sh:select """\ ... """ . That's correct.
+
+But inside that string they also have a backslash before newline start: \"\"\"\\\n ... \"\"\" . That's okay.
+
+Potential extra semicolons after comments? No.
+
+Let's produce corrected version.
+
+Make sure to keep the same prefixes and shape namespace.
+
+Return within markers.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:IMO-069 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # presence and datatype of the trigger property (optional)
+    sh:property [
+        sh:path nltl:addedLifeSavingDeviceRequiresPower ;
+        sh:datatype xsd:boolean ;
+        # sh:minCount removed to make the property optional
+        sh:maxCount 1
+    ] ;
+
+    # datatype of the dependent property (presence enforced by SPARQL)
+    sh:property [
+        sh:path nltl:devicePowerSourceIndependentOfMainPower ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+
+    # conditional rule: if power is required then independence must be true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "If an added life\u2011saving device requires power, its power source must be independent of the ship's main power." ;
+        sh:select """\
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:addedLifeSavingDeviceRequiresPower true .
+                FILTER NOT EXISTS { $this nltl:devicePowerSourceIndependentOfMainPower true . }
+            }"""
+    ] .
+<END_SHACL>

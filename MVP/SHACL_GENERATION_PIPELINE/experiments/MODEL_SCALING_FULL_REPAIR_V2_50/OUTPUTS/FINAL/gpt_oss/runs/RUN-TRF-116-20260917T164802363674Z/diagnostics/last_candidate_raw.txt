@@ -1,0 +1,121 @@
+We need to repair SHACL graph to address current issue: unapproved external/generated IRI http://qudt.org/schema/qudt#QuantityValue. We must replace usage of this IRI with approved one, likely from allowedVocabulary. There's no allowed vocabulary for QuantityValue; they use range URL "http://qudt.org/schema/qudt/QuantityValue" (note slash vs #). In allowed vocab, range is "http://qudt.org/schema/qudt/QuantityValue". That's same namespace but different IRI fragment vs path? In current SHACL, they use prefix qudt: <http://qudt.org/schema/qudt#>. Then class qudt:QuantityValue expands to http://qudt.org/schema/qudt#QuantityValue, which is the unapproved IRI. The allowedVocabulary uses "http://qudt.org/schema/qudt/QuantityValue" (note slash). So we need to change prefix to use slash, maybe define new prefix qudtv: <http://qudt.org/schema/qudt/>? Actually they want to use the approved IRI: http://qudt.org/schema/qudt/QuantityValue. So replace all references to qudt:QuantityValue with the full IRI <http://qudt.org/schema/qudt/QuantityValue>. Also other qudt terms: numericValue, unit were also unapproved previously. Past mistakes list includes needing to preserve correction for those: numericValue, unit, units M, M2 unapproved. So need to remove any use of those IRIs. In the current SHACL candidate above, they only use qudt:QuantityValue, not numericValue or unit. So the issue is the class IRI itself. We must adjust the shape accordingly.
+
+We need minimum changes preserving semantics. So define a new prefix, maybe qudtv: <http://qudt.org/schema/qudt/> (with trailing slash). Then replace sh:class qudt:QuantityValue with sh:class qudtv:QuantityValue.
+
+Also shape's sh:node maybe referencing qudt:QuantityValue in node shapes. We'll change those.
+
+Make sure we keep other prefixes unchanged. Also we may keep prefix qudt: for other usage (if any). But currently not used elsewhere. Could keep qudt as is but not referencing class. Use full IRI.
+
+Thus the revised SHACL graph will include updated prefix and class IRIs.
+
+Return full graph including unchanged parts.
+
+Let's construct revised Turtle.
+
+Original prefixes:
+
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix g:    <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+We'll add:
+
+@prefix qudtv: <http://qudt.org/schema/qudt/> .
+
+Then modify each sh:node block:
+
+sh:node [
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+]
+
+=> change to qudtv:QuantityValue.
+
+Also the message includes "QuantityValue node" etc fine.
+
+Thus modifications are straightforward.
+
+Let's produce final graph.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix g:    <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix qudtv: <http://qudt.org/schema/qudt/> .
+
+g:TRF-116_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # -------------------------------------------------------------
+    # Boolean flag indicating the exception case
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Flag propellerHubOrThrusterEndCapImpact (true if the impact is on a propeller hub or thruster end‑cap) must be provided." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Quantity: Non‑hemispherical impact contact area (A)
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:nonHemisphericalImpactContactArea ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudtv:QuantityValue ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Non‑hemispherical impact contact area (A) must be supplied as a QuantityValue node (area, e.g., metres²)." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Quantity: Design ice thickness (H_iced)
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudtv:QuantityValue ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Design ice thickness (H_iced) must be supplied as a QuantityValue node (length, e.g., metres)." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Quantity: Equivalent impact sphere radius (R_ceq) – result of the calculation
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudtv:QuantityValue ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Equivalent impact sphere radius (R_ceq) must be provided as a QuantityValue node (length, e.g., metres) when the rule applies." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Conditional SPARQL constraint:
+    #   If the exception flag is false, the three quantities above must all be present.
+    # -------------------------------------------------------------
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When propellerHubOrThrusterEndCapImpact = false, the ship must provide nonHemisphericalImpactContactArea, designIceThickness and equivalentImpactSphereRadius." ;
+        sh:select """ 
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:propellerHubOrThrusterEndCapImpact ?exc .
+                FILTER ( ?exc = false ) .
+                FILTER NOT EXISTS { $this nltl:nonHemisphericalImpactContactArea ?a . }
+                FILTER NOT EXISTS { $this nltl:designIceThickness ?d . }
+                FILTER NOT EXISTS { $this nltl:equivalentImpactSphereRadius ?r . }
+            }
+        """ ;
+    ] .
+<END_SHACL>

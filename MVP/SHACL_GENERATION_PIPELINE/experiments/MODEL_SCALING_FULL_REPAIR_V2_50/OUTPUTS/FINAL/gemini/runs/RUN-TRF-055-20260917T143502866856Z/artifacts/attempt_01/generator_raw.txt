@@ -1,0 +1,161 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+<urn:nltl:generated-shape:NarrowDeckStripShape> a sh:NodeShape ;
+    sh:targetClass nltl:narrowDeckStrip ;
+    sh:property [
+        sh:path nltl:abreastOfHatch ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:servesAsIceStringer ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:veryLongHatchOpening ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:reducedLineLoadApprovedByClassificationSociety ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:actualSectionModulus ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:maxCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:CentiM3 ;
+                sh:maxCount 1 ;
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:requiredSectionModulus ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:maxCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:CentiM3 ;
+                sh:maxCount 1 ;
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:actualShearArea ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:maxCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:CentiM2 ;
+                sh:maxCount 1 ;
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:maxCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:CentiM2 ;
+                sh:maxCount 1 ;
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:permittedReducedLineLoad ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:maxCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN-PER-M ;
+                sh:maxCount 1 ;
+            ]
+        ]
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Narrow deck strip failed compliance checks for section modulus, shear area, or permitted reduced line load limits under TRAFICOM 4.5.3." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?value ?message
+            WHERE {
+                $this nltl:abreastOfHatch true .
+                $this nltl:servesAsIceStringer true .
+
+                OPTIONAL {
+                    $this nltl:actualSectionModulus/qudt:numericValue ?actSM .
+                    $this nltl:requiredSectionModulus/qudt:numericValue ?reqSM .
+                }
+                OPTIONAL {
+                    $this nltl:actualShearArea/qudt:numericValue ?actSA .
+                    $this nltl:requiredShearArea/qudt:numericValue ?reqSA .
+                }
+                OPTIONAL {
+                    $this nltl:veryLongHatchOpening ?veryLong .
+                }
+                OPTIONAL {
+                    $this nltl:reducedLineLoadApprovedByClassificationSociety ?approved .
+                }
+                OPTIONAL {
+                    $this nltl:permittedReducedLineLoad/qudt:numericValue ?permittedLL .
+                }
+
+                BIND(COALESCE(?actSM >= ?reqSM - 1e-6, false) AS ?smValid)
+                BIND(COALESCE(?actSA >= ?reqSA - 1e-6, false) AS ?saValid)
+
+                BIND(
+                    IF(
+                        COALESCE(?veryLong, false) && COALESCE(?approved, false),
+                        IF(BOUND(?permittedLL) && ?permittedLL >= 0.10 - 1e-6 && ?permittedLL < 0.15 + 1e-6, true, false),
+                        true
+                    ) AS ?permittedLLValid
+                )
+
+                FILTER (!?smValid || !?saValid || !?permittedLLValid)
+
+                BIND($this AS ?value)
+                BIND(
+                    CONCAT(
+                        "Narrow deck strip is non-conforming. ",
+                        IF(!?smValid, "Actual section modulus is less than required or missing. ", ""),
+                        IF(!?saValid, "Actual shear area is less than required or missing. ", ""),
+                        IF(!?permittedLLValid, "Permitted reduced line load is invalid, missing, or out of [0.10, 0.15) bounds. ", "")
+                    ) AS ?message
+                )
+            }
+        """
+    ] .
+<END_SHACL>

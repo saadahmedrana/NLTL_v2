@@ -1,0 +1,327 @@
+We need to edit SHACL graph to replace datatype constraints for quantity properties with node constraints referencing QUDT QuantityValue pattern.
+
+We must preserve other content. The previousCandidateShacl uses sh:datatype xsd:decimal for each quantity property.
+
+We need to change each such property to use sh:node (or sh:class?) using the pattern defined: subject canonicalProperty quantityNode; quantityNode qudt:numericValue xsd:decimal; qudt:unit recommendedUnit. So we should define a shape (maybe inline) that expects a blank node of type qudt:QuantityValue with those properties.
+
+Probably we can create reusable shapes for each property using sh:node :AverageIcePressureValueShape etc., but requirement: preserve all unrelated semantics. Minimal changes: replace sh:datatype with sh:node and reference a newly defined shape that enforces the pattern. But we need to ensure using allowed terms: qudt namespace is external but allowed (they have regression guard about not inventing external IRIs for numericValue/unit). The past mistakes to avoid: preserve correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit, and also QuantityValue. Means we must not define new IRIs for those; just use them as given. That's fine.
+
+We need to add prefixes for qudt.
+
+Define shapes for each property? Could use generic pattern with sh:property for numericValue and unit. However each property has recommendedUnit defined; we can embed that as sh:property with sh:hasValue.
+
+Simplify: create shape :QuantityValueShape a sh:NodeShape; sh:targetNode ? maybe used via sh:node? Actually sh:node expects a shape (node shape). So we can define :QuantityValueShape that ensures node is a blank node with qudt:numericValue xsd:decimal and qudt:unit <unit>. But each unit differs. So maybe define separate shape per property. That's okay.
+
+Implement minimal: For each property, replace sh:datatype with sh:node :AverageIcePressureValueShape (new shape similar to pattern). And define shape with sh:property for qudt:numericValue xsd:decimal and sh:property sh:hasValue? Actually to enforce unit we can use sh:property [ sh:path qudt:unit ; sh:hasValue <unit> ; sh:minCount 1 ; sh:maxCount 1 ].
+
+Also need to ensure node is of type qudt:QuantityValue (maybe sh:class). Use sh:class qudt:QuantityValue.
+
+Thus shape:
+
+:AverageIcePressureValueShape
+ a sh:NodeShape ;
+ sh:class qudt:QuantityValue ;
+ sh:property [
+   sh:path qudt:numericValue ;
+   sh:datatype xsd:decimal ;
+   sh:minCount 1 ; sh:maxCount 1 ;
+ ] ;
+ sh:property [
+   sh:path qudt:unit ;
+   sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+   sh:minCount 1 ; sh:maxCount 1 ;
+ ] .
+
+Add prefix qudt: <http://qudt.org/schema/qudt#> and unit vocab maybe (<http://qudt.org/vocab/unit/>). Use full IRIs for recommendedUnit.
+
+We need to replicate for each property: shapeCoefficient uses unit UNITLESS, lineLoad uses KiloN-PER-M, loadPatchHeight uses M, loadPatchLength M, localIcePressure MPa, bowShapeCoefficient UNITLESS, glancingImpactLineLoad MegaN-M-PER-M2? Actually above recommendedUnit "http://qudt.org/vocab/unit/MegaN-M-PER-M2". Use that. glancingImpactPressure MPa, totalGlancingImpactForce KiloN, and also shapeCoefficient is unit UNITLESS.
+
+Also note, quantity properties already have range = QuantityValue; but SHACL uses sh:path but not class. Our shape will also enforce class.
+
+Now we must modify ComplexReadinessShape properties:
+
+sh:path nltl:averageIcePressure ; sh:node :AverageIcePressureValueShape ; sh:minCount 1 ; etc.
+
+Also keep sh:message.
+
+Similarly replace for other properties at ship level and within BowSubregionCaseShape.
+
+Thus create shapes for each:
+
+:ShapeCoefficientValueShape
+:LineLoadValueShape
+:LoadPatchHeightValueShape
+:LoadPatchLengthValueShape
+:LocalIcePressureValueShape
+:BowShapeCoefficientValueShape
+:GlancingImpactLineLoadValueShape
+:GlancingImpactPressureValueShape
+:TotalGlancingImpactForceValueShape
+
+Should we also create for shapeCoefficient in ship level (same as Bow shape coefficient? Different recommended units; shapeCoefficient uses unit UNITLESS; bowShapeCoefficient also UNITLESS. Both same.
+
+Implementation details: need prefixes for qudt and qudtunit? Using the unit IRIs directly; fine.
+
+Now ensure no other changes. Keep targetClass, other properties unchanged.
+
+Add prefix alias: @prefix qudt: <http://qudt.org/schema/qudt#> . Also maybe need prefix unit: none.
+
+Now produce final turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ComplexReadinessShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Polar class (applicability)
+    sh:property [
+        sh:path nltl:polarClass ;
+        sh:class nltl:polarClassValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must declare its Polar Class (value of type nltl:polarClassValue)." ;
+    ] ;
+    # Ship‑level input quantities
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:node :AverageIcePressureValueShape ;
+        sh:minCount 1 ;
+        sh:message "Average ice pressure (MPa) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:shapeCoefficient ;
+        sh:node :ShapeCoefficientValueShape ;
+        sh:minCount 1 ;
+        sh:message "Shape coefficient (unitless) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:lineLoad ;
+        sh:node :LineLoadValueShape ;
+        sh:minCount 1 ;
+        sh:message "Line load (kN/m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:node :LoadPatchHeightValueShape ;
+        sh:minCount 1 ;
+        sh:message "Load patch height (m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchLength ;
+        sh:node :LoadPatchLengthValueShape ;
+        sh:minCount 1 ;
+        sh:message "Load patch length (m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:localIcePressure ;
+        sh:node :LocalIcePressureValueShape ;
+        sh:minCount 1 ;
+        sh:message "Local ice pressure (MPa) must be supplied." ;
+    ] ;
+    # Bow‑subregion calculation case(s) containing result quantities
+    sh:property [
+        sh:path nltl:hasBowSubregionCalculationCase ;
+        sh:minCount 1 ;
+        sh:node :BowSubregionCaseShape ;
+        sh:message "At least one Bow sub‑region calculation case must be provided." ;
+    ] .
+
+# ---- Bow sub‑region calculation case shape ----
+:BowSubregionCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:bowSubregionCalculationCase ;
+    # Input: bow shape coefficient (f_ai)
+    sh:property [
+        sh:path nltl:bowShapeCoefficient ;
+        sh:node :BowShapeCoefficientValueShape ;
+        sh:minCount 1 ;
+        sh:message "Bow shape coefficient must be supplied for the calculation case." ;
+    ] ;
+    # Result: glancing impact line load (Qi)
+    sh:property [
+        sh:path nltl:glancingImpactLineLoad ;
+        sh:node :GlancingImpactLineLoadValueShape ;
+        sh:minCount 1 ;
+        sh:message "Glancing impact line load (MN·m⁻²) must be supplied." ;
+    ] ;
+    # Result: glancing impact pressure (Pi)
+    sh:property [
+        sh:path nltl:glancingImpactPressure ;
+        sh:node :GlancingImpactPressureValueShape ;
+        sh:minCount 1 ;
+        sh:message "Glancing impact pressure (MPa) must be supplied." ;
+    ] ;
+    # Result: total glancing impact force (Fi)
+    sh:property [
+        sh:path nltl:totalGlancingImpactForce ;
+        sh:node :TotalGlancingImpactForceValueShape ;
+        sh:minCount 1 ;
+        sh:message "Total glancing impact force (kN) must be supplied." ;
+    ] .
+
+# ---- QuantityValue shapes for each quantity property ----
+:AverageIcePressureValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+:ShapeCoefficientValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+:LineLoadValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN-PER-M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+:LoadPatchHeightValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+:LoadPatchLengthValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+:LocalIcePressureValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+:BowShapeCoefficientValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+:GlancingImpactLineLoadValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaN-M-PER-M2> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+:GlancingImpactPressureValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+
+:TotalGlancingImpactForceValueShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] .
+<END_SHACL>

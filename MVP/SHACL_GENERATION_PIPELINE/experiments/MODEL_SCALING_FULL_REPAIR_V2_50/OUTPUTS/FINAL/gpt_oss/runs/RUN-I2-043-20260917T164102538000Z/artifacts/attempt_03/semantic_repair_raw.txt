@@ -1,0 +1,148 @@
+We need to fix SHACL shape: Quantity properties must point to QUDT QuantityValue node, not datatype. So instead of sh:datatype xsd:decimal, we need sh:node kind with constraints expecting a node that has qudt:numericValue and qudt:unit. The pastMistakesToAvoid: avoid adding external/generated IRI(s) for qudt:numericValue and qudt:unit? Wait: it says "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". That suggests that previously they added those as external generated IRIs? Actually they are standard QUDT IRIs, but perhaps they consider them unapproved to be generated? The guard says "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". Means earlier they may have flagged using those external IRIs as unapproved? Wait the description: pastMistakesToAvoid list "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". So we should avoid creating new generated IRIs for those; but we can still use the QUDT properties (since they are standard). The guard indicates that in previous correction they added something maybe like gen:... for numericValue; we should not. So we must reference the proper QUDT IRIs directly.
+
+Thus we need to replace each property shape for netFlangeThickness, yieldStrength, flangeOutstand to require that the value is a blank node or IRI of type qudt:QuantityValue (or just node) and has properties qudt:numericValue (xsd:decimal) and qudt:unit (the recommendedUnit). The nodePattern "qudtQuantityValue" suggests shape: subject canonicalProperty quantityNode; quantityNode qudt:numericValue xsd:decimal; qudt:unit recommendedUnit.
+
+Thus we can create a reusable shape for quantityValue perhaps gen:QuantityValueShape with property constraints. Then each property would have sh:node gen:QuantityValueShape.
+
+But need to ensure we reference recommendedUnit from vocabulary entries. For netFlangeThickness recommendedUnit "http://qudt.org/vocab/unit/MilliM". For yieldStrength recommendedUnit "http://qudt.org/vocab/unit/MegaPA". For flangeOutstand recommended unit is same as netFlangeThickness? Actually flangeOutstand definition: range same, recommendedUnit mm. In vocab entry: recommendedUnit "http://qudt.org/vocab/unit/MilliM". So we need each shape to assert qudt:unit = that IRI. We can use sh:hasValue.
+
+So create shapes:
+
+gen:NetFlangeThicknessValueShape a sh:NodeShape ;
+    sh:targetNode ? maybe not needed; but as a node shape referenced.
+
+Within shape:
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ];
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MilliM> ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ].
+
+Similarly for YieldStrengthValueShape using MegaPA.
+
+Similarly for FlangeOutstandValueShape also MilliM.
+
+Alternatively could use generic shape with variable recommended unit via sh:hasValue but each separate shape is fine.
+
+Now modify StructuralMemberShape property definitions: instead of sh:datatype, use sh:node gen:NetFlangeThicknessValueShape.
+
+Also add sh:minCount 1.
+
+Also maybe include sh:message.
+
+Now ensure imports prefixes: need prefix qudt: <http://qudt.org/schema/qudt#> . Also prefix unit: maybe not needed.
+
+Add prefix unit: <http://qudt.org/vocab/unit/> . But we can use full IRI.
+
+Let's construct final Turtle.
+
+Include previous unchanged shape for ShipShape.
+
+Add new shapes.
+
+Make sure we keep existing prefixes.
+
+Now final answer within markers.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+# Shape for QuantityValue of net flange thickness (mm)
+gen:NetFlangeThicknessValueShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "netFlangeThickness must have a numeric decimal value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "netFlangeThickness must use the unit millimetre."
+    ] .
+
+# Shape for QuantityValue of yield strength (MPa)
+gen:YieldStrengthValueShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "yieldStrength must have a numeric decimal value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaPA ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "yieldStrength must use the unit megapascal."
+    ] .
+
+# Shape for QuantityValue of flange outstand (mm)
+gen:FlangeOutstandValueShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "flangeOutstand must have a numeric decimal value."
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "flangeOutstand must use the unit millimetre."
+    ] .
+
+# Shape for each structural member required by the requirement
+gen:StructuralMemberShape a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    # net flange thickness quantity (QuantityValue)
+    sh:property [
+        sh:path nltl:netFlangeThickness ;
+        sh:node gen:NetFlangeThicknessValueShape ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must provide netFlangeThickness as a QuantityValue (mm)." ;
+    ] ;
+    # yield strength quantity (QuantityValue)
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:node gen:YieldStrengthValueShape ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must provide yieldStrength as a QuantityValue (MPa)." ;
+    ] ;
+    # flange outstand quantity (QuantityValue)
+    sh:property [
+        sh:path nltl:flangeOutstand ;
+        sh:node gen:FlangeOutstandValueShape ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must provide flangeOutstand as a QuantityValue (mm)." ;
+    ] .
+
+# Ship shape linking to structural members
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gen:StructuralMemberShape ;
+        sh:minCount 1 ;
+        sh:message "Ship must have at least one structuralMember with required quantities." ;
+    ] .
+<END_SHACL>

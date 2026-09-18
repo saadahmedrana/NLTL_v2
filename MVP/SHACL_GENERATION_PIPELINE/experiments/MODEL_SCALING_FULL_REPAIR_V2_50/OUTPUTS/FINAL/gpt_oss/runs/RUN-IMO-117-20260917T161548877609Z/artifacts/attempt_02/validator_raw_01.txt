@@ -1,0 +1,52 @@
+We need to output JSON with accept false if any blocking issue exists, otherwise accept true with empty currentIssues array. The validator: we must check candidate SHACL for concrete blocking defects per categories: WRONG_TARGET, WRONG_APPLICABILITY, WRONG_OWNERSHIP, MISSING_MANDATORY, LOGIC_ERROR, CARDINALITY, THRESHOLD, FORMULA, TABLE, UNIT, DATATYPE, MISSING_VALUE_BEHAVIOR, CANONICAL_VOCAB, etc. We need to identify any issues.
+
+Given deterministicValidation.valid is true, but we still must check semantics.
+
+Requirement: IF sewage_discharge_uses_treatment_plant = true, THEN sewage_treatment_plant_approval_status = approved, MARPOL_IV_9_1_1_or_9_2_1_certification_status = compliant, MARPOL_IV_11_1_2_discharge_status = compliant, and distances recorded.
+
+Candidate shape:
+
+- targetClass nltl:ship -> correct target (owner required: ship). So target OK.
+
+- property shape for sewageDischargeUsesTreatmentPlant boolean with minCount 1 maxCount 1: requirement says flag present. This matches. Should be datatype boolean. OK.
+
+- SPARQL constraint: SELECT $this WHERE { $this nltl:sewageDischargeUsesTreatmentPlant true . FILTER ( NOT EXISTS{...} || NOT EXISTS{...} || NOT EXISTS{...} || NOT EXISTS{...} || NOT EXISTS{...} ) }
+
+The logical condition: they used FILTER with OR among NOT EXISTS. The intention: If flag true, then all those conditions must exist. So violation if any is missing. Using FILTER ( NOT EXISTS A || NOT EXISTS B ...) means if any NOT EXISTS is true, then filter passes (i.e., selects $this); that indicates a violation. That matches desired: violation when any missing. So logical is correct.
+
+Check each existence pattern:
+
+1. $this nltl:sewageTreatmentPlantApprovalStatus nltl:evidenceStateApproved . This checks approval status is approved (named individual). Correct.
+
+2. $this nltl:marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus true . That's boolean true. Good.
+
+3. $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus ?cert . They used ?cert variable, no check for value being approved/compliant. Requirement says certification status must be compliant (approved). In ontology, certification status range is evidenceState, maybe approved. Not checking that ?cert equals approved. So missing mandatory condition: should require approved but only checks existence of any value. That may be considered a blocking defect: missing mandatory condition (specific required value). Category: LOGIC_ERROR or MISSING_MANDATORY? The requirement says certification status should be compliant (approved). The shape only checks existence. That's a defect.
+
+4. Distance to nearest land ice shelf: they check existence of a record with property distanceToNearestLandIceShelfOrFastIce ?valLand, filter datatype = xsd:decimal. They do not check unit or that value is present (but datatype okay). They don't require property to have a quantity value (maybe allowed). Requirement: record distances; no numeric minimum. So okay.
+
+5. Distance to ice concentration >1/10: similar existence check with datatype decimal. No min. Acceptable.
+
+Thus missing required value condition for certification status is a concrete blocking issue.
+
+Also, they didn't check that the approval status is approved? They do that. Good.
+
+Potential issue: they used SHACL SPARQL constraint but didn't set sh:message referencing variable? That's fine.
+
+Check canonical vocab usage: they used nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus but not checking that its value is from controlled vocabulary (approved). But using existence only is insufficient for requirement.
+
+Thus we have one blocking issue: LOGIC_ERROR or MISSING_MANDATORY. Category list allowed includes "WRONG_TARGET", "WRONG_OWNERSHIP", etc. The issue categories enumerated earlier: wrong target, applicability, ownership/path, mandatory condition, logic, cardinality, threshold/boundary, formula/table, unit/conversion, datatype/quantity access, missing-value behavior, canonical term, locked-vocabulary scope, or omitted obligatory semantic element.
+
+We need to pick one category. Since it's missing specific mandatory condition (approval status must be approved). Could be "MANDATORY_CONDITION". But the allowed categories in JSON example were "WRONG_TARGET". However requirement says each issue must contain exactly those keys, but category can be any of those defined. We should use "MANDATORY_CONDITION". Provide location maybe "MainShape". Problem description.
+
+Provide required_change: "Add check that certification status equals nltl:evidenceStateApproved".
+
+Regression guard: "Preserve the corrected certification status check."
+
+needs_vocabulary_resolution: false (since term exists). So activate_variable_matcher false.
+
+Return JSON with accept false. Provide array with one issue.
+
+Let's craft.
+
+
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"MANDATORY_CONDITION","location":"MainShape","problem":"The SPARQL constraint only checks for existence of any marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus value, but the requirement mandates it be 'approved' (evidenceStateApproved).","required_change":"Add a condition that the certification status equals nltl:evidenceStateApproved (e.g., FILTER NOT EXISTS { $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus nltl:evidenceStateApproved } ).","regression_guard":"Preserve the corrected certification status check.","blocking":true,"needs_vocabulary_resolution":false}]}

@@ -1,0 +1,157 @@
+We need to generate SHACL shape for the requirement. The requirement is complex readiness; verificationMode = COMPLEX_READINESS. According to rule 36-38: generate SHACL that verifies applicability (the applicability terms), the required operand terms as inputs, their owners/paths/datatype/units, the calculation or analysis structures, evidence if required, and result terms as externally computed outputs. Enforce only directCheckSubconstraints marked DIRECT_CHECK. Here there is one directCheckSubconstraints: comparison designConditionLocalStrengthCapacity >= localIcePressure.
+
+We must also enforce applicability: terms thrusterType, mainPropulsionThruster need to be present and have specific values (string thrusterType limited to "azimuthing" or "fixed", mainPropulsionThruster boolean? It's a datatype property of ship as xsd:boolean). So we need a shape targeting ship.
+
+Model path: ship hasDesignCondition -> designCondition. The designCondition has properties designConditionLocalStrengthCapacity (QuantityValue) and localIcePressure is on ship directly (the term's requiredOwner is ship). So to compare, we need to get designConditionLocalStrengthCapacity via path ship nltl:hasDesignCondition ?dc . ?dc nltl:designConditionLocalStrengthCapacity ?capacityNode . ... numeric value via qudt:numericValue.
+
+Similarly localIcePressure is a quantity property on ship: ship nltl:localIcePressure ?pressureNode . numeric value as qudt:numericValue.
+
+The shape should target ship class. Provide property shapes for:
+
+- thrusterType (string, allowed values "azimuthing", "fixed").
+- mainPropulsionThruster (boolean) maybe required presence? Requirement doesn't say required must be true, but applicability might depend on these? The direct check maybe applies always? The requirement says "The regulations also apply to azimuthing and fixed thrusters for main propulsion..." So applicability is probably that thrusterType must be either "azimuthing" or "fixed" AND mainPropulsionThruster true? The term mainPropulsionThruster is boolean indicating maybe if the thruster is main propulsion? Probably need it true to be applicable. We'll enforce both present; thrusterType must be one of those string values; mainPropulsionThruster must be true (boolean). This is the applicability branch.
+
+Then we need a SPARQL constraint for the comparison, only if applicable (i.e., after those properties). Use sh:sparql with a SELECT that returns violations when capacity < pressure. Use tolerance? For inequality >= we can just check capacityNodeVal < pressureNodeVal.
+
+Need to ensure both quantities have recommended units: designConditionLocalStrengthCapacity recommends KiloN (force) but localIcePressure recommends MegaPa (pressure). Wait units differ; but the comparison is of capacity (force) vs pressure (pressure). That seems inconsistent physically; but the requirement text says "local strength of thruster body shall be sufficient to withstand local ice pressure". That's a strength (force) vs pressure (stress) maybe both expressed in same units? The vocabulary defines localIcePressure quantity kind PressureOrStress with unit MPa, and designConditionLocalStrengthCapacity with Force (kN). So a direct comparison of numeric values is questionable; but we follow the contract's directCheck: designConditionLocalStrengthCapacity >= localIcePressure. So compare numeric values directly, regardless of unit mismatch. We maybe ignore unit conversion; treat values as numbers with their own units.
+
+We'll extract numeric values without converting.
+
+Define prefixes: sh, nltl, xsd, qudt, rdf maybe.
+
+The shape's targetClass nltl:ship.
+
+Define property shapes:
+
+- thrusterType: path nltl:thrusterType, datatype xsd:string, sh:in (list) "azimuthing" "fixed". Use sh:minCount 1.
+- mainPropulsionThruster: path nltl:mainPropulsionThruster, datatype xsd:boolean, sh:hasValue true (since applicability). minCount 1.
+- hasDesignCondition: ensure at least one designCondition? Maybe not required but used for calculation; but we need designCondition to have capacity. If missing, can't calculate, so maybe shape should require presence of designCondition with the capacity property. Could add a property shape on ship for nltl:hasDesignCondition with sh:class nltl:designCondition and minCount 1. Also subshape maybe ensures capacity property present.
+
+But requirement states only direct check subconstraint, not requirement for presence of designCondition? Likely need to ensure designCondition exists and capacity defined. We'll create nested node shape for designCondition via sh:node on hasDesignCondition to enforce designConditionLocalStrengthCapacity present.
+
+Define property shape for designConditionLocalStrengthCapacity within that node: path nltl:designConditionLocalStrengthCapacity, sh:nodeKind sh:BlankNodeOrIRI? but it's a quantityProperty linking to a qudt:QuantityValue. So we need to ensure there is a quantity node with qudt:numericValue of type xsd:decimal, and optional unit check with recommended unit.
+
+Simplify: we can just ensure an object exists, no deeper check. But need numeric value for comparison. In SPARQL we can directly pattern to get numeric values.
+
+We could not need separate property shapes; just rely on SPARQL constraint that fetches the values; but need to ensure they exist for comparison (if missing, the constraint may not fire). It's okay, but better to enforce presence with separate property shapes for the quantity values.
+
+Given limited time, we will include:
+
+- property shape on ship for nltl:localIcePressure, sh:node with required numericValue.
+
+Simplify: Use sh:property with path nltl:localIcePressure, sh:minCount 1.
+
+Now the SPARQL constraint:
+
+SELECT ?this ( ?capacityNode ?pressureNode ) WHERE {
+  # get capacity
+  ?this nltl:hasDesignCondition ?dc .
+  ?dc nltl:designConditionLocalStrengthCapacity ?capacityNode .
+  ?capacityNode qudt:numericValue ?capacityVal .
+  # get pressure
+  ?this nltl:localIcePressure ?pressureNode .
+  ?pressureNode qudt:numericValue ?pressureVal .
+  FILTER(?capacityVal < ?pressureVal)
+}
+
+Add sh:message "Design condition local strength capacity is insufficient compared to local ice pressure."
+
+Need to include prefixes in query: PREFIX nltl: <...> PREFIX qudt: <http://qudt.org/schema/qudt#> PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>.
+
+Note: Must not rebind ?this as it's provided.
+
+Now construct shape URI: urn:nltl:generated-shape:TRF-070_Shape (or similar). Use camel? Keep simple.
+
+Now produce final output between markers.
+
+Check syntax: Turtle.
+
+Add prefix definitions at top: @prefix sh: ... etc.
+
+Make sure we use only canonical terms; we referenced nltl:hasDesignCondition, nltl:designConditionLocalStrengthCapacity, nltl:localIcePressure, nltl:thrusterType, nltl:mainPropulsionThruster, nltl:ship.
+
+Also used qudt:numericValue, but namespace for qudt is http://qudt.org/schema/qudt#.
+
+We need also prefix for rdf? Not needed.
+
+Now assemble.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:TRF-070_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Applicability – thruster type (azimuthing or fixed)
+    sh:property [
+        sh:path nltl:thrusterType ;
+        sh:datatype xsd:string ;
+        sh:in ("azimuthing" "fixed") ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "thrusterType must be present and be either 'azimuthing' or 'fixed'." ;
+    ] ;
+
+    # Applicability – main propulsion thruster must be true
+    sh:property [
+        sh:path nltl:mainPropulsionThruster ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "mainPropulsionThruster must be true for the requirement to apply." ;
+    ] ;
+
+    # Ensure a design condition is linked (required for the capacity value)
+    sh:property [
+        sh:path nltl:hasDesignCondition ;
+        sh:class nltl:designCondition ;
+        sh:minCount 1 ;
+        sh:message "A designCondition must be associated with the ship." ;
+    ] ;
+
+    # Presence of local ice pressure quantity
+    sh:property [
+        sh:path nltl:localIcePressure ;
+        sh:minCount 1 ;
+        sh:message "localIcePressure quantity must be provided for the ship." ;
+    ] ;
+
+    # Presence of local strength capacity within the design condition
+    sh:property [
+        sh:path nltl:hasDesignCondition ;
+        sh:node [
+            sh:property [
+                sh:path nltl:designConditionLocalStrengthCapacity ;
+                sh:minCount 1 ;
+                sh:message "designConditionLocalStrengthCapacity must be provided on the designCondition." ;
+            ]
+        ] ;
+    ] ;
+
+    # Direct check: capacity >= pressure
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Design condition local strength capacity is insufficient compared to local ice pressure." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT ?this WHERE {
+                ?this nltl:hasDesignCondition ?dc .
+                ?dc nltl:designConditionLocalStrengthCapacity ?capacityNode .
+                ?capacityNode qudt:numericValue ?capacityVal .
+                ?this nltl:localIcePressure ?pressureNode .
+                ?pressureNode qudt:numericValue ?pressureVal .
+                FILTER ( ?capacityVal < ?pressureVal )
+            }
+        """ ;
+    ] .
+<END_SHDL>

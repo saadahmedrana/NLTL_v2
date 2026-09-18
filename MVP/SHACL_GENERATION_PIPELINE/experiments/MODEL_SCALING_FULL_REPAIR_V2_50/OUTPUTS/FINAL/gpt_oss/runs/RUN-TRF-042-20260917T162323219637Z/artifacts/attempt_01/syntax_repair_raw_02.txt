@@ -1,0 +1,173 @@
+We need to output corrected SHACL graph in Turtle. The error is in sh:select string: BIND appears after SELECT $this WHERE { ... } but BIND is allowed inside SPARQL query. However the syntax error says Expected SelectQuery, found 'BIND' likely because SELECT clause expects SELECT ... WHERE {...} and maybe they used SELECT $this but in SHACL sh:select expects a SELECT query that returns ?this? Actually SPARQL constraint uses sh:select with a SELECT query that returns ?this? In SHACL spec, the query should be a SELECT query returning ?this binding. Usually pattern: SELECT $this WHERE {...}. So they used SELECT $this (variable $this) not ?this. That's allowed. BIND inside WHERE allowed. Perhaps the issue is the placement: they have "SELECT $this" then newline THEN "WHERE {" then patterns THEN BIND THEN ... The error location line 31 is BIND after previous lines. So parser maybe didn't expect BIND after a SELECT clause without a WHERE? Actually they have WHERE { earlier, but maybe missing closing brace for earlier part? Let's examine snippet:
+
+SELECT $this
+WHERE {
+    $this nltl:designIceLoadHeight ?hNode .
+    $this nltl:spacing ?sNode .
+    $this nltl:longitudinalPlatingFactorF2 ?fNode .
+
+    ?hNode qudt:numericValue ?hVal .
+    ?sNode qudt:numericValue ?sVal .
+    ?fNode qudt:numericValue ?fVal .
+
+    FILTER ( datatype(?hVal) = xsd:decimal &&
+             datatype(?sVal) = xsd:decimal &&
+             datatype(?fVal) = xsd:decimal )
+
+    BIND ( ?hVal / ?sVal AS ?ratio ) .
+
+    # Expected f2 based on piece‑wise definition
+    BIND ( IF ( ?ratio <= 1,
+               (0.4 / ?ratio) + 0.6,
+               IF ( ?ratio <= 1.8,
+                    1.4 - 0.4 * ?ratio,
+                    0 ) ) AS ?expected ) .
+
+    # Tolerance: max(1e-6*|expected|,1e-12)
+    BIND ( MAX( 1e-6 * ABS(?expected), 1e-12 ) AS ?tol ) .
+
+    # Violation if ratio out of allowed interval or f2 differs beyond tolerance
+    FILTER ( ( ?ratio > 1.8 ) ||
+             ( ABS(?fVal - ?expected) > ?tol ) )
+}
+
+Looks fine. Why parser error? Could be because SHACL-SPARQL expects a SELECT query but not BIND outside of a VALUES? Actually BIND is allowed inside SELECT query with a WHERE. I suspect error maybe due to missing braces around BIND? No.
+
+Maybe the problem is that sh:select expects a CONSTRUCT? No. According to SHACL-SPARQL, sh:select is a SELECT query pattern. Should be "SELECT $this WHERE { ... }". That's fine.
+
+Perhaps the problem is the use of $this variable; in SPARQL variable must start with ?, not $. $this is a SHACL placeholder that expands to variable ?this I think. Actually SHACL uses $this to reference the focus node within a query; it's allowed. So okay.
+
+The parser error "Expected SelectQuery, found 'BIND' (at char 1193), (line:31, col:17)" maybe occurs because they ended the query before BIND; maybe missing closing brace before BIND? Let's count braces. After FILTER line they have newline then "BIND ( ?hVal / ?sVal AS ?ratio ) .". That's inside WHERE. Should be okay.
+
+Potential issue: They used double quotes for the whole sh:select string; inside they have triple quotes delim. In Turtle they used sh:select """ ... """ . That's okay. However inside the triple-quoted string there may be a stray backslash causing parse error? The error indicates parser sees BIND as start of a new query after previous SELECT query ended prematurely due to missing closing brace maybe for the FILTER expression? The FILTER line: FILTER ( datatype(?hVal) = xsd:decimal &&... ). The parentheses are balanced.
+
+Maybe the issue is that they used double ampersand && which is not standard SPARQL syntax; SPARQL uses && yes it's allowed. Good.
+
+Maybe the problem is that they used "MAX(...)" which is a SPARQL aggregation function that can only be used in SELECT expressions with GROUP BY? Actually MAX is an aggregate function requiring grouping; but you can use MAX function as an expression of the arithmetic extension? I think SPARQL 1.1 has MIN, MAX functions as aggregators only in SELECT but you can also use MAX() for numeric function? There is a function "MAX" as an aggregate only. So using inside BIND maybe not allowed, causing parser error expecting end of query before BIND. Should replace with mathematic expression: BIND ( IF( 1e-6 * ABS(?expected) > 1e-12 , 1e-6 * ABS(?expected) , 1e-12 ) AS ?tol ) . That avoids MAX.
+
+Thus repair: replace BIND ( MAX( 1e-6 * ABS(?expected), 1e-12 ) AS ?tol ) with BIND ( IF( (1e-6 * ABS(?expected)) > 1e-12 , (1e-6 * ABS(?expected)) , 1e-12 ) AS ?tol ) .
+
+Ok.
+
+Make final corrected candidate.
+
+Also ensure the shape IRI is in angle brackets <urn:nltl:generated-shape:TRF-042> (already). End with period after the sh:sparql block. In current they have '.' after bracket? they have ']' '.'? They have " ] .". Good.
+
+Now produce final output as required.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+<urn:nltl:generated-shape:TRF-042>
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+
+    # designIceLoadHeight – length, unit m
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # spacing – length, unit m
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # longitudinalPlatingFactorF2 – dimensionless
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # materialApprovalStatus – must be an evidenceState individual
+    sh:property [
+        sh:path nltl:materialApprovalStatus ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class nltl:evidenceState
+    ] ;
+
+    # Calculated check for longitudinalPlatingFactorF2 (f2)
+    sh:sparql [
+        sh:message "longitudinalPlatingFactorF2 does not satisfy the prescribed formula within tolerance or h/s exceeds the allowed range (1.0–1.8)." ;
+        sh:select """ 
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?hNode .
+                $this nltl:spacing ?sNode .
+                $this nltl:longitudinalPlatingFactorF2 ?fNode .
+
+                ?hNode qudt:numericValue ?hVal .
+                ?sNode qudt:numericValue ?sVal .
+                ?fNode qudt:numericValue ?fVal .
+
+                FILTER ( datatype(?hVal) = xsd:decimal &&
+                         datatype(?sVal) = xsd:decimal &&
+                         datatype(?fVal) = xsd:decimal )
+
+                BIND ( ?hVal / ?sVal AS ?ratio ) .
+
+                # Expected f2 based on piece‑wise definition
+                BIND ( IF ( ?ratio <= 1,
+                           (0.4 / ?ratio) + 0.6,
+                           IF ( ?ratio <= 1.8,
+                                1.4 - 0.4 * ?ratio,
+                                0 ) ) AS ?expected ) .
+
+                # Tolerance: max(1e-6*|expected|,1e-12) expressed without aggregate
+                BIND ( IF ( (1e-6 * ABS(?expected)) > 1e-12,
+                            (1e-6 * ABS(?expected)),
+                            1e-12 ) AS ?tol ) .
+
+                # Violation if ratio out of allowed interval or f2 differs beyond tolerance
+                FILTER ( ( ?ratio > 1.8 ) ||
+                         ( ABS(?fVal - ?expected) > ?tol ) )
+            }
+        """ 
+    ] .
+<END_SHACL>

@@ -1,0 +1,205 @@
+We need generate SHACL shape for the requirement.
+
+Requirement: "Narrow deck strips abreast of hatches and serving as ice stringers shall comply with the section modulus and shear area requirements given in 4.5.1 and 4.5.2 respectively. In the case of very long hatches, the classification society may permit the product p* h to be given a value of less than 0.15 but in no case less than 0.10."
+
+Interpretation:
+
+- For each narrowDeckStrip (target class nltl:narrowDeckStrip) that satisfies applicability conditions:
+   - abreastOfHatch = true?
+   - servesAsIceStringer = true?
+   - (maybe both? "abreast of hatches and serving as ice stringers" => both boolean true)
+   - Then must have actualSectionModulus >= requiredSectionModulus (both quantities)
+   - and actualShearArea >= requiredShearArea.
+
+- Exception: If veryLongHatchOpening = true (maybe also applies to the same strip), then classification society may permit product p*h ??? This is about "permittedReducedLineLoad" <0.15 but >=0.10, and reducedLineLoadApprovedByClassificationSociety must be true. That seems a separate constraint: For very long hatches, if permittedReducedLineLoad is present, it must be >=0.10 and <0.15 and approved flag true. However original text mentions "product p* h to be given a value of less than 0.15 but in no case less than 0.10." The term "permittedReducedLineLoad" likely reflects that reduced line load factor p* h. So we need constraint on that when veryLongHatchOpening = true.
+
+Thus SHACL must include:
+
+Target class: nltl:narrowDeckStrip.
+
+Need property shapes for booleans: abreastOfHatch, servesAsIceStringer — must be true. Also maybe need to check they are present (minCount 1), datatype boolean.
+
+And for all strips (regardless of veryLong?), if applicable (both booleans true) compute constraints.
+
+We could embed condition inside SPARQL constraint: match strips where abreastOfHatch true and servesAsIceStringer true.
+
+If also veryLongHatchOpening true, then check alternative.
+
+Better to have one SPARQL constraint that checks:
+
+If abreastOfHatch true && servesAsIceStringer true then:
+
+   (actualSectionModulus >= requiredSectionModulus && actualShearArea >= requiredShearArea)
+
+   AND (if veryLongHatchOpening true then (permittedReducedLineLoad >= 0.10 && permittedReducedLineLoad < 0.15 && reducedLineLoadApprovedByClassificationSociety = true) else true)
+
+Implementation: Use SPARQL ASK or SELECT with FILTER NOT EXISTS violation? In SHACL, we can use sh:sparql with sh:message.
+
+Define a sh:NodeShape with targetClass nltl:narrowDeckStrip.
+
+Add property shapes for booleans (maybe not needed if SPARQL checks presence). But we need ensure they exist; can use sh:property with sh:minCount 1, sh:hasValue true.
+
+Also need to validate quantities: actualSectionModulus etc are QUDT QuantityValue. Use property shapes to ensure datatype? But the comparison uses numericValue.
+
+We'll need to extract numeric values: For a QuantityNode, we need pattern: subject nltl:actualSectionModulus ?modNode . ?modNode qudt:numericValue ?modVal . ?modNode qudt:unit <unitIRI>. Same for requiredSectionModulus. Use same for shear area.
+
+So SPARQL constraint will join these patterns.
+
+We'll need prefixes: sh, xsd, nltl, qudt.
+
+Need to use proper IRI for unit: recommended units are cm^3 for modulus and cm^2 for shear area. Ensure unit matches.
+
+Define tolerance? Not needed for direct >=.
+
+Now build shape.
+
+We'll define shape IRI: urn:nltl:generated-shape:TRF-055-Shape.
+
+Add sh:targetClass nltl:narrowDeckStrip.
+
+Add property shapes for abreastOfHatch and servesAsIceStringer (both boolean true). Could combine both using separate property shapes.
+
+Option: Use two property shapes with sh:hasValue true.
+
+Also maybe include veryLongHatchOpening boolean maybe to indicate exception presence. In SPARQL constraint, checking if it's true.
+
+Now SPARQL constraint:
+
+sh:sparql [
+   a sh:SPARQLConstraint ;
+   sh:message "Section modulus or shear area insufficient, or reduced line load out of allowed range for very long hatch." ;
+   sh:select """SELECT $this ( ?modVal AS ?actualMod ) ( ?reqModVal AS ?requiredMod ) ( ?shearVal AS ?actualShear ) ( ?reqShearVal AS ?requiredShear ) WHERE {
+      $this nltl:abreastOfHatch true .
+      $this nltl:servesAsIceStringer true .
+      $this nltl:actualSectionModulus ?modNode .
+      ?modNode qudt:numericValue ?modVal .
+      ?modNode qudt:unit <http://qudt.org/vocab/unit/CentiM3> .
+      $this nltl:requiredSectionModulus ?reqModNode .
+      ?reqModNode qudt:numericValue ?reqModVal .
+      ?reqModNode qudt:unit <http://qudt.org/vocab/unit/CentiM3> .
+      $this nltl:actualShearArea ?shearNode .
+      ?shearNode quqt:numericValue ?shearVal .   # typo? need correct prefix qudt
+   } FILTER ( ?modVal < ?reqModVal || ?shearVal < ?reqShearVal )""" ; # need also condition for exception
+] 
+
+But we also need allowed exception: if veryLongHatchOpening true then we may allow reducedLineLoad condition maybe relax actual shear? Actually requirement says: In case of very long hatches, classification society may permit product p*h to be given a value of less than 0.15 but not less than 0.10. That seems about permittedReducedLineLoad, not about modulus/shear area. So they are separate constraint: still must meet modulus/shear area? Possibly still must meet but there's an exception? Hard to parse but we'll include both constraints: separate SPARQL for exception verifying reduced load constraints, only if veryLongHatchOpening true.
+
+Thus we might have a SPARQL constraint that asserts: if veryLongHatchOpening true then permittedReducedLineLoad must be >=0.10 && <0.15 && reducedLineLoadApprovedByClassificationSociety true.
+
+Now combine.
+
+Simplify: create two SPARQL constraints: (1) modulus/shear area >= requirements (applies when abreast & ice stringer). (2) exception constraint for veryLongHatchOpening.
+
+Implement both as sh:sparql constraints with SELECT returning violations.
+
+Better to use sh:select that returns rows where violation occurs. If no rows, passes.
+
+Implement constraint (1) SELECT where NOT (actual >= required) produce violation.
+
+Need to include numeric values.
+
+Make sure to include prefixes inside.
+
+Now produce Turtle.
+
+Let's write.
+
+Be careful about quoting prefixes inside SELECT: need to include prefix declarations inside query string (each query must declare prefixes). We'll include them inside the string.
+
+Also ensure we use proper RDF datatype for booleans: true literal.
+
+Now shape.
+
+I'll craft.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-055 a sh:NodeShape ;
+    sh:targetClass nltl:narrowDeckStrip ;
+    
+    # Applicability: abreast of hatch = true
+    sh:property [
+        sh:path nltl:abreastOfHatch ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "Narrow deck strip must be marked abreast of hatch (true)." ;
+    ] ;
+    
+    # Applicability: serves as ice stringer = true
+    sh:property [
+        sh:path nltl:servesAsIceStringer ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "Narrow deck strip must be marked as serving as ice stringer (true)." ;
+    ] ;
+    
+    # Core requirement: actualSectionModulus >= requiredSectionModulus
+    #               AND actualShearArea >= requiredShearArea
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Section modulus or shear area is below the required value." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this WHERE {
+                # Applicability already ensured by property shapes
+                $this nltl:actualSectionModulus ?actualModNode .
+                ?actualModNode qudt:numericValue ?actualModVal .
+                ?actualModNode qudt:unit unit:CentiM3 .
+
+                $this nltl:requiredSectionModulus ?reqModNode .
+                ?reqModNode qudt:numericValue ?reqModVal .
+                ?reqModNode qudt:unit unit:CentiM3 .
+
+                $this nltl:actualShearArea ?actualShearNode .
+                ?actualShearNode qudt:numericValue ?actualShearVal .
+                ?actualShearNode qudt:unit unit:CentiM2 .
+
+                $this nltl:requiredShearArea ?reqShearNode .
+                ?reqShearNode qudt:numericValue ?reqShearVal .
+                ?reqShearNode qudt:unit unit:CentiM2 .
+
+                FILTER ( ?actualModVal < ?reqModVal || ?actualShearVal < ?reqShearVal )
+            }
+        """ ;
+    ] ;
+    
+    # Exception for very long hatch openings:
+    #   0.10 <= permittedReducedLineLoad < 0.15
+    #   AND reducedLineLoadApprovedByClassificationSociety = true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Permitted reduced line load for very‑long‑hatch opening is out of the allowed range or not approved." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:veryLongHatchOpening true .
+
+                $this nltl:permittedReducedLineLoad ?permLoadNode .
+                ?permLoadNode qudt:numericValue ?permLoadVal .
+                ?permLoadNode qudt:unit unit:KiloN-PER-M .
+
+                $this nltl:reducedLineLoadApprovedByClassificationSociety true .
+
+                FILTER ( ?permLoadVal < 0.10 || ?permLoadVal >= 0.15 )
+            }
+        """ ;
+    ] .
+<END_SHACL>

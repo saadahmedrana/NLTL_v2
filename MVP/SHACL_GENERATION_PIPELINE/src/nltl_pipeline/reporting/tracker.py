@@ -43,8 +43,14 @@ SHEET_HEADERS: dict[str, list[str]] = {
     "VALIDATION": [
         "RUN_ID", "REQUIREMENT_ID", "ITERATION", "VALID", "EXTRACTION_VALID", "TURTLE_VALID",
         "SHACL_STRUCTURE_VALID", "META_SHACL_VALID", "VOCABULARY_VALID", "DATATYPE_UNIT_VALID",
-        "TARGET_PATH_VALID", "ERRORS", "WARNINGS", "USED_CANONICAL_IRIS", "UNKNOWN_IRIS",
+        "TARGET_PATH_VALID", "TEXT_OUTSIDE_MARKERS", "ALTERNATE_CLOSING_MARKER_USED",
+        "MULTIPLE_MARKER_MENTIONS", "ERRORS", "WARNINGS", "USED_CANONICAL_IRIS", "UNKNOWN_IRIS",
         "OUT_OF_SCOPE_IRIS", "SUSPICIOUS_EXTERNAL_IRIS",
+    ],
+    "VALIDATOR_FORMATTING": [
+        "RUN_ID", "REQUIREMENT_ID", "ITERATION", "CONTRACT_ATTEMPT",
+        "TEXT_OUTSIDE_DECISION_BLOCK", "MULTIPLE_CANDIDATE_DECISION_BLOCKS",
+        "CANDIDATE_DECISION_BLOCK_COUNT", "NORMALIZATION_ERROR",
     ],
     "VOCAB_MATCHES": [
         "RUN_ID", "REQUIREMENT_ID", "ITERATION", "EVENT", "QUERY_FEEDBACK", "CANDIDATE_COUNT",
@@ -151,9 +157,18 @@ class TrackerExporter:
                     event["run_id"], event["requirement_id"], event.get("iteration"), event.get("valid"),
                     event.get("extraction_valid"), event.get("turtle_valid"), event.get("shacl_structure_valid"),
                     event.get("meta_shacl_valid"), event.get("vocabulary_valid"), event.get("datatype_unit_valid"),
-                    event.get("target_path_valid"), _join(event.get("errors", [])), _join(event.get("warnings", [])),
+                    event.get("target_path_valid"), event.get("text_outside_markers", False),
+                    event.get("alternate_closing_marker_used", False), event.get("multiple_marker_mentions", False),
+                    _join(event.get("errors", [])), _join(event.get("warnings", [])),
                     _join(event.get("used_canonical_iris", [])), _join(event.get("unknown_canonical_iris", [])),
                     _join(event.get("out_of_scope_canonical_iris", [])), _join(event.get("suspicious_external_iris", [])),
+                ])
+            elif kind == "validator_formatting_observed":
+                tables["VALIDATOR_FORMATTING"].append([
+                    event["run_id"], event["requirement_id"], event.get("iteration"),
+                    event.get("contract_attempt"), event.get("has_text_outside_decision_block", False),
+                    event.get("multiple_candidate_decision_blocks", False),
+                    event.get("candidate_decision_block_count", 0), event.get("normalization_error", ""),
                 ])
             elif kind in {"matcher_search", "matcher_decision"}:
                 tables["VOCAB_MATCHES"].append([

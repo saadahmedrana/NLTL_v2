@@ -1,0 +1,201 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix gen:  <urn:nltl:generated-shape:> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+gen:TRF-101
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # ---- required quantity inputs -------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeChordLengthAtWeakestSection ;
+        sh:nodeKind sh:BlankNode ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMaximumThicknessAtWeakestSection ;
+        sh:nodeKind sh:BlankNode ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeCylindricalRootRadius ;
+        sh:nodeKind sh:BlankNode ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMinimumYieldStrength ;
+        sh:nodeKind sh:BlankNode ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeUltimateTensileStrength ;
+        sh:nodeKind sh:BlankNode ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:nodeKind sh:BlankNode ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureUltimateLoad ;
+        sh:nodeKind sh:BlankNode ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeTipOffset ;
+        sh:nodeKind sh:BlankNode ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # ---- relationship to load case (COMPLETE) ------------------------------------
+    sh:property [
+        sh:path nltl:hasLoadCase ;
+        sh:class nltl:loadCase ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # ---- boolean evidence ---------------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeFailureLoadWeakestDirectionConfirmed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+
+    # ---- alternative compliance paths (approved analysis OR calculation) ----------
+    sh:or (
+        # Path A: approved non‑linear stress analysis record must be present
+        [
+            sh:property [
+                sh:path nltl:approvedNonlinearBladeStressAnalysis ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        # Path B: approved formula‑based calculation record must be present
+        [
+            sh:property [
+                sh:path nltl:approvedFormulaBasedBladeStressCalculation ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+        # Path C: detailed SPARQL‑based calculation check
+        [
+            sh:sparql [
+                sh:message "Failed to satisfy detailed calculation constraints." ;
+                sh:select """SELECT $this WHERE {
+                    $this nltl:bladeChordLengthAtWeakestSection ?cNode .
+                    ?cNode qudt:numericValue ?cVal ;
+                           qudt:unit ?cUnit .
+                    FILTER(?cVal > 0 && ?cVal < 10 && ?cUnit = unit:M) .
+
+                    $this nltl:bladeMaximumThicknessAtWeakestSection ?tNode .
+                    ?tNode qudt:numericValue ?tVal ;
+                           qudt:unit ?tUnit .
+                    FILTER(?tVal > 0 && ?tVal < 5 && ?tUnit = unit:M) .
+
+                    $this nltl:bladeCylindricalRootRadius ?rNode .
+                    ?rNode qudt:numericValue ?rVal ;
+                           qudt:unit ?rUnit .
+                    FILTER(?rVal > 0 && ?rVal < 5 && ?rUnit = unit:M) .
+
+                    $this nltl:bladeMinimumYieldStrength ?ysNode .
+                    ?ysNode qudt:numericValue ?ysVal ;
+                           qudt:unit ?ysUnit .
+                    FILTER(?ysVal > 250 && ?ysUnit = unit:MPa) .
+
+                    $this nltl:bladeUltimateTensileStrength ?utsNode .
+                    ?utsNode qudt:numericValue ?utsVal ;
+                            qudt:unit ?utsUnit .
+                    FILTER(?utsVal > 450 && ?utsUnit = unit:MPa) .
+
+                    $this nltl:propellerDiameter ?pdNode .
+                    ?pdNode qudt:numericValue ?pdVal ;
+                           qudt:unit ?pdUnit .
+                    FILTER(?pdVal > 0 && ?pdUnit = unit:M) .
+
+                    $this nltl:bladeFailureUltimateLoad ?fuNode .
+                    ?fuNode qudt:numericValue ?fuVal ;
+                           qudt:unit ?fuUnit .
+                    FILTER(?fuVal > 0 && ?fuUnit = unit:kN) .
+
+                    $this nltl:bladeTipOffset ?toNode .
+                    ?toNode qudt:numericValue ?toVal ;
+                           qudt:unit ?toUnit .
+                    FILTER(?toVal > 0 && ?toUnit = unit:M) .
+
+                    # Compute derived quantities
+                    BIND(?cVal * ?cVal AS ?cArea) .
+                    BIND(?tVal * ?cVal AS ?tArea) .
+                    BIND(?cArea - ?tArea AS ?netArea) .
+                    BIND(?fuVal * 1000 AS ?fuN) .  # kN to N
+                    BIND(?fuN / ?netArea AS ?stress) .
+                    BIND(?ysVal * 1000000 AS ?ysPa) .   # MPa to Pa
+                    BIND(?utsVal * 1000000 AS ?utsPa) . # MPa to Pa
+                    FILTER(?stress < ?ysPa && ?stress < ?utsPa)
+
+                    # Tip offset check
+                    BIND(?pdVal * 0.10 AS ?tenPercent) .
+                    FILTER(?toVal > ?tenPercent)
+                }""" ;
+                sh:prefixes <http://datashapes.org/shacl/functions#>
+            ]
+        ]
+        # Path D: alternative SPARQL‑based calculation verification
+        [
+            sh:sparql [
+                sh:message "Alternative calculation verification failed." ;
+                sh:select """SELECT $this WHERE {
+                    $this nltl:bladeTipOffset ?toNode .
+                    ?toNode qudt:numericValue ?toVal ;
+                           qudt:unit ?toUnit .
+                    FILTER(?toUnit = unit:M) .
+
+                    $this nltl:propellerDiameter ?pdNode .
+                    ?pdNode qudt:numericValue ?pdVal ;
+                           qudt:unit ?pdUnit .
+                    FILTER(?pdUnit = unit:M) .
+
+                    BIND(?pdVal * 0.10 AS ?tenPercent) .
+                    FILTER(?toVal > ?tenPercent)
+                }"""
+            ]
+        ]
+    ) ;
+
+    # ---- blade failure status based on tip offset ----------------------------------
+    sh:sparql [
+        sh:message "Blade failure status must be true when blade tip offset exceeds 10 % of propeller diameter." ;
+        sh:select """SELECT $this WHERE {
+            $this nltl:bladeFailureLoadWeakestDirectionConfirmed ?status .
+            FILTER(?status = true) .
+
+            $this nltl:bladeTipOffset ?offsetNode .
+            ?offsetNode qudt:numericValue ?offsetVal ;
+                        qudt:unit ?offsetUnit .
+            FILTER(?offsetUnit = unit:M) .
+
+            $this nltl:propellerDiameter ?diamNode .
+            ?diamNode qudt:numericValue ?diamVal ;
+                      qudt:unit ?diamUnit .
+            FILTER(?diamUnit = unit:M) .
+
+            BIND(?diamVal * 0.10 AS ?tenPercent) .
+            FILTER(?offsetVal > ?tenPercent)
+        }"""
+    ] .

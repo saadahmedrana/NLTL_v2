@@ -1,0 +1,392 @@
+We need to generate SHACL shape for this requirement. The requirement: "The actual net effective shear area A_w shall satisfy A_w >= A_t, where A_t = 100^2*0.5*LL*s*(AF*PPF*P_avg)/(0.577*sigma_y) [cm^2]. LL is the lesser of frame span a and load-patch height b; the remaining variables are defined in I2.6.2."
+
+But the dependency contract lists operandTerms lots, but requiredInputs are yieldStrength_MPa, shearAreaA, span. However the formula uses many terms: averageIcePressure (P_avg), frameSpacing (s?), frameSpan (a), hullAreaFactor (AF), loadPatchHeight (b), peakPressureFactor (PPF), requiredTransverseFrameShearArea (A_t?), selectedHullAreaFactor (??), shearArea (A_w?), span (?), yieldStrength (sigma_y). Actually shearArea is the actual net effective shear area A_w. So we need to compare shearArea >= requiredTransverseFrameShearArea? Wait requiredTransverseFrameShearArea is A_t? Actually A_t is computed. The resultTerms include requiredTransverseFrameShearArea. So we need to compute A_t using many operands, and then ensure shearArea >= A_t.
+
+Given verificationMode DIRECT_CALCULATION: we need to reconstruct the calculation using allowed operators.
+
+We must use only allowed vocabulary terms (those in allowedVocabulary). The terms we need: shearArea (A_w), requiredTransverseFrameShearArea (A_t) maybe we need to compute A_t. However there is already a term requiredTransverseFrameShearArea defined. That term is likely representing the calculated required area? It is a QuantityProperty with recommended unit cm2, domain structuralMember. But the requirement is on ship level? Actually requiredOwner for requiredTransverseFrameShearArea is structuralMember. But target owner for requirement is ship. There is relationship hasStructuralMember linking ship to structuralMember. So we can traverse: ship -> nltl:hasStructuralMember -> ?member . Then that structuralMember may have properties requiredTransverseFrameShearArea, selectedHullAreaFactor, etc. Also we need shearArea, which is benchmarkEntity, owned by ship. No relationship; shearArea is a property of ship (requiredOwner ship). So shape target is ship.
+
+We need to enforce: shearArea >= requiredTransverseFrameShearArea (computed value). But requiredTransverseFrameShearArea is a property on structuralMember, not directly computed. The contract says resultTerms include requiredTransverseFrameShearArea, maybe this is computed term, but we have the property as data. In direct calculation we need to compute A_t using other terms (averageIcePressure, frameSpacing, frameSpan, hullAreaFactor, loadPatchHeight, peakPressureFactor, selectedHullAreaFactor? Actually selectedHullAreaFactor appears, but not needed maybe). The term requiredTransverseFrameShearArea may be present as a stored value; but we can also recompute and compare to shearArea? The requirement states: actual net effective shear area A_w shall satisfy A_w >= A_t (computed). So we need to ensure shearArea >= computed A_t. So we will need to compute A_t using the operand terms.
+
+But we may also need to ensure that the computed value matches the stored requiredTransverseFrameShearArea? Not necessary for requirement, but could be part of validation. However resultTerms includes requiredTransverseFrameShearArea, maybe we need to ensure that the stored requiredTransverseFrameShearArea equals the computed A_t. That could be a consistency check. But requirement only asks for comparison A_w >= A_t; we could compute A_t on the fly from other operands, without referencing requiredTransverseFrameShearArea term. However we must use allowed terms; requiredTransverseFrameShearArea is defined, maybe we need to retrieve it for the comparison? The formula uses AF*PPF*P_avg. Terms: hullAreaFactor (AF) is defined, but its requiredOwner hullAreaValue (owned by ship, via hullAreaValue) . But hullAreaFactor is on hullAreaValue class; need relationship ship -> ?hullAreaValue? Actually hullAreaValue is a class with no explicit property linking to ship, but hullAreaFactor's owner is hullAreaValue. We need path to that value: maybe ship -> nltl:hasComponent? Not sure. Might be too complex.
+
+Given the rule set, we should only include core obligations, not try to compute all terms if not all are present. However verificationMode DIRECT_CALCULATION expects we reconstruct the formula using available operands. But many operands may not be present (e.g., hullAreaFactor). It's okay to reference them; if missing, validation may fail due to missing property. Could be intended.
+
+But we have to not invent paths. If there is no path, we cannot reference. For each operand, we need to know its owner and relationship path.
+
+Let's list each operand and its requiredOwner:
+
+- averageIcePressure: requiredOwner ship.
+- frameSpacing: requiredOwner structuralMember.
+- frameSpan: requiredOwner ship.
+- hullAreaFactor: requiredOwner hullAreaValue.
+- loadPatchHeight: requiredOwner ship.
+- peakPressureFactor: requiredOwner ship.
+- requiredTransverseFrameShearArea: requiredOwner structuralMember (but that's the result maybe)
+- selectedHullAreaFactor: requiredOwner structuralMember.
+- shearArea: requiredOwner ship.
+- span: requiredOwner ship.
+- yieldStrength: requiredOwner ship.
+
+We have relationships: ship -> nltl:hasStructuralMember -> structuralMember (hasStructuralMember). So for structuralMember-owned properties we can navigate via that.
+
+For hullAreaValue-owned property hullAreaFactor: we need a path from ship to hullAreaValue. Not defined. Possibly ship -> nltl:hasComponent -> hullAreaValue? hullAreaValue is not shipComponent; it's just a class. Could be a component; but not defined. Since there is no path, we may need to skip hullAreaFactor and selectedHullAreaFactor? The operand list includes hullAreaFactor and selectedHullAreaFactor, but requiredOwner for selectedHullAreaFactor is structuralMember, so reachable via structuralMember.
+
+Given the complexity, maybe the SHACL shape can focus on the main comparison using existing properties available directly on ship: shearArea, requiredTransverseFrameShearArea? Not directly but we could compare shearArea >= requiredTransverseFrameShearArea? That would be a simple constraint using two ship-level properties, but requiredTransverseFrameShearArea is not ship-level; but perhaps each structuralMember has its own A_t. The A_w is a ship-level net effective shear area (maybe aggregated). So the comparison might be between ship's shearArea and computed A_t at ship level (maybe using averaged values). For simplicity, we could implement a SPARQL constraint that computes A_t using the formula, gathering the needed values via paths allowing structuralMember.
+
+Let's define a shape targeting nltl:ship. Within SPARQL SELECT, compute variables:
+
+- ?shearAreaValue: from ship nltl:shearArea ?saNode . ?saNode qudt:numericValue ?A_w ; qudt:unit unit:CM2 .
+- Need ?yieldStrength ; similarly quantity node.
+
+- Need ?spanNode (frameSpan) numericValue ?span ; unit M.
+
+- Need ?loadPatchHeightNode numericValue ?b ; unit M.
+
+- Need ?frameSpanNode numericValue ?a ; unit M.
+
+- Define LL = MIN(?a, ?b).
+
+- Need ?frameSpacingNode numericValue ?s ; unit M (?) frameSpacing recommended unit M.
+
+- Need ?hullAreaFactorNode numericValue ?AF ; unit unitless.
+
+- Need ?selectedHullAreaFactorNode numericValue ?AF_sel ; unitless (maybe not needed).
+
+- Need ?peakPressureFactorNode numericValue ?PPF ; unitless.
+
+- Need ?averageIcePressureNode numericValue ?P_avg ; unit MPa maybe? recommended unit MegaPA.
+
+- Compute A_t = 100^2 * 0.5 * ?LL * ?s * (?AF * ?PPF * ?P_avg) / (0.577 * ?sigma_y)
+
+Where sigma_y is yieldStrength numericValue.
+
+All units: The final result is cm2. Need to ensure consistent units: 100^2 is 10000; the formula multiplies lengths in meters; result is cm^2; we may ignore unit conversion for checkpoint, as SHACL may not handle unit conversion. Could use numeric values directly.
+
+Thus we produce constraint: FILTER(?A_w < ?A_t). If so, violation.
+
+We need to ensure each quantity node present (minCount etc). Provide core property shapes for presence and datatype/unit.
+
+Define property shapes for each required property:
+
+- nltl:shearArea: quantity node with numericValue decimal and unit unit:CM2.
+
+- nltl:yieldStrength: quantity node numericValue decimal unit unit:MegaPA.
+
+- nltl:frameSpan: quantity node numericValue decimal unit unit:M.
+
+- nltl:loadPatchHeight: numericValue decimal unit M.
+
+- nltl:averageIcePressure: numericValue decimal unit MPa.
+
+- nltl:frameSpacing: numericValue decimal unit M.
+
+- nltl:hullAreaFactor: numericValue decimal unit unit:UNITLESS.
+
+- nltl:peakPressureFactor: numericValue decimal unit unit:UNITLESS.
+
+- nltl:selectedHullAreaFactor maybe not needed.
+
+Also we need to get structuralMember-owned properties via path ship nltl:hasStructuralMember ?member . Then member nltl:frameSpacing etc.
+
+Thus property shape for frameSpacing needs target on structuralMember. But we can use sh:property with sh:path nltl:hasStructuralMember/nltl:frameSpacing? Actually SHACL property shape path can be a sequence using sh:path (rdf:List?) Not standard. But can use sh:path [ sh:inversePath ...]? Not for sequence. Better to use SPARQL constraints for those that need traversal.
+
+Simplify: Use SPARQL constraint that extracts all needed values via graph patterns, handling paths as needed.
+
+We will also include core presence constraints for ship-level quantities.
+
+Define shape: targetClass nltl:ship.
+
+Property shape for shearArea (quantity). Provide node constraint with class qudt:QuantityValue, numericValue, unit.
+
+Similarly for other ship-level properties.
+
+We also need to ensure structuralMember-level properties exist. Could add a property shape targeting structuralMember via sh:nodeKind sh:IRI and using sh:targetClass ...? Could embed nested shape using sh:node (sh:NodeShape) with sh:property path nltl:hasStructuralMember ?member and then further shape. But simpler: include in SPARQL constraint patterns that require existence of those values via optional patterns, with FILTER to ensure they exist; if missing, then violation.
+
+However rule 7: Do not add sh:minCount unless required. Requirement may require those inputs; likely they are required. So we can enforce presence.
+
+We'll design SPARQL constraint that selects $this (ship) where any required operand missing or comparison fails.
+
+Implementation:
+
+sh:sparql [
+    sh:message "Shear area A_w must be >= required shear area A_t computed from formula.";
+    sh:select """
+        PREFIX nltl: <https://w3id.org/nltl/vocab#>
+        PREFIX qudt: <http://qudt.org/schema/qudt/>
+        PREFIX unit: <http://qudt.org/vocab/unit/>
+        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+        SELECT $this WHERE {
+            # ship-level quantities
+            $this nltl:shearArea ?saNode .
+            ?saNode qudt:numericValue ?A_w ; qudt:unit unit:CM2 .
+            $this nltl:yieldStrength ?ysNode .
+            ?ysNode qudt:numericValue ?sigma_y ; qudt:unit unit:MegaPA .
+            $this nltl:frameSpan ?fsNode .
+            ?fsNode qudt:numericValue ?a ; qudt:unit unit:M .
+            $this nltl:loadPatchHeight ?lphNode .
+            ?lphNode qudt:numericValue ?b ; qudt:unit unit:M .
+            $this nltl:averageIcePressure ?pavgNode .
+            ?pavgNode qudt:numericValue ?P_avg ; qudt:unit unit:MegaPA .
+            # structural member values
+            $this nltl:hasStructuralMember ?member .
+            ?member nltl:frameSpacing ?fsMemberNode .
+            ?fsMemberNode qudt:numericValue ?s ; qudt:unit unit:M .
+            ?member nltl:hullAreaFactor ?hafNode .
+            ?hafNode qudt:numericValue ?AF ; qudt:unit unit:UNITLESS .
+            ?member nltl:peakPressureFactor ?ppfNode .
+            ?ppfNode qudt:numericValue ?PPF ; qudt:unit unit:UNITLESS .
+            # compute LL as lesser of a and b
+            BIND( IF(?a < ?b, ?a, ?b) AS ?LL ) .
+            # compute A_t
+            BIND( (100*100) * 0.5 * ?LL * ?s * ( ?AF * ?PPF * ?P_avg ) / ( 0.577 * ?sigma_y ) AS ?A_t ) .
+            FILTER( ?A_w < ?A_t ) .
+        }
+    """
+].
+
+Also include property shapes for presence of each quantity property.
+
+Define prefixes etc.
+
+Make sure unit IRIs: unit:CM2 is from QUDT: http://qudt.org/vocab/unit/CM2 (should exist). unit:M, unit:MegaPA, unit:UNITLESS.
+
+Check we have allowed vocabulary terms: we need nltl:shearArea, nltl:yieldStrength, nltl:frameSpan, nltl:loadPatchHeight, nltl:averageIcePressure, nltl:hasStructuralMember, nltl:frameSpacing, nltl:hullAreaFactor, nltl:peakPressureFactor. All are in allowedVocabulary.
+
+Check domain ownership: e.g., hullAreaFactor's requiredOwner hullAreaValue, not structuralMember. But we are accessing it via structuralMember. This may be incorrect. hullAreaFactor is owned by hullAreaValue, not structuralMember. However there is a term selectedHullAreaFactor owned by structuralMember (AF? maybe selected hull area factor). The formula uses AF (hull area factor). Could be selectedHullAreaFactor. So better to use selectedHullAreaFactor (owner structuralMember) rather than hullAreaFactor. In operand list, both hullAreaFactor and selectedHullAreaFactor present. Use selectedHullAreaFactor for AF.
+
+Thus replace hullAreaFactor with selectedHullAreaFactor.
+
+Update operands:
+
+- selectedHullAreaFactor: requiredOwner structuralMember.
+
+Thus adjust path: ?member nltl:selectedHullAreaFactor ?afNode . numericValue ?AF.
+
+Now we have all structuralMember owned.
+
+Similarly, peakPressureFactor owned by ship (owner ship) not structuralMember. Actually peakPressureFactor's requiredOwner ship, so we can get directly from ship. The formula uses PPF (peakPressureFactor). So we should get from ship not member.
+
+Thus update: $this nltl:peakPressureFactor ?ppfNode . numericValue ?PPF.
+
+Now the structuralMember only needed for frameSpacing and selectedHullAreaFactor.
+
+Thus modify SPARQL accordingly.
+
+Add property shapes for peakPressureFactor (ship-level) and selectedHullAreaFactor maybe not required direct, but we have requirement to compute. Use presence constraints.
+
+Now include property shapes for each.
+
+Define shape URIs: prefix gen: <urn:nltl:generated-shape:> .
+
+Create shape node gen:ShapeI2_032.
+
+Make sure to use ascii-safe IDs.
+
+Now assemble Turtle.
+
+Check brackets.
+
+Will also need sh:property entries that enforce quantity node structure (numericValue and unit). Use sh:node with sh:class qudt:QuantityValue and nested property constraints.
+
+We'll add for each term.
+
+Simplify: create property shape for each term with node shape containing numericValue and unit constraints.
+
+Given many terms, we might include only essential ones: shearArea, yieldStrength, frameSpan, loadPatchHeight, averageIcePressure, peakPressureFactor, selectedHullAreaFactor, frameSpacing.
+
+Will also need unit values as hasValue.
+
+Write.
+
+Let's produce final answer.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:I2_032 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # --- quantity property presence & datatype/unit checks --------------------
+    sh:property [
+        sh:path nltl:shearArea ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:CM2 ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:frameSpan ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:peakPressureFactor ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path nltl:frameSpacing ;
+                sh:minCount 1 ; sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ; sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ; sh:maxCount 1
+                    ]
+                ]
+            ] ;
+            sh:property [
+                sh:path nltl:selectedHullAreaFactor ;
+                sh:minCount 1 ; sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ; sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:UNITLESS ;
+                        sh:minCount 1 ; sh:maxCount 1
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+    # --- calculation & comparison -------------------------------------------
+    sh:sparql [
+        sh:message "Shear area (A_w) must be greater than or equal to the required shear area (A_t) computed from the formula." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                # ship‑level quantities
+                $this nltl:shearArea ?saNode .
+                ?saNode qudt:numericValue ?A_w ; qudt:unit unit:CM2 .
+                $this nltl:yieldStrength ?ysNode .
+                ?ysNode qudt:numericValue ?sigma_y ; qudt:unit unit:MegaPA .
+                $this nltl:frameSpan ?fsNode .
+                ?fsNode qudt:numericValue ?a ; qudt:unit unit:M .
+                $this nltl:loadPatchHeight ?lphNode .
+                ?lphNode qudt:numericValue ?b ; qudt:unit unit:M .
+                $this nltl:averageIcePressure ?pavgNode .
+                ?pavgNode qudt:numericValue ?P_avg ; qudt:unit unit:MegaPA .
+                $this nltl:peakPressureFactor ?ppfNode .
+                ?ppfNode qudt:numericValue ?PPF ; qudt:unit unit:UNITLESS .
+                # structural‑member quantities
+                $this nltl:hasStructuralMember ?member .
+                ?member nltl:frameSpacing ?fsMemberNode .
+                ?fsMemberNode qudt:numericValue ?s ; qudt:unit unit:M .
+                ?member nltl:selectedHullAreaFactor ?afNode .
+                ?afNode qudt:numericValue ?AF ; qudt:unit unit:UNITLESS .
+                # compute LL = min(a,b)
+                BIND( IF(?a < ?b, ?a, ?b) AS ?LL ) .
+                # A_t = 100^2 * 0.5 * LL * s * (AF * PPF * P_avg) / (0.577 * sigma_y)
+                BIND( (100*100) * 0.5 * ?LL * ?s * ( ?AF * ?PPF * ?P_avg ) / ( 0.577 * ?sigma_y ) AS ?A_t ) .
+                FILTER ( ?A_w < ?A_t )
+            }
+        """
+    ] .
+<END_SHACL>

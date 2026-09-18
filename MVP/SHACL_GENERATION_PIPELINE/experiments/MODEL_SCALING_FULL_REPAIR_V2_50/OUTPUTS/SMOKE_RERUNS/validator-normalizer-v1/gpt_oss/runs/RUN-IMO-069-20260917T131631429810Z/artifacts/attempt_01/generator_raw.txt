@@ -1,0 +1,123 @@
+We need to generate a SHACL graph for the requirement:
+
+"If added_life_saving_device_requires_power = true, then device_power_source_independent_of_main_power = true."
+
+Both properties are boolean datatype properties with domain benchmarkEntity but requiredOwner is ship. So the target class is nltl:ship. The requirement is a conditional: when first property true, second must be true. We need to encode this as SHACL shape on ship.
+
+We should create a NodeShape targeting nltl:ship. Use property shapes for the two booleans. Since the first must be present (maybe) but requirement seems to enforce condition only if it's true; but we must still require at least presence? The requirement states an added life-saving device requires power; that indicates the property addedLifeSavingDeviceRequiresPower must be present; presumably it's a boolean indicating whether some added device requires power. If it's true, then must also indicate devicePowerSourceIndependentOfMainPower true. If it's false, no further constraint.
+
+Implementation: Two property shapes: first property (addedLifeSavingDeviceRequiresPower) must have datatype boolean and minCount 1 (presence). Similarly second property maybe required but conditionally.
+
+We can express conditional with sh:rule? or sh:property with sh:or? Better: Use sh:property for first property with minCount 1, then a sh:sparql constraint that checks: if addedLifeSavingDeviceRequiresPower true then devicePowerSourceIndependentOfMainPower true. Also ensure second property present when condition holds. Use sh:severity sh:Violation, sh:message.
+
+We need to include prefixes: nltl, sh, xsd, rdf maybe.
+
+We must declare generated shape IRI under generatedShapeNamespace, e.g., urn:nltl:generated-shape:Shape_IMO_069.
+
+Implement:
+
+<urn:nltl:generated-shape:IMO-069> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [ sh:path nltl:addedLifeSavingDeviceRequiresPower ; sh:datatype xsd:boolean ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path nltl:devicePowerSourceIndependentOfMainPower ; sh:datatype xsd:boolean ; sh:maxCount 1 ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "If an added life‑saving device requires power, its power source must be independent of the ship's main power." ;
+        sh:prefixes [
+            sh:declare [ sh:prefix "nltl" ; sh:namespace "https://w3id.org/nltl/vocab#" ] ;
+            sh:declare [ sh:prefix "xsd" ; sh:namespace "http://www.w3.org/2001/XMLSchema#" ] ;
+        ] ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this (COUNT(?devicePower) AS ?count)
+            WHERE {
+                $this nltl:addedLifeSavingDeviceRequiresPower true .
+                OPTIONAL { $this nltl:devicePowerSourceIndependentOfMainPower ?devicePower . }
+                FILTER ( ?devicePower != true )
+            }
+            GROUP BY $this
+            HAVING (COUNT(?devicePower) = 0)
+        """ ;
+    ] .
+
+But we must avoid optional inside FILTER not allowed? It's okay. However specification says avoid OPTIONAL inside FILTER. But we can structure with MINUS pattern: If addedLifeSavingDeviceRequiresPower true and not (devicePowerSourceIndependentOfMainPower true) then violation. Use pattern:
+
+SELECT $this WHERE {
+  $this nltl:addedLifeSavingDeviceRequiresPower true .
+  FILTER NOT EXISTS { $this nltl:devicePowerSourceIndependentOfMainPower true . }
+}
+
+But rule says not use FILTER NOT EXISTS inside? It's allowed. They warned not to use OPTIONAL inside FILTER NOT EXISTS. So we can use FILTER NOT EXISTS directly without optional.
+
+Thus SPARQL constraint:
+
+SELECT $this WHERE {
+  $this nltl:addedLifeSavingDeviceRequiresPower true .
+  FILTER NOT EXISTS { $this nltl:devicePowerSourceIndependentOfMainPower true . }
+}
+
+But need to ensure property may be missing. If missing, then condition fails? Actually if first property true, second must be true; if second missing, it's violation. So the above works.
+
+We also need sh:message.
+
+Also include proper prefixes inside vocabulary? The SPARQL query must include prologue prefixes: need to declare nltl and xsd. The rule: inside each query, must declare prefixes used. So inside SPARQL string include PREFIX lines as above.
+
+Now the shape's property for second property maybe not need minCount because handled by conditional SPARQL. But we can still set datatype and maxCount 1.
+
+We must keep shape simple: exactly as example.
+
+Now output format: <BEGIN_SHACL> ... <END_SHACL>.
+
+Ensure proper Turtle syntax, closing brackets etc.
+
+Let's craft.
+
+Also include sh:targetClass nltl:ship.
+
+Make shape IRI: urn:nltl:generated-shape:ShipPowerSafety (or whatever). Use id maybe: urn:nltl:generated-shape:IMO-069.
+
+Will use <urn:nltl:generated-shape:IMO-069>.
+
+Now final answer.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:IMO-069 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # presence and datatype of the trigger property
+    sh:property [
+        sh:path nltl:addedLifeSavingDeviceRequiresPower ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # datatype of the dependent property (presence enforced by SPARQL)
+    sh:property [
+        sh:path nltl:devicePowerSourceIndependentOfMainPower ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+
+    # conditional rule: if power is required then independence must be true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "If an added life‑saving device requires power, its power source must be independent of the ship's main power." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:addedLifeSavingDeviceRequiresPower true .
+                FILTER NOT EXISTS { $this nltl:devicePowerSourceIndependentOfMainPower true . }
+            }
+        """ ;
+    ] .
+<END_SHACL>

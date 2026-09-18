@@ -1,0 +1,278 @@
+We need to generate a SHACL graph for this requirement. The requirement is Complex readiness, verificationMode COMPLEX_READINESS, category Complex. The dependency contract status COMPLETE, verificationMode COMPLEX_READINESS, indicates we shall not reconstruct the formula, but include readiness evidence and required inputs and result terms? According to rules: For COMPLEX_READINESS, do not reproduce full calculation. Generate readiness/result SHACL that verifies applicability, the declared operandTerms as required inputs, their owners/paths/datatypes/units, the declared calculation or analysis structures, evidence/table/method references, and the declared resultTerms as externally computed outputs. Enforce only directCheckSubconstraints explicitly marked DIRECT_CHECK. In this contract, directCheckSubconstraints is empty. So we need to assert that a calculation case exists (maybe using a node shape) with required inputs evidence? The contract includes operandTerms (frameSpacing, selectedHullAreaFactor, peakPressureFactor, averageIcePressure, yieldStrength, loadPatchHeight). They are properties located on various owners: need to reference where each resides.
+
+We have allowedVocabulary entries for those terms: frameSpacing (owner structuralMember), selectedHullAreaFactor (owner structuralMember), peakPressureFactor (owner ship), averageIcePressure (owner ship), yieldStrength (owner ship), loadPatchHeight (owner ship). Also, result term: iceLoadRequiredNetPlateThickness (owner plating). The dependency contract includes modelPaths indicating how to navigate from ship to plating, etc.
+
+For COMPLEX_READINESS, we should enforce that there is a calculation case (maybe a node of class something?) However, not sure if there is a canonical class for calculation case in allowedVocabulary. Not listed. The few-shot examples show using nltl:calculationCase class, but that class is not present in allowedVocabulary. However, the requirement says we may use allowedVocabulary only. Since calculationCase not present, we cannot introduce it. The rule says "Use only the exact canonical benchmark IRIs supplied in allowedVocabulary." So we cannot use nltl:calculationCase, nor nltl:evidenceArtifact (also not present). Actually evidenceArtifact class not listed. So we cannot use them. The requirement's dependency contract does not list evidenceTerms, but it does have formula information, but not evidence terms. The requirement is about readiness; maybe we need to require that the ship instance has the operand terms present (as values) and the result term present, without calculating.
+
+Thus shape target should be nltl:ship. We need property shapes ensuring presence of required operand terms with correct datatype and unit, and presence of result term (iceLoadRequiredNetPlateThickness) perhaps located on plating reachable via hasPlating.
+
+But we must respect requiredOwner for each term.
+
+- frameSpacing: requiredOwner structuralMember, domain structuralMember. To access it from ship we need to go through hasStructuralMember then structuralMember then frameSpacing. But we can't use path expressions? SHACL supports sh:path as a property path sequence: e.g., sh:path (nltl:hasStructuralMember / nltl:frameSpacing). That's allowed.
+
+Similarly selectedHullAreaFactor on structuralMember.
+
+- peakPressureFactor owned by ship directly: so sh:path nltl:peakPressureFactor.
+
+- averageIcePressure owned by ship.
+
+- yieldStrength owned by ship.
+
+- loadPatchHeight owned by ship.
+
+Result term iceLoadRequiredNetPlateThickness owned by plating. Path: ship hasPlating then iceLoadRequiredNetPlateThickness.
+
+Thus shape should enforce presence (sh:minCount 1) and datatype of quantity values, unit is recommended unit.
+
+We need to enforce that the quantity node has qudt:numericValue xsd:decimal and qudt:unit the recommended unit. Allowed vocabulary includes qudt prefixes.
+
+We can define a reusable node shape for quantity values, but we can inline.
+
+Probably we need to check that for each property, the object is a QuantityValue (type from allowedVocabulary? The range is http://qudt.org/schema/qudt/QuantityValue). So we can assert that object is a blank node or IRI of that type, and has numericValue and unit.
+
+Simplify: For each property, we check that there is a triple ship ?property ?qv. Then ensure ?qv a qudt:QuantityValue ; qudt:numericValue ?val (xsd:decimal) ; qudt:unit <recommendedUnit>. Could use sh:node to define constraints.
+
+Implement for each property.
+
+For structuralMember properties, path is (nltl:hasStructuralMember / nltl:frameSpacing). For selectedHullAreaFactor, path (nltl:hasStructuralMember / nltl:selectedHullAreaFactor).
+
+For plating result property: path (nltl:hasPlating / nltl:iceLoadRequiredNetPlateThickness).
+
+Add sh:message for missing.
+
+Also need applicability condition: transversely-framed plating (Omega >= 70 deg). That's framingAngleOmega on plating? Domain plating, recommended unit DEG. RequiredOwner plating. So we need to enforce only when framingAngleOmega >= 70 deg. Since verificationMode Complex readiness, we might need to enforce that the ship provides a calculation case if applicable; but here we may check applicability condition existence and value. We could include a SHACL-SPARQL constraint that checks if there exists plating with framingAngleOmega >= 70, then require presence of result term. Represent with SPARQL constraint.
+
+Thus structure: NodeShape targeting nltl:ship. Include property shapes for operand terms (presence) independent of applicability? Probably they are required inputs overall, but may be required only if applicable. The requirement seems to apply only when Omega >=70 deg; but the operand terms are used in formula, so they are needed when applicable. So we can encode a SPARQL constraint that when Omega >=70 then ensure presence of all operand terms and result term.
+
+Simplify: Use sh:rule? Might use sh:sparql with FILTER EXITS.
+
+Define a SPARQL constraint:
+
+PREFIX nltl: <...>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+  # find plating with Omega
+  $this nltl:hasPlating ?pl .
+  ?pl nltl:framingAngleOmega ?omegaQ .
+  ?omegaQ qudt:numericValue ?omegaVal .
+  ?omegaQ qudt:unit <http://qudt.org/vocab/unit/DEG> .
+  FILTER(?omegaVal >= 70) .
+  # Now check required operand terms
+  FILTER NOT EXISTS {
+    $this nltl:frameSpacing ?fs .
+    ?fs qudt:numericValue ?v . FILTER (datatype(?v) = xsd:decimal)
+  }
+  # similar for others...
+}
+
+But need to produce violation messages accordingly.
+
+However rule: each SHACL-SPARQL query must declare its prefixes inside query. That's fine.
+
+We'll produce separate SPARQL constraints for each missing. Or maybe combine.
+
+But limited time, produce a shape with property shapes for each term and also an additional SHACL-SPARQL constraint for applicability.
+
+Given that ordered constraints may be complex, still acceptable.
+
+Implement shape:
+
+Prefix declarations at top.
+
+Define a shape urn:nltl:generated-shape:I2-022Shape a sh:NodeShape; sh:targetClass nltl:ship; then property shapes.
+
+For each property:
+
+1. sh:path nltl:peakPressureFactor; sh:minCount 1; sh:node [sh:class qudt:QuantityValue; sh:property [sh:path qudt:numericValue; sh:datatype xsd:decimal; sh:minCount 1]; sh:property [sh:path qudt:unit; sh:hasValue <http://qudt.org/vocab/unit/UNITLESS>; sh:minCount 1] ; sh:message "Missing peakPressureFactor with unit UNITLESS".
+
+Similar for averageIcePressure, yieldStrength.
+
+For frameSpacing: sh:path (nltl:hasStructuralMember / nltl:frameSpacing) ; etc.
+
+For selectedHullAreaFactor: similar.
+
+For loadPatchHeight: direct.
+
+Result term: sh:path (nltl:hasPlating / nltl:iceLoadRequiredNetPlateThickness); unit should be mm (MilliM). recommendedUnit is http://qudt.org/vocab/unit/MilliM.
+
+Need to add messages.
+
+Now SPARQL constraint for applicability: If no plating with framingAngleOmega >=70, shape passes (no requirement). If such plating exists, then must have result term present? Already property shape ensures result term presence overall, regardless. But maybe should conditionally require. Could use sh:if... but not support. Instead we can use a SPARQL constraint that triggers violation when Omega >=70 and missing result term. However property shape will also require result term anyway; may cause violation for ships where Omega <70 (no result needed). To avoid, we can make property shape optional with sh:if? Not possible. So we need to use SPARQL to conditionally enforce.
+
+Thus we skip property shape for result term, and enforce via SPARQL that when Omega >=70, the result term exists with correct unit.
+
+Similarly operand terms could be enforced conditionally.
+
+Thus we make minimal core property shapes for unconditional fields (maybe none) and one SPARQL constraint.
+
+Simplify: Use SPARQL constraint to enforce that for each applicable plating, all operand terms and result term are present with correct units. Provide messages.
+
+Implement SPARQL query:
+
+PREFIX nltl: <...>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+  $this nltl:hasPlating ?pl .
+  ?pl nltl:framingAngleOmega ?omegaQ .
+  ?omegaQ qudt:numericValue ?omegaVal .
+  FILTER(?omegaVal >= 70) .
+  # check peakPressureFactor
+  FILTER NOT EXISTS {
+    $this nltl:peakPressureFactor ?ppf .
+    ?ppf qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+    ?ppf qudt:numericValue ?v .
+    FILTER(datatype(?v) = xsd:decimal)
+  }
+  # similarly for averageIcePressure
+  FILTER NOT EXISTS {
+    $this nltl:averageIcePressure ?aip .
+    ?aip qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+    ?aip qudt:numericValue ?v .
+    FILTER(datatype(?v) = xsd:decimal)
+  }
+  # yieldStrength
+  FILTER NOT EXISTS {
+    $this nltl:yieldStrength ?ys .
+    ?ys qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+    ?ys qudt:numericValue ?v .
+    FILTER(datatype(?v) = xsd:decimal)
+  }
+  # loadPatchHeight
+  FILTER NOT EXISTS {
+    $this nltl:loadPatchHeight ?lph .
+    ?lph qudt:unit <http://qudt.org/vocab/unit/M> .
+    ?lph qudt:numericValue ?v .
+    FILTER(datatype(?v) = xsd:decimal)
+  }
+  # frameSpacing via structuralMember
+  FILTER NOT EXISTS {
+    $this nltl:hasStructuralMember ?sm .
+    ?sm nltl:frameSpacing ?fs .
+    ?fs qudt:unit <http://qudt.org/vocab/unit/M> .
+    ?fs qudt:numericValue ?v .
+    FILTER(datatype(?v) = xsd:decimal)
+  }
+  # selectedHullAreaFactor via structuralMember
+  FILTER NOT EXISTS {
+    $this nltl:hasStructuralMember ?sm2 .
+    ?sm2 nltl:selectedHullAreaFactor ?af .
+    ?af qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+    ?af qudt:numericValue ?v .
+    FILTER(datatype(?v) = xsd:decimal)
+  }
+  # result term iceLoadRequiredNetPlateThickness via plating
+  FILTER NOT EXISTS {
+    $this nltl:hasPlating ?pl2 .
+    ?pl2 nltl:iceLoadRequiredNetPlateThickness ?t .
+    ?t qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+    ?t qudt:numericValue ?v .
+    FILTER(datatype(?v) = xsd:decimal)
+  }
+}
+This will report a violation for each missing item? The SELECT returns $this when any of these NOT EXISTS hold (i.e., missing). Since multiple FILTER NOT EXISTS, if any missing, the whole pattern matches. That is acceptable.
+
+Add sh:message maybe not supported within SPARQL constraint, but can use sh:message on shape.
+
+We'll add sh:message "Missing required inputs or result for transversely-framed plating (Omega >=70°)."
+
+Now generate final Turtle.
+
+Be careful to use only allowed terms. We used nltl:hasPlating, hasStructuralMember, framingAngleOmega, peakPressureFactor, averageIcePressure, yieldStrength, loadPatchHeight, iceLoadRequiredNetPlateThickness, frameSpacing, selectedHullAreaFactor.
+
+All are present in allowedVocabulary. Also need qudt:NumericValue prefix: qudt: namespace: http://qudt.org/schema/qudt/. Need to import prefix.
+
+Let's craft.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:I2-022Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For transversely‑framed plating (Omega ≥ 70 deg) the ship must provide all required input quantities and the calculated ice‑load net plate thickness (t_net) with correct units." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                # Find a plating with framing angle Omega >= 70 deg
+                $this nltl:hasPlating ?pl .
+                ?pl nltl:framingAngleOmega ?omegaQ .
+                ?omegaQ qudt:numericValue ?omegaVal .
+                ?omegaQ qudt:unit <http://qudt.org/vocab/unit/DEG> .
+                FILTER(?omegaVal >= 70) .
+
+                # PeakPressureFactor (unit UNITLESS) must be present on the ship
+                FILTER NOT EXISTS {
+                    $this nltl:peakPressureFactor ?ppf .
+                    ?ppf qudt:numericValue ?v .
+                    FILTER(datatype(?v) = xsd:decimal) .
+                    ?ppf qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                }
+
+                # AverageIcePressure (unit MPa) must be present on the ship
+                FILTER NOT EXISTS {
+                    $this nltl:averageIcePressure ?aip .
+                    ?aip qudt:numericValue ?v .
+                    FILTER(datatype(?v) = xsd:decimal) .
+                    ?aip qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                }
+
+                # YieldStrength (unit MPa) must be present on the ship
+                FILTER NOT EXISTS {
+                    $this nltl:yieldStrength ?ys .
+                    ?ys qudt:numericValue ?v .
+                    FILTER(datatype(?v) = xsd:decimal) .
+                    ?ys qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                }
+
+                # LoadPatchHeight (unit m) must be present on the ship
+                FILTER NOT EXISTS {
+                    $this nltl:loadPatchHeight ?lph .
+                    ?lph qudt:numericValue ?v .
+                    FILTER(datatype(?v) = xsd:decimal) .
+                    ?lph qudt:unit <http://qudt.org/vocab/unit/M> .
+                }
+
+                # FrameSpacing (unit m) must be present on at least one structural member
+                FILTER NOT EXISTS {
+                    $this nltl:hasStructuralMember ?sm .
+                    ?sm nltl:frameSpacing ?fs .
+                    ?fs qudt:numericValue ?v .
+                    FILTER(datatype(?v) = xsd:decimal) .
+                    ?fs qudt:unit <http://qudt.org/vocab/unit/M> .
+                }
+
+                # SelectedHullAreaFactor (unit UNITLESS) must be present on at least one structural member
+                FILTER NOT EXISTS {
+                    $this nltl:hasStructuralMember ?sm2 .
+                    ?sm2 nltl:selectedHullAreaFactor ?af .
+                    ?af qudt:numericValue ?v .
+                    FILTER(datatype(?v) = xsd:decimal) .
+                    ?af qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                }
+
+                # Result: iceLoadRequiredNetPlateThickness (unit mm) must be present on plating
+                FILTER NOT EXISTS {
+                    $this nltl:hasPlating ?pl2 .
+                    ?pl2 nltl:iceLoadRequiredNetPlateThickness ?t .
+                    ?t qudt:numericValue ?v .
+                    FILTER(datatype(?v) = xsd:decimal) .
+                    ?t qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+                }
+            }
+        """ ;
+    ] .
+<END_SHACL>

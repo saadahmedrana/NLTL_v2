@@ -1,0 +1,158 @@
+We need to generate SHACL shape for the given requirement.
+
+Requirement: conditional: IF shipCategory in {A,B} AND constructionDate >= 2017-01-01 AND carriedNoxiousLiquidSubstanceRequiresType3Tank = true AND cargoTankType = 3 THEN administrationCarriageApprovalStatus = approved AND applicableCertificatePolarOperationEntryPresent = true.
+
+All terms are data properties or object properties.
+
+The requiredOwner for all terms is ship. So the shape targets class nltl:ship.
+
+We need to enforce the conditional logic: when conditions met, then required values must be present and have given values.
+
+Approach: Use SHACL property shapes for each property with minCount 1 etc for presence? But only required in consequent if antecedent true. So we need SHACL-SPARQL constraint that checks: if antecedent holds and consequent not satisfied => generate violation.
+
+We also may need to ensure values have correct datatype or IRI and allowed values.
+
+Properties:
+
+- nltl:shipCategory: ObjectProperty, range polarShipCategoryValue. Must be IRI in {polarShipCategoryA, polarShipCategoryB} for antecedent. Presence needed to evaluate antecedent, but could be missing. If missing, antecedent cannot be evaluated; likely treat as not applicable? The requirement applies to ships of category A or B. If shipCategory missing, not required to meet consequent. So no violation for missing shipCategory.
+
+Thus we need to check: if shipCategory present and is in allowed set, and other conditions hold (constructionDate >= date..., carriedNoxiousLiquidSubstanceRequiresType3Tank true, cargoTankType = "3"? cargoTankType is xsd:string? Actually datatype xsd:string. Example expects value "3". Could be literal "3". We'll treat as string "3". If cargoTankType is string "3". So need to check typed literal.
+
+constructionDate is xsd:date.
+
+The consequent: administrationCarriageApprovalStatus must be object property to evidenceStateApproved (named individual). So require IRI equals that. And applicableCertificatePolarOperationEntryPresent must be boolean true.
+
+Thus the SPARQL constraint:
+
+SELECT ?this ( ... ) WHERE {
+  FILTER NOT EXISTS { ?this nltl:shipCategory ?cat . FILTER(?cat IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB)) }
+?this nltl:shipCategory ?cat .
+?cat IN ... // need to filter for antecedent, so first pattern matches shipCategory in set.
+
+?this nltl:constructionDate ?cdate .
+FILTER(?cdate >= "2017-01-01"^^xsd:date)
+?this nltl:carriedNoxiousLiquidSubstanceRequiresType3Tank ?cNLS .
+FILTER(?cNLS = true)
+?this nltl:cargoTankType ?cTank .
+FILTER(?cTank = "3"^^xsd:string) // string literal
+
+Now check consequent: optional? In antecedent matches, we need to ensure both consequent hold; otherwise violation.
+
+OPTIONAL { ?this nltl:administrationCarriageApprovalStatus ?status . }
+OPTIONAL { ?this nltl:applicableCertificatePolarOperationEntryPresent ?cert . }
+
+FILTER( (!bound(?status) || ?status != nltl:evidenceStateApproved) || (!bound(?cert) || ?cert != true) )
+But need two separate checks? Could produce two violation messages. Simpler: produce violation if either missing or wrong.
+
+Thus the SELECT can return ?this and message.
+
+Need to define prefix declarations inside query.
+
+Finally shape: sh:targetClass nltl:ship.
+
+Additionally, we may want property shapes for presence of these properties when needed? But SPARQL constraint covers.
+
+We also need property shape for shipCategory maybe with sh:in allowed values? Not required for antecedent but could be sanity check; not needed.
+
+But we can include sh:property for each term to enforce datatype existence. However, only needed if requirement states those are required presence regardless. It doesn't. So we only need conditional check.
+
+Thus generate shape:
+
+@prefix sh: <http://www.w3.org/2001/ns/shacl#>. Actually proper is http://www.w3.org/ns/shacl#. Use that.
+
+Include prefixes nltl, xsd, sh.
+
+Define shape urn:nltl:generated-shape:IMO114Shape a sh:NodeShape ; sh:targetClass nltl:ship ; sh:sparql [ ... ].
+
+Include sh:message etc.
+
+Let's craft.
+
+Inside sh:sparql [ a sh:SPARQLConstraint ; sh:select """...""" ; ].
+
+Need to declare prefixes inside query: PREFIX nltl: <...> PREFIX xsd: <...>.
+
+Write query:
+
+SELECT $this WHERE {
+  $this nltl:shipCategory ?cat .
+  FILTER(?cat IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+  $this nltl:constructionDate ?cdate .
+  FILTER(?cdate >= "2017-01-01"^^xsd:date)
+  $this nltl:carriedNoxiousLiquidSubstanceRequiresType3Tank ?cNLS .
+  FILTER(?cNLS = true)
+  $this nltl:cargoTankType ?cTank .
+  FILTER(?cTank = "3"^^xsd:string)
+  OPTIONAL { $this nltl:administrationCarriageApprovalStatus ?status . }
+  OPTIONAL { $this nltl:applicableCertificatePolarOperationEntryPresent ?cert . }
+  FILTER( !bound(?status) || ?status != nltl:evidenceStateApproved || !bound(?cert) || ?cert != true )
+}
+
+But need to ensure that missing properties cause bound false.
+
+Actually we need separate filters:
+
+FILTER( !bound(?status) || ?status != nltl:evidenceStateApproved )
+UNION? Not union.
+
+We can combine with ||.
+
+But we also need to ensure both consequent must hold; If one fails, violation.
+
+So filter condition as above.
+
+Return $this as result.
+
+Add sh:message "Ship requiring administration approval must have approved status and certificate entry present."
+
+Make sure variable names consistent: In SHACL-SPARQL, the focus node variable is $this (or ?this?). According to SHACL spec, the focus node is bound to $this variable. Use $this.
+
+Thus inside query we use $this.
+
+Now produce Turtle.
+
+Check prefixes: sh, nltl, xsd.
+
+Also maybe add prefix rdf, but not needed.
+
+Ok.
+
+Let's write.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+urn:nltl:generated-shape:IMO114Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For ships of Polar Category A or B built on or after 2017‑01‑01 that carry NLS requiring a type‑3 tank and have cargo tank type “3”, the administration carriage approval status must be Approved and the polar‑operation certificate entry must be present (true)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:shipCategory ?cat .
+                FILTER(?cat IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+
+                $this nltl:constructionDate ?cdate .
+                FILTER(?cdate >= "2017-01-01"^^xsd:date)
+
+                $this nltl:carriedNoxiousLiquidSubstanceRequiresType3Tank ?cNLS .
+                FILTER(?cNLS = true)
+
+                $this nltl:cargoTankType ?cTank .
+                FILTER(?cTank = "3"^^xsd:string)
+
+                OPTIONAL { $this nltl:administrationCarriageApprovalStatus ?admStatus . }
+                OPTIONAL { $this nltl:applicableCertificatePolarOperationEntryPresent ?certPresent . }
+
+                FILTER( !bound(?admStatus) || ?admStatus != nltl:evidenceStateApproved ||
+                        !bound(?certPresent) || ?certPresent != true )
+            }
+        """ ;
+    ] .
+<END_SHACL>

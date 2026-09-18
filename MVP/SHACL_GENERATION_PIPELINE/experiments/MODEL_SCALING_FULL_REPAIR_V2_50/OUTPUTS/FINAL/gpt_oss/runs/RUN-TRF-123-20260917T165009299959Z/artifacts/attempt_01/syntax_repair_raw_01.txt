@@ -1,0 +1,70 @@
+We need to fix syntax errors. The error is "Prefix \"urn:\" not bound". In Turtle, you cannot use URN prefix without declaring; URIs can be written as <urn:nltl:...> or as a CURIE with a prefix that you bind. Currently they used 'urn:nltl:generated-shape:TRF123Shape' without prefix. Should either declare a prefix, e.g., @prefix : <urn:nltl:generated-shape:> . Or use full IRI with angle brackets: <urn:nltl:generated-shape:TRF123Shape>. Simpler: wrap shape IRI in <>.
+
+Thus change line: urn:nltl:generated-shape:TRF123Shape -> <urn:nltl:generated-shape:TRF123Shape>.
+
+Also ensure other URIs are correct; we used <http://qudt.org/vocab/unit/MegaPA> etc, OK.
+
+Check any other syntax issues: property shapes inside node shape: they are fine.
+
+Need to ensure SPARQL constraint syntax: sh:select is property with string literal. Should be sh:select """...""". That's okay. Ensure triple quoting correctly with no stray spaces. The verbatim triple quotes inside Turtle should be fine.
+
+Make sure there is a period after end of shape.
+
+Also ensure we didn't use any unbound prefixes like 'urn:nltl' but we replaced. Also used 'urn:nltl:' only there.
+
+Check prefix list: we have sh, nltl, xsd, qudt, rdf.
+
+The shape IRI inside < > is fine.
+
+Now produce corrected candidate.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+<urn:nltl:generated-shape:TRF123Shape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasOccasionalForceLoadCase ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path nltl:propellerBladeExcludedFromOccasionalForceScope ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Propeller blades must be excluded from occasional‑force scope (true)." 
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "Component stress exceeds the allowed limit (material yield strength × safety factor)." ;
+                sh:select """ 
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt#>
+                    PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this WHERE {
+                        $this nltl:occasionalForceCaseAssessedComponent ?comp .
+                        ?comp nltl:occasionalForceComponentStress ?stressQ .
+                        ?stressQ qudt:numericValue ?stressVal .
+                        ?stressQ qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                        ?comp nltl:hasMaterialProperties ?mat .
+                        ?mat nltl:componentMaterialYieldStrength ?yieldQ .
+                        ?yieldQ qudt:numericValue ?yieldVal .
+                        ?yieldQ qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                        $this nltl:componentYieldSafetyFactor ?sfQ .
+                        ?sfQ qudt:numericValue ?sfVal .
+                        ?sfQ qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                        BIND(?yieldVal * ?sfVal AS ?allowable) .
+                        FILTER( ?stressVal > ?allowable )
+                    }
+                """ ;
+            ]
+        ]
+    ] .
+<END_SHACL>

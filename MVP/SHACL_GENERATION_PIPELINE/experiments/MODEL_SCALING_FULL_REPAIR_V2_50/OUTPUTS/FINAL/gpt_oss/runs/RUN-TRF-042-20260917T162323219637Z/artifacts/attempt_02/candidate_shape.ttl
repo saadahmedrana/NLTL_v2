@@ -1,0 +1,78 @@
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:TRF-042>
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+
+    # designIceLoadHeight – length, unit m (unit enforced by documentation)
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+
+    # spacing – length, unit m (unit enforced by documentation)
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+
+    # longitudinalPlatingFactorF2 – dimensionless (unit enforced by documentation)
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:decimal
+    ] ;
+
+    # materialApprovalStatus – must be an evidenceState individual
+    sh:property [
+        sh:path nltl:materialApprovalStatus ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:evidenceState
+    ] ;
+
+    # Calculated check for longitudinalPlatingFactorF2 (f2)
+    sh:sparql [
+        sh:message "longitudinalPlatingFactorF2 does not satisfy the prescribed formula within tolerance or h/s exceeds the allowed range (1.0–1.8)." ;
+        sh:select """ 
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?hVal .
+                $this nltl:spacing ?sVal .
+                $this nltl:longitudinalPlatingFactorF2 ?fVal .
+
+                FILTER ( datatype(?hVal) = xsd:decimal &&
+                         datatype(?sVal) = xsd:decimal &&
+                         datatype(?fVal) = xsd:decimal )
+
+                BIND ( ?hVal / ?sVal AS ?ratio ) .
+
+                # Expected f2 based on piecewise definition
+                BIND ( IF ( ?ratio <= 1,
+                           (0.4 / ?ratio) + 0.6,
+                           IF ( ?ratio <= 1.8,
+                                1.4 - 0.4 * ?ratio,
+                                0 ) ) AS ?expected ) .
+
+                # Tolerance: max(1e-6*|expected|,1e-12)
+                BIND ( IF ( (1e-6 * ABS(?expected)) > 1e-12,
+                            (1e-6 * ABS(?expected)),
+                            1e-12 ) AS ?tol ) .
+
+                # Violation if ratio out of allowed interval or f2 differs beyond tolerance
+                FILTER ( ( ?ratio > 1.8 ) ||
+                         ( ABS(?fVal - ?expected) > ?tol ) )
+            }
+        """ 
+    ] .

@@ -37,6 +37,9 @@ class ValidatorDecision:
     accept: bool
     activate_variable_matcher: bool
     current_issues: list[ValidatorIssue]
+    text_outside_decision_block: bool = False
+    multiple_candidate_decision_blocks: bool = False
+    candidate_decision_block_count: int = 1
 
 
 @dataclass(slots=True)
@@ -57,6 +60,9 @@ class StaticValidationReport:
     vocabulary_valid: bool
     datatype_unit_valid: bool
     target_path_valid: bool
+    text_outside_markers: bool = False
+    alternate_closing_marker_used: bool = False
+    multiple_marker_mentions: bool = False
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     used_canonical_iris: list[str] = field(default_factory=list)

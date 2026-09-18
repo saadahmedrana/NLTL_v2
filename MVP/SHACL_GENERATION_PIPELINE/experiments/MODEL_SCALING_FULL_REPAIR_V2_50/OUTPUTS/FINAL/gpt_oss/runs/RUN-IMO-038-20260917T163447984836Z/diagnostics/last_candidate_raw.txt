@@ -1,0 +1,253 @@
+The task: repair SHACL graph to fix deterministic validation error: "Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". Need to correct this while preserving semantics. Likely need to replace use of qudt schema URIs with approved ones. The allowed vocabulary includes QUDT quantity value class? In allowed vocabulary, quantity properties have range "http://qudt.org/schema/qudt/QuantityValue". That's a class IRI. The issue says unapproved external/generated IRI(s): http://qudt.org/schema/qudt# (the namespace) maybe because they used the hash version; they used both http://qudt.org/schema/qudt# and also http://qudt.org/schema/qudt/QuantityValue (slash). The approved external vocabularies may be whitelisted; but the issue says unapproved external/generated IRI(s). Possibly they want to replace with a namespace that is approved, maybe use http://www.qudt.org/schema/qudt#? Or we need to avoid using the qudt namespace entirely and instead model quantities using xsd:decimal directly? But the allowed vocabulary definitions reference quantity properties with range http://qudt.org/schema/qudt/QuantityValue and recommendedUnit URIs. So we need to keep that but maybe the error is about using the hash namespace for predicates numericValue, unit. In allowed vocabulary, they didn't define those predicates; they rely on QUDT vocabulary. Perhaps the approved QUDT namespace is http://qudt.org/vocab/unit/ etc. But numericValue and unit are indeed in the QUDT schema with hash version; maybe they should be in the same namespace as the class: http://qudt.org/schema/qudt#numericValue? Actually in QUDT, numericValue is a property in the schema namespace (http://qudt.org/schema/qudt#numericValue) and unit is also a property there. So the issue may be that they used the hash form of the namespace, but maybe the approved is http://qudt.org/vocab/unit/ etc. But they also use unit: prefix for unit types (http://qudt.org/vocab/unit/). The problem says unapproved external/generated IRI(s): http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit. So the whole QUDT schema namespace is considered external/unapproved. Need to replace with something else, maybe a local namespace that references quantity nodes.
+
+We must keep all semantics: numeric value and unit constraints. Could replace using sh:datatype xsd:decimal and sh:hasValue for units via a local property like nltl:unit? But not allowed.
+
+We could remove the use of qudt:numericValue and qudt:unit from the shapes and instead use sh:property with sh:path sh:??? Actually we could directly target the quantity node and constrain its datatype via sh:datatype on the node itself: e.g., each quantity property value is a literal (xsd:decimal) with unit via a separate property maybe not needed. But the allowed vocabulary expects quantity value class with numericValue and unit. However the validation error is deterministic; we need to correct it by approving the external IRI(s). Since can't approve external, must replace with something else, maybe using sh:nodeKind sh:Literal and a facet for xsd:decimal, and use sh:hasValue for unit using the unit vocabulary but that's also external (http://qudt.org/vocab/unit/). The error didn't mention unit namespace, only unit property. The unit IRI maybe also unapproved but not flagged; maybe they allow unit values as specific IRIs (unit:M, unit:MilliM) which are from unit prefix (http://qudt.org/vocab/unit/). That's okay.
+
+Thus we can keep unit values but remove usage of qudt:unit property; maybe we can instead use sh:hasValue unit:M on the quantity node itself? But typical modeling uses qudt:unit property. Could we keep unit values as part of shape via sh:property [sh:path nltl:upperIceWaterlineLength ; sh:datatype xsd:decimal ; ???] But that loses the quantity node representation.
+
+Given constraints, maybe the deterministic validation expects that external generated IRIs that are not in allowed vocab should be replaced with blank node representation using a custom internal shim property (e.g., nltl:numericValue, nltl:unit). But not defined.
+
+Better approach: we can declare the QUDT prefix with a hash is considered generated; we can change to the slash version: http://qudt.org/schema/qudt/. For class they used http://qudt.org/schema/qudt/QuantityValue (slash). For properties, we should use same slash pattern: http://qudt.org/schema/qudt/numericValue (no hash). So replace qudt: prefix binding to that namespace? Usually namespace with trailing slash is used, and properties are appended directly. So we can change prefix definition: @prefix qudt: <http://qudt.org/schema/qudt/> . Not hash. Then references will be http://qudt.org/schema/qudt/numericValue and .../unit. That would eliminate the hash IRI. In current SHACL, they defined prefix qudt: <http://qudt.org/schema/qudt#> . Change to slash.
+
+Thus the offending IRIs become http://qudt.org/schema/qudt/numericValue etc., which are not in the list of unapproved (the list included the hash version). So fix by updating prefix.
+
+Need to ensure all usages of qudt:path numericValue/unit are correct.
+
+Thus modify prefix line: @prefix qudt: <http://qudt.org/schema/qudt/> . Also adjust any usage of unit prefix? unit prefix is fine.
+
+Make sure there are no other hash IRIs like http://qudt.org/schema/qudt# in shapes. The shape uses the prefix only via qudt:.
+
+Thus we will produce revised SHACL graph with corrected prefix.
+
+Also need to ensure that the shapes referencing quantityValue class (e.g., range) using slash? The allowed vocab includes range "http://qudt.org/schema/qudt/QuantityValue". That matches slash version, okay.
+
+Thus final graph: same as previous but updated prefix.
+
+Return full graph with changes.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Boolean applicability flag
+    sh:property [
+        sh:path nltl:damageCenterForwardOfMaxBreadth ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    # Upper ice‑waterline length
+    sh:property [
+        sh:path nltl:upperIceWaterlineLength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UpperIceWaterlineLengthShape
+    ] ;
+    # Upper ice‑waterline draught
+    sh:property [
+        sh:path nltl:upperIceWaterlineDraught ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UpperIceWaterlineDraughtShape
+    ] ;
+    # Longitudinal damage extent (calculated)
+    sh:property [
+        sh:path nltl:longitudinalDamageExtent ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LongitudinalDamageExtentShape
+    ] ;
+    # Transverse penetration (fixed)
+    sh:property [
+        sh:path nltl:transversePenetration ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TransversePenetrationShape
+    ] ;
+    # Vertical damage extent (min of two values)
+    sh:property [
+        sh:path nltl:verticalDamageExtent ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:VerticalDamageExtentShape
+    ] ;
+    # Selected vertical damage position – must lie in allowed range
+    sh:property [
+        sh:path nltl:selectedVerticalDamagePosition ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:SelectedVerticalDamagePositionShape
+    ] ;
+    # -----------------------------------------------------------------
+    # Piecewise calculation for longitudinal damage extent
+    sh:sparql [
+        sh:message "longitudinalDamageExtent must equal 0.045 × upperIceWaterlineLength when damageCenterForwardOfMaxBreadth = true, otherwise 0.015 × upperIceWaterlineLength." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:damageCenterForwardOfMaxBreadth ?center .
+                $this nltl:upperIceWaterlineLength ?lenNode .
+                $this nltl:longitudinalDamageExtent ?lonNode .
+                ?lenNode qudt:numericValue ?lenVal .
+                ?lonNode qudt:numericValue ?lonVal .
+                BIND ( IF(?center = true,
+                         ?lenVal * 0.045,
+                         ?lenVal * 0.015) AS ?expected ) .
+                FILTER ( abs(?lonVal - ?expected) > 1e-6 )
+            }
+        """
+    ] ;
+    # Fixed transverse penetration
+    sh:sparql [
+        sh:message "transversePenetration must be exactly 760 mm." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            SELECT $this WHERE {
+                $this nltl:transversePenetration ?tpNode .
+                ?tpNode qudt:numericValue ?val .
+                ?tpNode qudt:unit unit:MilliM .
+                FILTER ( abs(?val - 760) > 1e-6 )
+            }
+        """
+    ] ;
+    # Vertical damage extent = min(0.20 × draught, longitudinalExtent)
+    sh:sparql [
+        sh:message "verticalDamageExtent must be the lesser of 0.20 × upperIceWaterlineDraught and longitudinalDamageExtent." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this WHERE {
+                $this nltl:upperIceWaterlineDraught ?draughtNode .
+                $this nltl:longitudinalDamageExtent ?lonNode .
+                $this nltl:verticalDamageExtent ?vertNode .
+                ?draughtNode qudt:numericValue ?draughtVal .
+                ?lonNode qudt:numericValue ?lonVal .
+                ?vertNode qudt:numericValue ?vertVal .
+                BIND ( ?draughtVal * 0.20 AS ?limit ) .
+                BIND ( IF(?lonVal < ?limit, ?lonVal, ?limit) AS ?expected ) .
+                FILTER ( abs(?vertVal - ?expected) > 1e-6 )
+            }
+        """
+    ] ;
+    # Selected vertical position must be within keel (0) and 1.20 × draught
+    sh:sparql [
+        sh:message "selectedVerticalDamagePosition must lie between the keel (0 m) and 1.20 × upperIceWaterlineDraught." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            SELECT $this WHERE {
+                $this nltl:upperIceWaterlineDraught ?draughtNode .
+                $this nltl:selectedVerticalDamagePosition ?posNode .
+                ?draughtNode qudt:numericValue ?draughtVal .
+                ?posNode qudt:numericValue ?posVal .
+                BIND ( ?draughtVal * 1.20 AS ?upper ) .
+                FILTER ( ?posVal < 0 || ?posVal > ?upper )
+            }
+        """
+    ] .
+
+# -----------------------------------------------------------------
+# Quantity node shapes (ensure numeric value and correct unit)
+
+gen:UpperIceWaterlineLengthShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:upperIceWaterlineLength ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:UpperIceWaterlineDraughtShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:upperIceWaterlineDraught ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LongitudinalDamageExtentShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:longitudinalDamageExtent ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TransversePenetrationShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:transversePenetration ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:VerticalDamageExtentShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:verticalDamageExtent ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:SelectedVerticalDamagePositionShape a sh:NodeShape ;
+    sh:targetObjectsOf nltl:selectedVerticalDamagePosition ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+<END_SHACL>

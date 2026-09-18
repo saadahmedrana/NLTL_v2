@@ -1,0 +1,95 @@
+We need to modify SHACL graph to address current issue: Add condition that certification status equals evidenceStateApproved. The existing SHACL has a SPARQL constraint with filters checking for NOT EXISTS on certification status but not equality.
+
+We need to edit that SPARQL: Currently:
+
+```
+FILTER (
+    NOT EXISTS { $this nltl:sewageTreatmentPlantApprovalStatus nltl:evidenceStateApproved } ||
+    NOT EXISTS { $this nltl:marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus true } ||
+    NOT EXISTS { $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus ?cert } ||
+    NOT EXISTS { ... distances ... } ||
+    NOT EXISTS { ... distances ... }
+)
+```
+
+We need to enforce that certification status is approved, not just any value. So remove the generic check and replace with NOT EXISTS for lack of approved value. So condition should be:
+
+```
+NOT EXISTS { $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus nltl:evidenceStateApproved }
+```
+
+Or we can keep variable ?cert but add filter condition that ?cert = nltl:evidenceStateApproved. Simpler: replace that line.
+
+Thus modify SPARQL accordingly.
+
+Also need to keep other parts unchanged.
+
+Let's produce revised SHACL with same prefixes, shape, just edit SELECT block.
+
+Take previousCandidateShacl string. We'll output entire revised graph.
+
+Ensure no syntax errors: The SPARQL string uses triple quotes. We'll keep.
+
+Update the FILTER block: replace the third NOT EXISTS clause.
+
+Original third clause:
+
+`NOT EXISTS { $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus ?cert } ||`
+
+Replace with:
+
+`NOT EXISTS { $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus nltl:evidenceStateApproved } ||`
+
+Make sure we have correct prefix for nltl:evidenceStateApproved (same namespace). Already defined.
+
+All else unchanged.
+
+Return <BEGIN_SHACL>...<END_SHACL> with full graph.
+
+Let's craft the revised TTL.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:IMO-117>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # presence of the boolean flag
+    sh:property [
+        sh:path nltl:sewageDischargeUsesTreatmentPlant ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    # conditional constraints when the flag is true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When sewageDischargeUsesTreatmentPlant is true, required approvals, compliance flags and discharge‑distance records must be present." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:sewageDischargeUsesTreatmentPlant true .
+                FILTER (
+                    NOT EXISTS { $this nltl:sewageTreatmentPlantApprovalStatus nltl:evidenceStateApproved } ||
+                    NOT EXISTS { $this nltl:marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus true } ||
+                    NOT EXISTS { $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus nltl:evidenceStateApproved } ||
+                    NOT EXISTS {
+                        $this nltl:hasDischargeDistanceRecord ?rec .
+                        ?rec nltl:distanceToNearestLandIceShelfOrFastIce ?valLand .
+                        FILTER(datatype(?valLand) = xsd:decimal)
+                    } ||
+                    NOT EXISTS {
+                        $this nltl:hasDischargeDistanceRecord ?rec2 .
+                        ?rec2 nltl:distanceToAreaWithIceConcentrationGreaterThanOneTenth ?valIce .
+                        FILTER(datatype(?valIce) = xsd:decimal)
+                    }
+                )
+            }
+        """ ;
+        sh:severity sh:Violation
+    ] .
+<END_SHACL>

@@ -1,0 +1,67 @@
+We need to evaluate candidateShacl for concrete blocking defects per rules. Deterministic validation says valid true, no errors. But we must still check target, applicability, ownership/path, mandatory condition, logic, cardinality, thresholds, etc.
+
+Requirement: polar_ship_certificate_form = 'Appendix I model'; IF certificate_language NOT IN {'English','French','Spanish'}, THEN approved_translation_present = true.
+
+The SHACL shape:
+
+TargetClass nltl:ship → correct (requiredTargetOwner is ship). Good.
+
+Property 1: path (nltl:hasPolarShipCertificate nltl:certificateFormModel) with hasValue nltl:appendixIPolarShipCertificateModel. This enforces that the certificateFormModel of the polar ship certificate equals that specific individual. That's correct: it's a value constraint; must be exactly the Appendix I model. Good.
+
+But need to ensure property path correctness: path is a list of two properties, so it's a path from ship -> hasPolarShipCertificate -> certificateFormModel. That's ok.
+
+Check that the target of the constraint is the ship, the required owner is ship, okay.
+
+Property 2: certificateLanguage datatype string minCount 1 maxCount 1. Good; requirement says language must be recorded. Fine.
+
+Property 3: approvedTranslationPresent datatype boolean maxCount 1 (no minCount). It's optional unless required by condition. That's fine.
+
+Conditional rule: SPARQL constraint selects $this where language not English/French/Spanish and approvedTranslationPresent missing or not true. Let's examine.
+
+Constraint uses sh:sparql with a SELECT returning $this (maybe also ?nonCompliantLanguage). The constraint will cause validation failure if the SELECT returns any results. Implementation: SPARQLConstraint with sh:select returns results that indicate violation. The query:
+
+PREFIX nltl: ...
+SELECT $this (STR(?lang) AS ?nonCompliantLanguage)
+WHERE {
+    $this nltl:certificateLanguage ?lang .
+    FILTER ( !( ?lang IN ("English", "French", "Spanish") ) )
+    OPTIONAL { $this nltl:approvedTranslationPresent ?ap }
+    FILTER ( (!bound(?ap)) || (?ap != true) )
+}
+
+First: check that language values are literals. The IN function works with literals; okay.
+
+Potential issue: The use of "true" literal vs xsd:boolean true. In SPARQL, true (untyped) is a boolean literal same as xsd:boolean? Actually SPARQL boolean literals are true/false typed as xsd:boolean. So ?ap != true works. Might be ok.
+
+But a subtle issue: The constraint does not enforce that approvedTranslationPresent must be true when language not in set; but also does not enforce that approvedTranslationPresent must be present when language is in set? Not required.
+
+Potential defect: The condition says "IF certificate_language NOT IN {'English','French','Spanish'}, THEN approved_translation_present = true." It doesn't require that approvedTranslationPresent be present for languages that are in set (English etc). So shape is fine.
+
+Check for missing mandatory condition: The requirement also mandates that certificate form must be Appendix I model. That's enforced via hasValue. Good.
+
+Check cardinality: certificateLanguage minCount 1 maxCount 1 ensures exactly one. Good.
+
+Potential missing: The shape uses sh:hasValue, which requires the property value to be exactly that individual, but does it ensure presence of the property? hasValue only asserts that the value must be that, but if the property is missing, does node satisfy? According to SHACL, hasValue is a constraint component that asserts that the value of the property must be equal to the given value; if the property is not present, the constraint fails because the value set is empty, none equals the required value. Actually spec: hasValue is satisfied if at least one value equals the given. If property missing, there is no value, so fails. So mandatory. Good.
+
+Potential issue: path to certificateFormModel: (hasPolarShipCertificate certificateFormModel). If ship has multiple certificates, that path may yield multiple values; hasValue must match one of them. That's acceptable.
+
+Now check vocabulary: uses canonical IRIs from vocab. All in namespace, fine.
+
+Check ownership/path: requiredOwnerClasses: ship. The properties are owned by ship (certificateLanguage, approvedTranslationPresent) also requiredOwner ship per vocabulary (requiredOwner ship). The path for certificateFormModel is ship->... That's okay.
+
+Potential missing: The shape does not enforce that approvedTranslationPresent is present when language not in list. It does via SPARQL but also expects boolean true. However, the property shape defines datatype boolean but no minCount; we rely on SPARQL. That's okay.
+
+Check that the conditional rule may need to ensure language values are case-sensitive; requirement list uses capital first letter words. Acceptable.
+
+Potential defect: The SPARQL query uses the namespace prefix nltl: <https://w3id.org/nltl/vocab#>. However the vocabulary prefix used in shape is nltl: <https://w3id.org/nltl/vocab#>. Good.
+
+Now check for missing canonical term: Are all terms used defined and locked? Yes.
+
+Activating variable matcher needed only if missing canonical term; not needed.
+
+Thus likely no concrete blocking defects. So accept.
+
+We must output JSON with accept:true, activate_variable_matcher:false, currentIssues: [].
+
+Make sure format exactly one line JSON with those keys.
+{"accept":true,"activate_variable_matcher":false,"currentIssues":[]}

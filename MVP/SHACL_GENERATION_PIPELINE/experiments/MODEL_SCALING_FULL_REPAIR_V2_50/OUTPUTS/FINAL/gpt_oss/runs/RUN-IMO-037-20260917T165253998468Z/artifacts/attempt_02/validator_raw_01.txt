@@ -1,0 +1,72 @@
+We need to validate candidateShacl against requirement, focusing on concrete blocking defects. Deterministic validation says valid, but we must check semantic constraints: targetClass, applicability, ownership/path, cardinalities, mandatory conditions, etc.
+
+Requirement: target owner ship. candidate shape :ShipShape targetClass nltl:ship – correct.
+
+Need to ensure applicability terms (shipCategory, constructionDate) are enforced with correct minCount etc. They have minCount 1 each; shipCategory also maxCount 1. Good.
+
+Check that property paths use correct IRIs: they match canonical IRIs. Yes.
+
+Check that residualStabilityFactorSI condition: In SPARQL filter they require either val close to 1 or (altApp true && altStat true). However requirement mentions alternativeInstrumentApplicable must be true and alternativeInstrumentResidualStabilityStatus = compliant (i.e., true) – they didn't include check for alternativeInstrumentApplicable in filter! They only check val or (altApp true && altStat true). Actually they don't check alternativeInstrumentApplicable anywhere else. The filter includes (BOUND(?altApp) && ?altApp = true && BOUND(?altStat) && ?altStat = true). That matches requirement: alternativeInstrumentApplicable true and status true. So it's okay. But they didn't require alternativeInstrumentApplicable to be present necessarily? It's optional; if not bound, clause fails, but then condition fails unless val=1. That's correct.
+
+Now check missing mandatory property alternativeInstrumentApplicable: Not required in shape. Requirement: alternativeInstrumentApplicable is a term but maybe only needed when alternative applies; not mandatory for all ships. So not required.
+
+Check loadingConditionCase shape: targetClass nltl:loadingConditionCase – correct.
+
+Properties: hasLoadingConditionResultEvidence minCount 1 – required. Good.
+
+loadingConditionIdentifier datatype string minCount 1 – required.
+
+But requirement also expects each loading condition case to have residualStabilityFactorSI (quantity) maybe mandatory? The requirement says each loading condition must have residualStabilityFactorSI either 1 or alternative. The shape does not enforce existence of residualStabilityFactorSI property. However the SPARQL check addresses cases where residualStabilityFactorSI may be missing; they OPTIONAL it and then filter fails unless alternative true. If residualStabilityFactorSI missing and no alternative, that case would be flagged by SPARQL as violation, but the shape does not require the property. Is that a blocking defect? Possibly missing mandatory property: residualStabilityFactorSI is required for each loading condition case (unless alternative instrument applies). The requirement's semantic obligation: for every applicable loading condition either residualStabilityFactorSI = 1 or ... So if alternative applies, residualStabilityFactorSI may be absent. Thus not mandatory in all cases. So shape optional is okay.
+
+Now check that alternativeInstrumentApplicable is not used elsewhere; maybe should be attached to loadingConditionCase (owner). In vocabulary, requiredOwner is loadingConditionCase. Shape does not have property for it. However it's used only in SPARQL filter; shape may not need to enforce cardinality. But requirement may expect the term to be present when applicable; not required as always. Likely okay.
+
+Check cardinalities: shipCategory minCount 1 maxCount 1 – good.
+
+constructionDate minInclusive only; they didn't set maxCount etc. Not required.
+
+But they didn't set sh:maxCount 1 for constructionDate – maybe okay (only one date). Could be acceptable.
+
+Check the SPARQL shape: The sh:sparql block is inside ShipShape, but they didn't add sh:select? Actually they have sh:sparql [ sh:message "..."; sh:select """ ... """ ; ] . That's correct.
+
+Now check that sh:select returns $this where violations exist; they used SELECT $this WHERE {... FILTER( !(... ) ) }. That returns ship individuals that have a loading condition case that fails the condition. That's correct.
+
+Potential defect: they use PREFIX nltl: <https://w3id.org/nltl/vocab#> but earlier they used <https://w3id.org/nltl/vocab#> (same). Good.
+
+Check that the data type of alternativeInstrumentApplicable is boolean but they compare = true (SPARQL). Works.
+
+Now check that they used sh:minInclusive with xsd:date but should be sh:minInclusive vs sh:minInclusive for dates? SHACL uses sh:minInclusive for literals of comparable types; okay.
+
+Potential missing: need sh:maxInclusive? Not required.
+
+Check that they did not include sh:defaultValue or missing value handling; not required.
+
+Now verify that there is no wrong target: ShipShape targetClass nltl:ship matches requiredTargetOwner ship. Good.
+
+The requirement also includes anchorMapField etc not relevant.
+
+Thus seems no concrete blocking defects.
+
+But need to verify that all mandatory terms are present: The requirement's semantics list includes shipCategory, constructionDate, residualStabilityFactorSI, alternativeInstrumentResidualStabilityStatus (and alternativeInstrumentApplicable). ShipShape enforces shipCategory, constructionDate, loading condition presence, but does not enforce alternativeInstrumentApplicable (optional). Might be acceptable, but is alternativeInstrumentApplicable mandatory? The requirement says "where the SOLAS II-1/4.1 alternative applies". So only present when applies. Not mandatory.
+
+Also, residualStabilityFactorSI is used in SPARQL; but no explicit property shape requiring its datatype/units; the vocabulary defines it as QuantityProperty with unit UNITLESS. Not required but could be considered missing mandatory datatype/units. However SHACL shape may be expected to include sh:property for it with sh:datatype etc. The requirement does not explicitly require shape to declare that property; but enforcement is via SPARQL which checks BOUND(?val). If the property exists, they didn't validate its datatype. Could be considered missing mandatory datatype for a quantity property. The requirement maybe expects it to be present and be a quantity value; lack of shape may be a defect? The validator focuses on regulatory semantics; missing datatype could allow invalid data (non-numeric). That could be a blocking defect: "datatype/quantity access" missing. The validator criteria includes "datatype/quantity access". If a property representing a quantity is used in calculation, shape should enforce correct datatype. Here residualStabilityFactorSI is a QuantityProperty with range QuantityValue; shape does not enforce it. That could be considered a defect.
+
+Check other properties: alternativeInstrumentApplicable and alternativeInstrumentResidualStabilityStatus are booleans; shape does not enforce them either. But they're optional.
+
+Requirement's directCheckSubconstraints includes residualStabilityFactorSI and alternativeInstrumentResidualStabilityStatus. But shape does not define them as properties; only SPARQL filter checks them. According to SHACL best practice, you should define property shapes for them, but not strictly regulatory; but the validator may treat missing datatype as a defect.
+
+The instruction: "Reject only for concrete blocking defects capable of changing regulatory semantics or executable conformance: ... datatype/quantity access". Missing datatype enforcement could allow wrong data that would affect evaluation. Since SPARQL only checks equality/BOUND, if a non-boolean value for altApp is present, filter may not behave as intended. But it's optional.
+
+Thus could flag missing datatype for residualStabilityFactorSI, alternativeInstrumentApplicable, alternativeInstrumentResidualStabilityStatus.
+
+However is that considered a blocking defect? Possibly, because it could change regulatory semantics. The shape could allow any literal, leading to false passes.
+
+Given strictness, we may report a blocking issue: Missing datatype constraint for residualStabilityFactorSI. Location perhaps "ShipShape". Category: WRONG_TARGET? Not. Category options: Should be one of the categories listed earlier: WRONG_TARGET, WRONG_APPLICABILITY, WRONG_OWNERSHIP, WRONG_LOGIC, WRONG_CARDINALITY, WRONG_THRESHOLD, WRONG_FORMULA, WRONG_UNIT, WRONG_DATATYPE, MISSING_VALUE_BEHAVIOR, OmittedObligatorySemanticElement. The keys list only category "WRONG_TARGET"? Actually the JSON example uses category "WRONG_TARGET". But the instruction says each issue must contain exactly these keys: category, location, problem, required_change, regression_guard, blocking, needs_vocabulary_resolution. Category should be one of categories? Not limited; we can use appropriate like "WRONG_DATATYPE". But example uses "WRONG_TARGET". I think any category string is allowed as long as it's valid. Use "WRONG_DATATYPE".
+
+Location: "ShipShape" or maybe property path. Use "ShipShape". Problem description: "ResidualStabilityFactorSI property lacks datatype/quantity constraint, allowing non-quantity values." Required change: "Add a property shape for nltl:residualStabilityFactorSI with sh:datatype qudt:QuantityValue and appropriate unit enforcement." Regression guard: "Preserve the added datatype constraint while retaining existing logic." Needs_vocabulary_resolution: false.
+
+Thus we need to produce JSON with accept:false, activate_variable_matcher:false, currentIssues array with one issue.
+
+Return exactly one line JSON.
+
+Let's craft.
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"WRONG_DATATYPE","location":"ShipShape","problem":"The residualStabilityFactorSI property used in the SPARQL check is not constrained by a SHACL property shape, so non‑quantity values could pass the validation.","required_change":"Add a sh:property for nltl:residualStabilityFactorSI with sh:datatype qudt:QuantityValue (and optionally enforce the unit UNITLESS).","regression_guard":"Preserve the corrected datatype constraint while keeping the existing SPARQL logic unchanged.","blocking":true,"needs_vocabulary_resolution":false}]}

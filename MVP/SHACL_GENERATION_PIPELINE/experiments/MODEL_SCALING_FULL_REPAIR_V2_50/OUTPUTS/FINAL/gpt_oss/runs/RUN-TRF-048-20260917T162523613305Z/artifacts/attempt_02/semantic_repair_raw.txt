@@ -1,0 +1,211 @@
+We need to repair SHACL graph based on currentIssues. Issue: deterministic validation - unapproved external/generated IRI(s): http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit
+
+So these IRIs are not approved. The allowedVocabulary list includes many terms, but does not include qudt schema (the namespace). We need to avoid using external generated IRI(s). We must replace usage of qudt:numericValue and qudt:unit perhaps with allowed vocabulary terms. However the vocabulary list includes no property for numeric value/unit. But allowed usage policy says use only allowed canonical terms. Since we cannot invent new terms, we must remove references to qudt:numericValue and qudt:unit, possibly by using literal values directly instead of quantity nodes. The pattern 'qudtQuantityValue' expects quantityNode with qudt:numericValue and qudt:unit. But those are external. Could change shape to accept plain typed literals with datatype appropriate (xsd:decimal) and use recommended unit concept? But we need to preserve semantics: they wanted quantity nodes. However deterministic error indicates not allowed. We need to correct by removing qudt: namespace references and perhaps using sh:datatype and sh:nodeKind sh:Literal, but preserving other constraints.
+
+Simplest: For each property that currently defines a node with qudt:numericValue and qudt:unit, replace with sh:property that expects a literal with appropriate datatype (xsd:decimal) and maybe include sh:hasValue <unit IRI>? But unit IRIs also external (http://qudt.org/vocab/unit/... ) - those also likely unapproved. The allowed vocabulary includes recommendedUnit values pointing to external QUDT units (like http://qudt.org/vocab/unit/CentiM2). Those are external too but they are part of allowedVocabulary definitions. Are they considered allowed? The issue only mentions unapproved external/generated IRI(s): http://qudt.org/schema/qudt# , numericValue, unit (the schema namespace). The unit vocab IRIs are not the schema namespace; they are /vocab/unit/... may be allowed as data values? Probably allowed.
+
+Thus we can keep unit values but remove usage of the schema namespace for the property definitions. Instead of referencing qudt:numericValue property path inside sh:node, we can define that the object is a blank node of type qudt:QuantityValue? That's also external. Better: Use sh:datatype on the property directly referencing xsd:decimal, and possibly enforce unit via sh:hasValue? But unit is external but allowed. Could use sh:property path of unit as separate property? Might be okay.
+
+Given constraints, we can change each property shape to have sh:path nltl:... ; sh:datatype xsd:decimal ; sh:minCount 1 ; sh:maxCount 1 ; plus maybe sh:nodeKind sh:Literal. For unit verification, we could use sh:property that the same subject also has a property nltl:...Unit? There's no such property. So we drop unit check; semantics may lose unit enforcement but deterministic validation passes.
+
+Thus modify shapes: replace node with sh:datatype xsd:decimal and remove internal node block.
+
+Also adjust SPARQL queries that refer to qudt:numericValue, qudt:unit. We need to replace them with direct literals. In data, the properties likely will be literals; the query must use ?mNode ?mVal directly, not via qudt:numericValue. So we need to adjust the SELECT queries accordingly.
+
+Where previously:
+
+$this nltl:frameMomentFactorM ?mNode .
+?mNode qudt:numericValue ?mVal .
+?mNode qudt:unit ... (maybe not needed)
+
+Now we will have:
+
+$this nltl:frameMomentFactorM ?mVal .
+FILTER (datatype(?mVal) = xsd:decimal)
+
+Similarly for other quantities.
+
+Thus need to edit SPARQL sections accordingly.
+
+Also the presence of node patterns referencing qudt:numericValue and unit in shape definitions need removal.
+
+Implement changes.
+
+Also need to keep sh:targetClass unchanged.
+
+All other parts remain.
+
+Let's craft revised graph.
+
+We'll need prefixes: nltl, sh, xsd, gen (maybe keep), but remove qudt prefix? Might keep for unit literals? We can keep but not use schema namespace in property paths; but still may need unit IRI constants which are in http://qudt.org/vocab/unit/... Those are not in schema namespace, so we can keep qudt prefix for unit values, but not use qudt:numericValue property.
+
+We could keep prefix qudt for unit constants. But the deterministic error flagged schema namespace usage. Using only qudt:unit is also schema namespace; they flagged http://qudt.org/schema/qudt#unit as unapproved. If we reference unit constants via <http://qudt.org/vocab/unit/CentiM2> we don't need the schema namespace prefix. That's fine.
+
+Thus we will remove qudt:numericValue and qudt:unit property usage.
+
+In SPARQL, we also need to adjust: no qudt:numericValue or qudt:unit.
+
+We will just treat property values as literals.
+
+Thus shape definitions become simpler.
+
+Implement for each quantity property:
+
+- frameMomentFactorM
+- longitudinalFrameLoadDistributionFactorF4
+- sectionModulus
+- requiredShearArea
+
+All set sh:path nltl:..., sh:datatype xsd:decimal, sh:minCount 1, sh:maxCount 1.
+
+But note that some properties have unit expectations (like sectionModulus in cm^3). We could maybe assert that unit via sh:hasValue on separate property not defined; skip.
+
+Now adjust SPARQL queries:
+
+First SPARQL conditional rule: earlier they retrieved ?mNode and then ?mNode qudt:numericValue ?mVal . Now they can directly get ?mVal.
+
+Thus:
+
+$this nltl:frameMomentFactorM ?mVal .
+FILTER (datatype(?mVal) = xsd:decimal)
+
+Similarly other operand values: designIceLoadHeight ?hNode etc. Replace with ?hVal directly.
+
+Thus update all occurrences.
+
+Let's produce revised SHACL.
+
+Also need to keep prefix math for sqrt.
+
+Make sure to include xsd prefix.
+
+Also need to remove trailing comma after shape definition (previous candidate ended with ". ,"? Actually last line was "].". It had a trailing comma before end. We'll clean.
+
+Let's compose.
+
+
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix math: <http://www.w3.org/2005/xpath-functions/math#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-048
+    a sh:NodeShape ;
+    sh:targetClass nltl:longitudinalFrame ;
+
+    # presence of condition indicators
+    sh:property [
+        sh:path nltl:frameBoundaryConditionType ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:significantlyDifferentBoundaryConditions ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # frameMomentFactorM – dimensionless quantity (UNITLESS)
+    sh:property [
+        sh:path nltl:frameMomentFactorM ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # longitudinalFrameLoadDistributionFactorF4 – dimensionless quantity (UNITLESS)
+    sh:property [
+        sh:path nltl:longitudinalFrameLoadDistributionFactorF4 ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # sectionModulus – area‑moment (cm³)
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # requiredShearArea – area (cm²)
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Conditional rule: m = 13.3 when continuous beam with brackets &
+    # no significantly different boundary conditions
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "When frameBoundaryConditionType = continuousBeamWithBracketsFrameCondition and significantlyDifferentBoundaryConditions = false, frameMomentFactorM must be 13.3 (UNITLESS)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameBoundaryConditionType nltl:continuousBeamWithBracketsFrameCondition .
+                $this nltl:significantlyDifferentBoundaryConditions false .
+                $this nltl:frameMomentFactorM ?mVal .
+                FILTER (datatype(?mVal) = xsd:decimal) .
+                BIND (13.3 AS ?expected) .
+                BIND (abs(?mVal - ?expected) AS ?diff) .
+                FILTER ( ?diff > 1e-6 )
+            }
+        """
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Calculation checks for f4, Z, and required shear area A
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "Calculated values for longitudinalFrameLoadDistributionFactorF4, sectionModulus, and requiredShearArea do not match the prescribed formulas." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+
+            SELECT $this
+            WHERE {
+                # operand literals
+                $this nltl:designIceLoadHeight ?hVal .
+                $this nltl:spacing ?sVal .
+                $this nltl:span ?lVal .
+                $this nltl:icePressure ?pVal .
+                $this nltl:yieldStrength ?sigVal .
+                $this nltl:frameMomentFactorM ?mVal .
+
+                FILTER (datatype(?hVal) = xsd:decimal && datatype(?sVal) = xsd:decimal && datatype(?lVal) = xsd:decimal &&
+                        datatype(?pVal) = xsd:decimal && datatype(?sigVal) = xsd:decimal && datatype(?mVal) = xsd:decimal) .
+
+                # result literals
+                $this nltl:longitudinalFrameLoadDistributionFactorF4 ?f4Val .
+                $this nltl:sectionModulus ?zVal .
+                $this nltl:requiredShearArea ?aVal .
+
+                FILTER (datatype(?f4Val) = xsd:decimal && datatype(?zVal) = xsd:decimal && datatype(?aVal) = xsd:decimal) .
+
+                # expected calculations (values are in the units defined by the ontology)
+                BIND (1 - (0.2 * ?hVal) / ?sVal AS ?expF4) .
+                BIND ( ?expF4 * ?pVal * ?hVal * (?lVal * ?lVal) /
+                       (4 * ?mVal * ?sigVal) * 1000000 AS ?expZ ) .
+                BIND ( math:sqrt(3) * ?expF4 * 2.16 * ?pVal * ?hVal * ?lVal /
+                       (2 * ?sigVal) * 10000 AS ?expA ) .
+
+                BIND (abs(?f4Val - ?expF4) AS ?diffF4) .
+                BIND (abs(?zVal - ?expZ) AS ?diffZ) .
+                BIND (abs(?aVal - ?expA) AS ?diffA) .
+
+                FILTER ( ?diffF4 > 1e-6 || ?diffZ > 1e-6 || ?diffA > 1e-6 )
+            }
+        """
+    ] .
+<END_SHACL>

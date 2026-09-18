@@ -1,0 +1,123 @@
+We need to fix deterministic validation error: unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit. Perhaps use allowed vocabulary terms only; QUDT properties numericValue and unit are not allowed? The allowedVocabulary list includes quantity properties with recommendedUnit IRIs like http://qudt.org/vocab/unit/KiloN etc. But perhaps numericValue and unit are external/pattern properties; maybe we should replace them using canonical pattern defined in nodePatterns: they use qudt:numericValue and qudt:unit. However validation says unapproved external/generated IRIs. Maybe we need to use custom properties defined in our namespace for quantity values, e.g., use nltl:numericValue and nltl:unit? But not in allowed list. Could use the pattern shape's 'qudt:quantityValue' etc. Actually QUDT has class QuantityValue with properties numericValue and unit. The IRIs are http://qudt.org/schema/qudt#numericValue etc. Validation says these are unapproved external/generated; maybe we need to avoid referencing them directly, instead define shape using sh:nodeKind sh:IRI and sh:class qudt:QuantityValue, without specifying numericValue/unit? But we need to capture numeric and unit constraints using sh:hasValue with the unit IRIs; numeric is numeric literal. However the issue is about external/generated IRIs themselves, not the values. So we need to avoid using the property IRIs. Could use sh:datatype and sh:hasValue without using qudt:numericValue. For quantity we could assert that the property value is a typed literal with unit via sh:datatype and maybe use sh:node with sh:property path nltl:assessedFactoredExtremeLoad? The property itself is a QuantityProperty whose range is qudt:QuantityValue. So the shape for quantity property can specify sh:class qudt:QuantityValue; maybe we can omit the internal numericValue/unit constraints. That would remove the unapproved IRIs. So modify shapes: for each quantity property (localStressConcentration, nominalVonMisesStress, thrusterExtremeLoad, yieldSafetyFactor, componentMaterialYieldStrength, assessedFactoredExtremeLoad) replace the node definition with sh:class qudt:QuantityValue and perhaps sh:property restrictions about the unit using sh:hasValue on nltl:?? Not allowed. So simply require class of QuantityValue, no further numeric/unit constraints. This satisfies deterministic issue.
+
+We must preserve other semantics (boolean etc). Keep dependencies shapes unchanged.
+
+Thus update all sh:property definitions that have node with internal sh:property paths qudt:numericValue and qudt:unit; replace with sh:nodeKind sh:IRI? Actually quantity value is IRI (a blank node) of type qudt:QuantityValue. Use sh:class qudt:QuantityValue.
+
+So for each property:
+
+sh:path nltl:localStressConcentration ; sh:minCount 1 ; sh:node [ sh:class qudt:QuantityValue ]
+
+Similarly for others, also for assessedFactoredExtremeLoad etc.
+
+Also for shape FactoredAssessShape property assessedFactoredExtremeLoad.
+
+Make these changes.
+
+Need to keep minCount 1.
+
+Also ensure prefixes: qudt: <http://qudt.org/schema/qudt#> already defined. Keep prefix.
+
+Now produce revised SHACL graph including unchanged content except modifications.
+
+Let's draft.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasFactoredExtremeLoadOperabilityAssessment ;
+        sh:minCount 1 ;
+        sh:node :FactoredAssessShape
+    ] ;
+    # REQUIRED INPUTS (quantity properties) on the ship
+    sh:property [
+        sh:path nltl:localStressConcentration ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:nominalVonMisesStress ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterExtremeLoad ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:yieldSafetyFactor ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue
+        ]
+    ] .
+
+:FactoredAssessShape a sh:NodeShape ;
+    sh:targetClass nltl:factoredExtremeLoadOperabilityAssessment ;
+    # REQUIRED RESULT (quantity) on the assessment
+    sh:property [
+        sh:path nltl:assessedFactoredExtremeLoad ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue
+        ]
+    ] ;
+    # BOOLEAN results (already present, retained)
+    sh:property [
+        sh:path nltl:assessmentOperabilityMaintained ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Operability must be maintained (true)."
+    ] ;
+    sh:property [
+        sh:path nltl:assessmentRepairRequired ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue false ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Repair must not be required (false)."
+    ] ;
+    # DEPENDENCY: assessedThrusterComponent (object property to shipComponent)
+    sh:property [
+        sh:path nltl:assessedThrusterComponent ;
+        sh:minCount 1 ;
+        sh:class nltl:shipComponent
+    ] .
+
+:ShipComponentShape a sh:NodeShape ;
+    sh:targetClass nltl:shipComponent ;
+    # DEPENDENCY: hasMaterialProperties (object property to materialProperties)
+    sh:property [
+        sh:path nltl:hasMaterialProperties ;
+        sh:minCount 1 ;
+        sh:node :MaterialPropertiesShape
+    ] .
+
+:MaterialPropertiesShape a sh:NodeShape ;
+    sh:targetClass nltl:materialProperties ;
+    # INPUT: componentMaterialYieldStrength (quantity)
+    sh:property [
+        sh:path nltl:componentMaterialYieldStrength ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue
+        ]
+    ] .
+<END_SHACL>

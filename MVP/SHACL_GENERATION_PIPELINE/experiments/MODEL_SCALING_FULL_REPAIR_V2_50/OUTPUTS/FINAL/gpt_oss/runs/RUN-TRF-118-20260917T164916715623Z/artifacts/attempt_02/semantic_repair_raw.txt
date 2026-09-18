@@ -1,0 +1,229 @@
+We need to fix SHACL graph to include missing properties and result.
+
+CurrentIssues:
+
+1. COMPLETE dependency relationship(s) absent: assessedThrusterComponent, hasMaterialProperties. In SHACL we need to enforce presence of these properties (maybe sh:minCount 1) inside FactoredAssessShape? Actually assessedThrusterComponent is a property of FactoredExtremeLoadOperabilityAssessment linking to shipComponent. hasMaterialProperties is a property of shipComponent linking to materialProperties. Need node shapes for these.
+
+2. COMPLEX_READINESS required inputs absent: componentMaterialYieldStrength, localStressConcentration, nominalVonMisesStress, thrusterExtremeLoad, yieldSafetyFactor. These are QuantityProperties attached likely to materialProperties, benchmarkEntity? Wait: componentMaterialYieldStrength is a property of materialProperties (range calculationCase). localStressConcentration, nominalVonMisesStress, thrusterExtremeLoad, yieldSafetyFactor are QuantityProperties with requiredOwner ship (benchmarkEntity?). Actually they have requiredOwner ship. So they are attached to ship? The model expects these as inputs to the complex calculation. So we need to ensure shape includes them, perhaps as sh:property with sh:path to each property, with proper datatype and unit via qudt.
+
+3. COMPLEX_READINESS required result absent: assessedFactoredExtremeLoad. This is a quantity property on FactoredExtremeLoadOperabilityAssessment. So need property shape.
+
+Thus we must add shapes / properties accordingly, preserving existing ones.
+
+Also we must use exact canonical IRIs from allowedVocabulary. Use prefixes nltl:.
+
+Need to possibly reference qudt namespace for quantity values. The nodePatterns mention qudtQuantityValue pattern: quantityNode qudt:numericValue xsd:decimal; qudt:unit recommendedUnit. We should include for quantity properties: path to property, then nested node with sh:property for numeric value and unit. Could just use sh:node with a shape that captures quantity.
+
+Simplify: Add property shapes with sh:datatype for boolean ones already.
+
+For quantity properties, we need to ensure presence and correct datatype? Use sh:node with shape that checks quantity node has qudt:numericValue xsd:decimal and qudt:unit with recommended unit IRI.
+
+Define generic QuantityValueShape? Could embed inline.
+
+Given requirement to preserve unchanged content, we will extend shapes.
+
+We'll keep previous prefixes: sh:, nltl:, xsd:, : .
+
+Add additional shapes:
+
+:AssessedThrusterComponentShape a sh:NodeShape ; sh:targetClass nltl:shipComponent? Actually the property assessedThrusterComponent points from Factored... to shipComponent, so we need shape for FactoredAssessShape to have property path nltl:assessedThrusterComponent with sh:minCount 1 and sh:node :ShipComponentShape (or maybe just sh:class nltl:shipComponent). Simpler: use sh:class nltl:shipComponent and sh:minCount 1.
+
+Similarly, for shipComponent shape to require hasMaterialProperties with minCount 1 and node shape for materialProperties.
+
+Define :ShipComponentShape a sh:NodeShape ; sh:targetClass nltl:shipComponent ; sh:property [ sh:path nltl:hasMaterialProperties ; sh:minCount 1 ; sh:node :MaterialPropertiesShape ].
+
+:MaterialPropertiesShape a sh:NodeShape ; sh:targetClass nltl:materialProperties ; includes property componentMaterialYieldStrength (quantity) with sh:minCount 1 and node shape for quantity.
+
+But componentMaterialYieldStrength is a property of materialProperties. So include that.
+
+Also need properties on ship (nltl:ship) for inputs: localStressConcentration, nominalVonMisesStress, thrusterExtremeLoad, yieldSafetyFactor. Actually these have requiredOwner ship. So we can add to :ShipShape properties for each with minCount 1 and quantity shape.
+
+Add property for assessedFactoredExtremeLoad (quantity) on FactoredAssessShape.
+
+Thus we will modify existing shapes accordingly.
+
+Define generic :QuantityValueShape with targetClass qudt:QuantityValue? Range is qudt:QuantityValue but we can just enforce numeric and unit.
+
+But to keep minimal changes, we can inline: sh:node [ sh:property [ sh:path qudt:numericValue ; sh:datatype xsd:decimal ; sh:minCount 1 ] ; sh:property [ sh:path qudt:unit ; sh:hasValue <unitIRI> ; sh:minCount 1 ] ].
+
+Use recommendedUnit from vocabulary.
+
+Let's collect units:
+
+componentMaterialYieldStrength: recommendedUnit = http://qudt.org/vocab/unit/MegaPA
+
+localStressConcentration: unit = http://qudt.org/vocab/unit/UNITLESS
+
+nominalVonMisesStress: unit = http://qudt.org/vocab/unit/MegaPA
+
+thrusterExtremeLoad: unit = http://qudt.org/vocab/unit/KiloN
+
+yieldSafetyFactor: unit = http://qudt.org/vocab/unit/UNITLESS
+
+assessedFactoredExtremeLoad: recommendedUnit = http://qudt.org/vocab/unit/KiloN (from assessedFactoredExtremeLoad property). Confirm: assessedFactoredExtremeLoad range is QuantityValue, recommendedUnit KiloN.
+
+So define each property with sh:node shape specifying unit.
+
+Will need prefix for qudt: <http://qudt.org/schema/qudt#> and maybe unit vocab prefix. Use full IRIs.
+
+Add to SHACL.
+
+Let's craft final Turtle.
+
+We must include unchanged previous part.
+
+Proceed.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasFactoredExtremeLoadOperabilityAssessment ;
+        sh:minCount 1 ;
+        sh:node :FactoredAssessShape
+    ] ;
+    # REQUIRED INPUTS (quantity properties) on the ship
+    sh:property [
+        sh:path nltl:localStressConcentration ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:nominalVonMisesStress ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterExtremeLoad ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:yieldSafetyFactor ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1
+            ]
+        ]
+    ] .
+
+:FactoredAssessShape a sh:NodeShape ;
+    sh:targetClass nltl:factoredExtremeLoadOperabilityAssessment ;
+    # REQUIRED RESULT (quantity) on the assessment
+    sh:property [
+        sh:path nltl:assessedFactoredExtremeLoad ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+                sh:minCount 1
+            ]
+        ]
+    ] ;
+    # BOOLEAN results (already present, retained)
+    sh:property [
+        sh:path nltl:assessmentOperabilityMaintained ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Operability must be maintained (true)."
+    ] ;
+    sh:property [
+        sh:path nltl:assessmentRepairRequired ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue false ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Repair must not be required (false)."
+    ] ;
+    # DEPENDENCY: assessedThrusterComponent (object property to shipComponent)
+    sh:property [
+        sh:path nltl:assessedThrusterComponent ;
+        sh:minCount 1 ;
+        sh:class nltl:shipComponent
+    ] .
+
+:ShipComponentShape a sh:NodeShape ;
+    sh:targetClass nltl:shipComponent ;
+    # DEPENDENCY: hasMaterialProperties (object property to materialProperties)
+    sh:property [
+        sh:path nltl:hasMaterialProperties ;
+        sh:minCount 1 ;
+        sh:node :MaterialPropertiesShape
+    ] .
+
+:MaterialPropertiesShape a sh:NodeShape ;
+    sh:targetClass nltl:materialProperties ;
+    # INPUT: componentMaterialYieldStrength (quantity)
+    sh:property [
+        sh:path nltl:componentMaterialYieldStrength ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+                sh:minCount 1
+            ]
+        ]
+    ] .
+</END_SHACL>

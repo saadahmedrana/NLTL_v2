@@ -1,0 +1,111 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix shape: <urn:nltl:generated-shape:> .
+
+shape:ShipThrusterShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:mainPropulsionThruster ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:thrusterType ;
+        sh:datatype xsd:string ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Main propulsion thruster ice compliance validation failed." ;
+        sh:select """
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+
+SELECT ?this ?value ?message
+WHERE {
+  ?this nltl:mainPropulsionThruster true .
+  ?this nltl:thrusterType ?tt .
+  FILTER(?tt IN ("azimuthing", "fixed"))
+  
+  {
+    FILTER NOT EXISTS {
+      ?this nltl:propellerIceInteractionLoad ?propLoad .
+      ?propLoad qudt:numericValue ?propVal .
+      ?propLoad qudt:unit unit:KiloN .
+      FILTER(isNumeric(?propVal))
+    }
+    BIND(?this AS ?value)
+    BIND("Ship has main propulsion thruster but propellerIceInteractionLoad is missing or invalid in kN" AS ?message)
+  }
+  UNION
+  {
+    FILTER NOT EXISTS {
+      ?this nltl:thrusterBodyIceInteractionLoad ?tbLoad .
+      ?tbLoad qudt:numericValue ?tbVal .
+      ?tbLoad qudt:unit unit:KiloN .
+      FILTER(isNumeric(?tbVal))
+    }
+    BIND(?this AS ?value)
+    BIND("Ship has main propulsion thruster but thrusterBodyIceInteractionLoad is missing or invalid in kN" AS ?message)
+  }
+  UNION
+  {
+    FILTER NOT EXISTS {
+      ?this nltl:localIcePressure ?lip .
+      ?lip qudt:numericValue ?lipVal .
+      ?lip qudt:unit unit:MegaPA .
+      FILTER(isNumeric(?lipVal))
+    }
+    BIND(?this AS ?value)
+    BIND("Ship has main propulsion thruster but localIcePressure is missing or invalid in MPa" AS ?message)
+  }
+  UNION
+  {
+    FILTER NOT EXISTS {
+      ?this nltl:hasDesignCondition ?dc .
+    }
+    BIND(?this AS ?value)
+    BIND("Ship has main propulsion thruster but has no design conditions" AS ?message)
+  }
+  UNION
+  {
+    ?this nltl:hasDesignCondition ?dc .
+    FILTER NOT EXISTS {
+      ?dc a nltl:designCondition .
+    }
+    BIND(?dc AS ?value)
+    BIND("Design condition is not of class designCondition" AS ?message)
+  }
+  UNION
+  {
+    ?this nltl:hasDesignCondition ?dc .
+    ?dc a nltl:designCondition .
+    FILTER NOT EXISTS {
+      ?dc nltl:designConditionLocalStrengthCapacity ?cap .
+      ?cap qudt:numericValue ?capVal .
+      ?cap qudt:unit unit:KiloN .
+      FILTER(isNumeric(?capVal))
+    }
+    BIND(?dc AS ?value)
+    BIND("Design condition is missing designConditionLocalStrengthCapacity in kN" AS ?message)
+  }
+  UNION
+  {
+    ?this nltl:hasDesignCondition ?dc .
+    ?dc a nltl:designCondition .
+    ?this nltl:localIcePressure ?lip .
+    ?lip qudt:numericValue ?lipVal .
+    ?lip qudt:unit unit:MegaPA .
+    ?dc nltl:designConditionLocalStrengthCapacity ?cap .
+    ?cap qudt:numericValue ?capVal .
+    ?cap qudt:unit unit:KiloN .
+    FILTER(isNumeric(?lipVal) && isNumeric(?capVal) && (?capVal < ?lipVal))
+    BIND(?dc AS ?value)
+    BIND("Direct check failed: designConditionLocalStrengthCapacity (kN) is less than localIcePressure (MPa)" AS ?message)
+  }
+}
+"""
+    ] .

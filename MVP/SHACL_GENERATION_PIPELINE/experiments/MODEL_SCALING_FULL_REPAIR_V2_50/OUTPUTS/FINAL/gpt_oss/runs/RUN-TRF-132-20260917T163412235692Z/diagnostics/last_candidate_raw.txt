@@ -1,0 +1,354 @@
+We need to generate a SHACL shape for the requirement.
+
+Requirement: "The engine output shall be no less than P = f_1*f_2*f_3*(f_4*Delta + P_0) [kW], and in no case less than 740 kW for ice classes IB and IC."
+
+Canonical variables: iceClass, mcrPower_kW (maximumContinuousRatingPower). The formula uses engineOutputFormulaFactorF1 etc. Those are quantity properties on ship, each with QUDT QuantityValue expecting numericValue, unit.
+
+We must create shape targeting ship (sh:targetClass nltl:ship). Need to ensure presence and datatypes/units for each operand (P0, Delta, f1..f4). For each factor we need property shape with QUDT QuantityValue nodes: path to property, then node shape specifying qudt:numericValue datatype decimal and unit appropriate.
+
+But requirement says p0 base power (kW) recommended unit KiloW; displacement maybe unit unspecified; factor f's dimensionless unit UNITLESS. For f4 where no unit, maybe we still require quantity but unit not required.
+
+Need calculation: compute Pcalc = f1 * f2 * f3 * (f4 * Delta + P0). Compare to two thresholds:
+
+- Must be >= Pcalc (engine output shall be no less than Pcalc). The engine output is "maximumContinuousRatingPower" (MCR). So we need to check that mcrPower_kW (as QuantityValue) is >= computed Pcalc.
+
+- Additionally, for iceClass IB or IC, the MCR must be >= 740 kW (absolute). So conditional constraint based on iceClass.
+
+We must encode as SHACL SPARQL constraint: compute numeric values from the quantity nodes.
+
+Because quantities are QUDT QuantityValue nodes with qudt:numericValue (decimal) and unit. The numeric values may need conversion to same unit? P0 and MCR in kW; f4 is dimensionless; Delta unknown unit (maybe kW? Actually displacement could be something else; but it's added to P0 inside parentheses, with f4 scaling. Likely Delta has unit kW as well? Not given. recommendedUnit null. Hmm. The expression expects Delta as kW same unit as P0. Since no unit, we cannot enforce unit; but we can still take numericValue.
+
+Thus we compute numeric values via property paths: e.g., $this nltl:engineOutputFormulaFactorF1 ?f1Node . ?f1Node qudt:numericValue ?f1 . Similarly for each.
+
+For P0: $this nltl:engineOutputFormulaBasePowerP0 ?p0Node . ?p0Node qudt:numericValue ?p0 . plus unit check maybe.
+
+Similarly for Delta: $this nltl:engineOutputFormulaDisplacement ?deltaNode . ?deltaNode qudt:numericValue ?delta .
+
+MCR: $this nltl:maximumContinuousRatingPower ?mcrNode . ?mcrNode qudt:numericValue ?mcr .
+
+Now compute Pcalc = ?f1 * ?f2 * ?f3 * ( ?f4 * ?delta + ?p0 ).
+
+Compare: ?mcr >= ?Pcalc.
+
+If not, violation.
+
+Second constraint: For iceClass IB or IC, ensure ?mcr >= 740. So we need iceClass property: $this nltl:iceClass ?iceClass . ?iceClass a ?iceClassValue ??? Actually iceClass is object property linking to a controlled value (individual). The controlled individuals like nltl:iceClassIb etc. So we can test whether ?iceClass is nltl:iceClassIb or nltl:iceClassIc.
+
+If ice class is IB or IC, enforce >= 740.
+
+Thus we could embed both in same SPARQL constraint with conditional logic: if iceClass is IB or IC then ensure both thresholds (but the first threshold also applies for all). Simpler: we can have two separate constraints: one generic formula, one conditional absolute threshold.
+
+We must also have property shapes enforcing presence and datatype/unit for each operand. Use sh:property with sh:node as nested shape for quantity.
+
+We'll need prefixes: nltl, sh, xsd, qudt, unit.
+
+Normal property shapes:
+
+sh:property [
+    sh:path nltl:engineOutputFormulaBasePowerP0 ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:datatype xsd:decimal ;
+            sh:minCount 1 ; sh:maxCount 1 ;
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:hasValue unit:KiloW ;   # from recommendedUnit
+            sh:minCount 1 ; sh:maxCount 1 ;
+        ]
+    ]
+] ;
+
+Similarly for other factors with unit UNITLESS when recommended. For f4, recommendedUnit null; we can just enforce presence of numericValue. maybe no unit constraint.
+
+Engine output formula displacement: no recommended unit; just numericValue.
+
+Now shape identification: use generatedShapeNamespace prefix perhaps "gen:".
+
+Define shape with an IRI, e.g., urn:nltl:generated-shape:TRF-132Shape.
+
+Add sh:targetClass nltl:ship.
+
+Add properties.
+
+Add two sh:sparql constraints with messages.
+
+In SPARQL, need to declare prefixes inside each sh:select (or sh:filter) query's prologue. Must include nltl, qudt, xsd, unit, sh? Not needed maybe.
+
+We'll use sh:select (select query returns violating node). Use $this variable.
+
+Construct Pcalc.
+
+Calculate using arithmetic; SPARQL arithmetic works with decimal literals.
+
+We should ensure numeric values are decimal.
+
+Compute expression: (?f1 * ?f2 * ?f3 * ((?f4 * ?delta) + ?p0))
+
+Now comparison: FILTER(?mcr < ?Pcalc) triggers violation.
+
+Second constraint: FILTER(?iceClass IN (nltl:iceClassIb, nltl:iceClassIc) && ?mcr < 740)
+
+But need to get ?iceClass IRI; get $this nltl:iceClass ?iceClass . Then test.
+
+need unit for mcr numericValue; it's in kW, same as Pcalc. So fine.
+
+Now incorporate proper numeric constant: 740 as decimal.
+
+Will need to extract ?mcr numericValue.
+
+Thus need the query to also bind ?mcr.
+
+All good.
+
+Now RDFS/OWL not needed.
+
+Make sure we abide rule 10: each SPARQL query must have own prefix declarations.
+
+Thus inside sh:select we include:
+
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX unit: <http://qudt.org/vocab/unit/>
+
+Then SELECT $this WHERE { pattern }.
+
+Now we must ensure property shapes also use correct prefixes.
+
+Let's craft.
+
+Also need to include sh:message.
+
+Now produce final output between <BEGIN_SHACL> and <END_SHACL>.
+
+Let's write shape IRI: urn:nltl:generated-shape:TRF-132.
+
+Ok.
+
+Check allowedVocabulary includes all needed terms.
+
+We used unit:KiloW (unit IRI). That is allowed as from QUDT.
+
+Make sure we didn't create any new terms.
+
+All good.
+
+Now produce final Turtle.
+
+
+<BEGIN_SHACL>
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/2002/07/owl#> .
+@prefix shacl: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+gen:TRF-132Shape a shacl:NodeShape ;
+    shacl:targetClass nltl:ship ;
+
+    # --- Engine output formula base power P0 (kW) ---
+    shacl:property [
+        shacl:path nltl:engineOutputFormulaBasePowerP0 ;
+        shacl:minCount 1 ;
+        shacl:maxCount 1 ;
+        shacl:node [
+            shacl:class qudt:QuantityValue ;
+            shacl:property [
+                shacl:path qudt:numericValue ;
+                shacl:datatype xsd:decimal ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ] ;
+            shacl:property [
+                shacl:path qudt:unit ;
+                shacl:hasValue unit:KiloW ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # --- Engine output formula displacement (Delta) ---
+    shacl:property [
+        shacl:path nltl:engineOutputFormulaDisplacement ;
+        shacl:minCount 1 ;
+        shacl:maxCount 1 ;
+        shacl:node [
+            shacl:class qudt:QuantityValue ;
+            shacl:property [
+                shacl:path qudt:numericValue ;
+                shacl:datatype xsd:decimal ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ]
+            # unit not mandated (recommendedUnit null)
+        ]
+    ] ;
+
+    # --- Factor f1 (dimensionless) ---
+    shacl:property [
+        shacl:path nltl:engineOutputFormulaFactorF1 ;
+        shacl:minCount 1 ;
+        shacl:maxCount 1 ;
+        shacl:node [
+            shacl:class qudt:QuantityValue ;
+            shacl:property [
+                shacl:path qudt:numericValue ;
+                shacl:datatype xsd:decimal ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ] ;
+            shacl:property [
+                shacl:path qudt:unit ;
+                shacl:hasValue unit:UNITLESS ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # --- Factor f2 (dimensionless) ---
+    shacl:property [
+        shacl:path nltl:engineOutputFormulaFactorF2 ;
+        shacl:minCount 1 ;
+        shacl:maxCount 1 ;
+        shacl:node [
+            shacl:class qudt:QuantityValue ;
+            shacl:property [
+                shacl:path qudt:numericValue ;
+                shacl:datatype xsd:decimal ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ] ;
+            shacl:property [
+                shacl:path qudt:unit ;
+                shacl:hasValue unit:UNITLESS ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # --- Factor f3 (dimensionless) ---
+    shacl:property [
+        shacl:path nltl:engineOutputFormulaFactorF3 ;
+        shacl:minCount 1 ;
+        shacl:maxCount 1 ;
+        shacl:node [
+            shacl:class qudt:QuantityValue ;
+            shacl:property [
+                shacl:path qudt:numericValue ;
+                shacl:datatype xsd:decimal ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ] ;
+            shacl:property [
+                shacl:path qudt:unit ;
+                shacl:hasValue unit:UNITLESS ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # --- Factor f4 (no mandatory unit) ---
+    shacl:property [
+        shacl:path nltl:engineOutputFormulaFactorF4 ;
+        shacl:minCount 1 ;
+        shacl:maxCount 1 ;
+        shacl:node [
+            shacl:class qudt:QuantityValue ;
+            shacl:property [
+                shacl:path qudt:numericValue ;
+                shacl:datatype xsd:decimal ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ]
+            # unit not required
+        ]
+    ] ;
+
+    # --- Maximum Continuous Rating Power (engine output) ---
+    shacl:property [
+        shacl:path nltl:maximumContinuousRatingPower ;
+        shacl:minCount 1 ;
+        shacl:maxCount 1 ;
+        shacl:node [
+            shacl:class qudt:QuantityValue ;
+            shacl:property [
+                shacl:path qudt:numericValue ;
+                shacl:datatype xsd:decimal ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ] ;
+            shacl:property [
+                shacl:path qudt:unit ;
+                shacl:hasValue unit:KiloW ;
+                shacl:minCount 1 ;
+                shacl:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # --- Ice class (controlled value) ---
+    shacl:property [
+        shacl:path nltl:iceClass ;
+        shacl:minCount 1 ;
+        shacl:maxCount 1 ;
+        shacl:class nltl:iceClassValue
+    ] ;
+
+    # --- Formula comparison: MCR must be >= calculated P ---
+    shacl:sparql [
+        shacl:message "Maximum continuous rating power must be no less than the calculated engine output P = f1·f2·f3·(f4·Delta + P0)." ;
+        shacl:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:engineOutputFormulaBasePowerP0 ?p0Node .
+                ?p0Node qudt:numericValue ?p0 .
+                $this nltl:engineOutputFormulaDisplacement ?deltaNode .
+                ?deltaNode qudt:numericValue ?delta .
+                $this nltl:engineOutputFormulaFactorF1 ?f1Node .
+                ?f1Node qudt:numericValue ?f1 .
+                $this nltl:engineOutputFormulaFactorF2 ?f2Node .
+                ?f2Node qudt:numericValue ?f2 .
+                $this nltl:engineOutputFormulaFactorF3 ?f3Node .
+                ?f3Node qudt:numericValue ?f3 .
+                $this nltl:engineOutputFormulaFactorF4 ?f4Node .
+                ?f4Node qudt:numericValue ?f4 .
+                $this nltl:maximumContinuousRatingPower ?mcrNode .
+                ?mcrNode qudt:numericValue ?mcr .
+                BIND( (?f1 * ?f2 * ?f3 * ((?f4 * ?delta) + ?p0)) AS ?calcP )
+                FILTER ( ?mcr < ?calcP )
+            }
+        """
+    ] ;
+
+    # --- Ice‑class specific absolute minimum (IB, IC) ---
+    shacl:sparql [
+        shacl:message "For ice classes IB and IC, maximum continuous rating power must be at least 740 kW." ;
+        shacl:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:iceClass ?ic .
+                FILTER ( ?ic IN (nltl:iceClassIb, nltl:iceClassIc) )
+                $this nltl:maximumContinuousRatingPower ?mcrNode .
+                ?mcrNode qudt:numericValue ?mcr .
+                FILTER ( ?mcr < 740 )
+            }
+        """
+    ] .
+
+<END_SHACL>

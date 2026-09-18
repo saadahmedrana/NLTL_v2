@@ -1,0 +1,182 @@
+We need to repair the SHACL graph based on currentIssues: three quantity properties (nonHemisphericalImpactContactArea, designIceThickness, equivalentImpactSphereRadius) must be modelled as pointing to a QUDT QuantityValue node, not a typed literal.
+
+Existing SHACL uses sh:datatype xsd:decimal for each. We must change to shape that expects a value node of type qudt:QuantityValue, with constraints on its numeric value and unit.
+
+But we must preserve all other aspects. Also we need to watch pastMistakesToAvoid: "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit, http://qudt.org/vocab/unit#M, http://qudt.org/vocab/unit#M2". This indicates that we previously added these IRIs incorrectly perhaps? Actually they are unapproved external/generated IRIs. We need to be careful not to introduce them? Wait the guard says "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): ..." That suggests that we have previously corrected this issue by perhaps not using those external IRIs? Or we need to preserve the correction, i.e., we must not reintroduce those unapproved IRIs. The current IRI for unit is recommendedUnit: "http://qudt.org/vocab/unit/M". That's an external IRI but allowed? The past mistake says those IRIs are unapproved external/generated, meaning they should not be used. However the allowed vocabulary includes recommendedUnit values that are external (QUDT). But the guard says to preserve correction for that deterministic finding. That earlier correction likely removed usage of those IRIs. So we need to avoid adding references to those IRIs in our SHACL. But we need to enforce that the property points to a QUDT QuantityValue node, with numeric value property and unit property, but we must use the QUDT properties: qudt:numericValue and qudt:unit. Are those IRIs also considered external/unapproved? The guard lists them as unapproved: http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit, http://qudt.org/vocab/unit#M, http://qudt.org/vocab/unit#M2. So we cannot use them? That seems contradictory: we must enforce QuantityValue node but cannot reference those external QUDT IRIs. Perhaps the correction was to avoid using external/generated IRI(s) and instead rely on generic constraints (e.g., use sh:class qudt:QuantityValue but not specify unit or numericValue?). The guard says "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): ..." That means the previous correction removed them; we must keep them removed. So we should not add qudt:numericValue etc. However the currentIssues require pointing to a QUDT QuantityValue node. That can be enforced by sh:class qudt:QuantityValue and maybe use sh:property with path being the property itself, and then we can specify that the node is a QuantityValue, but we must not refer to its internal properties. However to be fully correct maybe just require that object is a node of type qudt:QuantityValue (via sh:class). We can add a sh:node constraint? In SHACL, you can specify property shape with sh:node to enforce shape on the object. Use sh:node with a node shape that has sh:class qudt:QuantityValue, and optionally sh:property for numericValue. But referencing qudt:numericValue would be external IRI.
+
+Given the guard, better to limit to sh:class qudt:QuantityValue only, and not specify unit/property IRIs. We also need to use the correct namespace prefix for QUDT. Not defined yet. We can add prefix qudt: <http://qudt.org/schema/qudt#> . However that IRI (qudt:numericValue) is in the guard. Adding prefix definition alone is not a usage. The guard lists unapproved external/generated IRI(s) not to be used. So we must avoid referencing them in shapes. So we will not reference qudt:numericValue, qudt:unit, unit IRIs.
+
+But we also need to enforce the recommended unit maybe via sh:message? But not required.
+
+Thus for each property, replace sh:datatype with a structure requiring a node of type qudt:QuantityValue, using sh:node. Example:
+
+sh:property [
+    sh:path nltl:designIceThickness ;
+    sh:node [
+        a sh:NodeShape ;
+        sh:class qudt:QuantityValue ;
+        # optional constraints: not referencing numericValue/unit
+    ] ;
+    sh:minCount 1 ;
+    sh:message "Design ice thickness must be supplied as a QuantityValue node (e.g., with numeric value in metres)." ;
+].
+
+Similarly for equivalentImpactSphereRadius and nonHemisphericalImpactContactArea.
+
+Also, we should keep sh:minCount 1. The earlier shapes used sh:datatype xsd:decimal and message referencing metre(s). We'll adjust messages accordingly.
+
+Need to add prefix for qudt: using <http://qudt.org/schema/qudt#>. That introduces external IRI but using the prefix is okay as long as not referencing unapproved specific property IRIs? The guard says unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit, http://qudt.org/vocab/unit#M, http://qudt.org/vocab/unit#M2. Using qudt:QuantityValue IRI (http://qudt.org/schema/qudt#QuantityValue) is not listed as unapproved, so likely acceptable.
+
+Therefore adjust the SHACL accordingly.
+
+We need to keep other existing parts unchanged (boolean flag property, SPARQL constraint).
+
+Also ensure that the shape's prefix list includes qudt: prefix.
+
+Let's construct revised SHACL:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix g: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+g:TRF-116_ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Flag propellerHubOrThrusterEndCapImpact (true if the impact is on a propeller hub or thruster end‑cap) must be provided."
+    ] ;
+    sh:property [
+        sh:path nltl:nonHemisphericalImpactContactArea ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Non‑hemispherical impact contact area (A) must be supplied as a QuantityValue node (area, e.g., metres²)."
+    ] ;
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Design ice thickness (H_iced) must be supplied as a QuantityValue node (length, e.g., metres)."
+    ] ;
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Equivalent impact sphere radius (R_ceq) must be provided as a QuantityValue node (length, e.g., metres) when the rule applies."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When propellerHubOrThrusterEndCapImpact = false, the ship must provide nonHemisphericalImpactContactArea, designIceThickness and equivalentImpactSphereRadius." ;
+        sh:select """ 
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:propellerHubOrThrusterEndCapImpact ?exc .
+                FILTER ( ?exc = false ) .
+                FILTER NOT EXISTS { $this nltl:nonHemisphericalImpactContactArea ?a . }
+                FILTER NOT EXISTS { $this nltl:designIceThickness ?d . }
+                FILTER NOT EXISTS { $this nltl:equivalentImpactSphereRadius ?r . }
+            }
+        """ ;
+    ] .
+
+Make sure we did not reference qudt:numericValue/unit etc. Good.
+
+Now ensure we didn't reintroduce "http://qudt.org/vocab/unit#M" etc. Not referenced.
+
+Thus final answer within tags.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix g:    <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+g:TRF-116_ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # -------------------------------------------------------------
+    # Boolean flag indicating the exception case
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Flag propellerHubOrThrusterEndCapImpact (true if the impact is on a propeller hub or thruster end‑cap) must be provided." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Quantity: Non‑hemispherical impact contact area (A)
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:nonHemisphericalImpactContactArea ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Non‑hemispherical impact contact area (A) must be supplied as a QuantityValue node (area, e.g., metres²)." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Quantity: Design ice thickness (H_iced)
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Design ice thickness (H_iced) must be supplied as a QuantityValue node (length, e.g., metres)." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Quantity: Equivalent impact sphere radius (R_ceq) – result of the calculation
+    # -------------------------------------------------------------
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue ;
+        ] ;
+        sh:minCount 1 ;
+        sh:message "Equivalent impact sphere radius (R_ceq) must be provided as a QuantityValue node (length, e.g., metres) when the rule applies." ;
+    ] ;
+    # -------------------------------------------------------------
+    # Conditional SPARQL constraint:
+    #   If the exception flag is false, the three quantities above must all be present.
+    # -------------------------------------------------------------
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When propellerHubOrThrusterEndCapImpact = false, the ship must provide nonHemisphericalImpactContactArea, designIceThickness and equivalentImpactSphereRadius." ;
+        sh:select """ 
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:propellerHubOrThrusterEndCapImpact ?exc .
+                FILTER ( ?exc = false ) .
+                FILTER NOT EXISTS { $this nltl:nonHemisphericalImpactContactArea ?a . }
+                FILTER NOT EXISTS { $this nltl:designIceThickness ?d . }
+                FILTER NOT EXISTS { $this nltl:equivalentImpactSphereRadius ?r . }
+            }
+        """ ;
+    ] .
+<END_SHACL>

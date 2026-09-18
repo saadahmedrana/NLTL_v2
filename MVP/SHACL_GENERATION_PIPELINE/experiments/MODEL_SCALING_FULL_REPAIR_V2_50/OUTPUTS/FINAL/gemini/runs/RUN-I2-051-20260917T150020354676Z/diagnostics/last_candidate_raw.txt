@@ -1,0 +1,147 @@
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:nltl:generated-shape:ShipShape> a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:LengthQuantityValue>
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:ForceMegaNQuantityValue>
+    ] ;
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:node <urn:nltl:generated-shape:CalculationCaseShape>
+    ] ;
+    sh:sparql <urn:nltl:generated-shape:ShearForceCalculationSparql> .
+
+<urn:nltl:generated-shape:LengthQuantityValue> a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:ForceMegaNQuantityValue> a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MegaN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:ForceKiloNQuantityValue> a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:DimensionlessQuantityValue> a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+<urn:nltl:generated-shape:CalculationCaseShape> a sh:NodeShape ;
+    sh:class nltl:calculationCase ;
+    sh:property [
+        sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:LengthQuantityValue>
+    ] ;
+    sh:property [
+        sh:path nltl:shearForceDirection ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class nltl:shearForceDirectionValue
+    ] ;
+    sh:property [
+        sh:path nltl:longitudinalDistributionFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:DimensionlessQuantityValue>
+    ] ;
+    sh:property [
+        sh:path nltl:designVerticalIceShearForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node <urn:nltl:generated-shape:ForceKiloNQuantityValue>
+    ] .
+
+<urn:nltl:generated-shape:ShearForceCalculationSparql> a sh:SPARQLConstraint ;
+    sh:message "Design vertical ice shear force (FI) or longitudinal distribution factor (Cf) does not conform to the required values for positive shear force along the LUI." ;
+    sh:select """
+        PREFIX nltl: <https://w3id.org/nltl/vocab#>
+        PREFIX qudt: <http://qudt.org/schema/qudt/>
+        PREFIX unit: <http://qudt.org/vocab/unit/>
+        PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+        SELECT $this ?value ?message
+        WHERE {
+            $this nltl:upperIceWaterlineLengthLUI/qudt:numericValue ?L .
+            $this nltl:designVerticalIceForceAtBow/qudt:numericValue ?FIB .
+            
+            $this nltl:hasCalculationCase ?value .
+            ?value nltl:shearForceDirection nltl:positiveShearForce .
+            
+            ?value nltl:hullGirderLongitudinalPositionFromAft/qudt:numericValue ?x .
+            ?value nltl:longitudinalDistributionFactor/qudt:numericValue ?Cf .
+            ?value nltl:designVerticalIceShearForce/qudt:numericValue ?FI .
+            
+            BIND(0.6 * ?L AS ?limit1)
+            BIND(0.9 * ?L AS ?limit2)
+            
+            FILTER(
+                ( ?x >= 0 && ?x <= ?limit1 && ( abs(?Cf - 0.0) > 1e-6 || abs(?FI - 0.0) > 1e-6 ) )
+                ||
+                ( ?x >= ?limit2 && ?x <= ?L && ( abs(?Cf - 1.0) > 1e-6 || abs(?FI - (?FIB * 1000)) > (1e-6 * (?FIB * 1000) + 1e-6) ) )
+            )
+            
+            BIND(CONCAT("Calculation case with position ", STR(?x), " m has Cf = ", STR(?Cf), " and FI = ", STR(?FI), " kN, but expected Cf = ", IF(?x <= ?limit1, "0.0", "1.0"), " and FI = ", IF(?x <= ?limit1, "0.0", STR(?FIB * 1000)), " kN") AS ?message)
+        }
+    """ .
+<END_SHACL>

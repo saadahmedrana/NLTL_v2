@@ -1,0 +1,187 @@
+We need to generate SHACL shape for this requirement. Category Complex, verificationMode COMPLEX_READINESS. According to rule 36, for COMPLEX_READINESS, we do not reconstruct the full engineering calculation. We need to verify applicability, required inputs, evidence terms, and direct check subconstraints that are marked DIRECT_CHECK. There is a direct check subconstraint: "occasionalForceStressResidual" with requiredTerms: occasionalForceComponentStress, componentMaterialYieldStrength, componentYieldSafetyFactor. It is a DIRECT_CHECK, so we must enforce the residual check: compare stress vs yield * safety factor presumably. The description: "Externally calculated component stress remains within material yield limits and safety margin." So we need to check that occasionalForceComponentStress <= componentMaterialYieldStrength * componentYieldSafetyFactor. Units: both stress and yield strength are MPa using qudt. componentYieldSafetyFactor is unitless. Need to retrieve values via paths.
+
+Owners: ship -> occasionalForceLoadCase via hasOccasionalForceLoadCase. Then occasionalForceLoadCase -> shipComponent via occasionalForceCaseAssessedComponent. Then shipComponent -> materialProperties via hasMaterialProperties.
+
+Properties:
+- occasionalForceComponentStress is a QuantityProperty on shipComponent (owner shipComponent). Its pattern: shipComponent nltl:occasionalForceComponentStress quantityNode; quantityNode qudt:numericValue decimal; qudt:unit recommended unit (MPa). Use qudt prefix.
+
+- componentMaterialYieldStrength is a QuantityProperty on materialProperties (owner materialProperties). Use same pattern.
+
+- componentYieldSafetyFactor is a QuantityProperty on loadCase (owner loadCase). Wait: defined domain loadCase. But model path does not include loadCase; we have occasionalForceLoadCase which is subclass of loadCase. So loadCase data is on the load case node (occasionalForceLoadCase). So componentYieldSafetyFactor property is on loadCase (i.e., the occasionalForceLoadCase node). Check its domain: loadCase. So okay.
+
+Thus for each component assessed in the occasionalForceLoadCase, we need to ensure stress <= yieldStrength * safetyFactor.
+
+The propellerBladeExcludedFromOccasionalForceScope is a datatype property on occasionalForceLoadCase (boolean). This is evidence term maybe used to indicate exclusion. Must be present (maybe true?). Requirement says excluding propeller blade. So the boolean likely indicates true if propeller blade excluded. We should require that property exists and has value true. That is evidence that propeller blades are excluded.
+
+Thus shape should target ship (or maybe ship?). Node patterns: the analysis is for ship, with substructures. Typically we could define a shape targeting ship and then impose constraints on linked components. Use sh:node and property shapes.
+
+Simplify: create a shape for ship that ensures:
+- hasOccasionalForceLoadCase at least 1 (maybe optional? Not required by requirement but maybe needed for analysis). Not required if not present. Could enforce presence of occasionalForceLoadCase? Not required by spec but likely needed. However rule 7: Do not add constraints unless requirement requires. Requirement: analysis must confirm for all components transmitting occasional forces, excluding propeller blade. So if there is no occasionalForceLoadCase, maybe not applicable. Could have applicability branch: if there is an occasionalForceLoadCase present, then checks apply. So we need conditional logic: if an occasionalForceLoadCase exists, then for each assessed component, perform the residual check and require propellerBladeExcluded... true.
+
+Implement with sh:property of path nltl:hasOccasionalForceLoadCase with sh:node shape that checks inside.
+
+Thus shape targetClass nltl:ship. Inside property shape for hasOccasionalForceLoadCase, with sh:node shape for occasionalForceLoadCase. Inside that shape, require propellerBladeExcludedFromOccasionalForceScope datatype boolean true. Then for each assessed component via occasionalForceCaseAssessedComponent, we need to enforce stress check.
+
+So within occasionalForceLoadCase shape, property path nltl:occasionalForceCaseAssessedComponent with sh:node shape for shipComponent that includes a SPARQL constraint to compare stress vs yield*factor.
+
+The componentYieldSafetyFactor is on the load case itself (i.e., the occasionalForceLoadCase node). To access it in SPARQL for each component, we need to reference the parent node. In SHACL SPARQL we have variable $this which is the node being validated (i.e., the shipComponent node for that node shape). But we also need to access the load case node (parent). This is tricky. We could embed the check at the load case level using a SPARQL constraint that iterates over components. Simpler: target the occasionalForceLoadCase and define a SPARQL constraint that asserts for every assessed component, stress <= yield*factor. Use graph patterns linking to component nodes and materialProperties.
+
+Thus shape targetClass ship, have property shape for hasOccasionalForceLoadCase with sh:node shape that includes:
+
+- sh:property for propellerBladeExcludedFromOccasionalForceScope with datatype boolean, sh:hasValue true.
+
+- sh:sparql constraint with query iterating over ?comp (via occasionalForceCaseAssessedComponent) ?stressValue ?stressUnit ?yieldValue ?yieldUnit ?sfValue; and checks units (both MPa). Use numeric values.
+
+We need prefixes: sh, nltl, xsd, qudt, rdf, rdfs, math? Not needed. Use sp:external? Not.
+
+Constraint: SELECT $this (or ?loadCase) WHERE { 
+  $this nltl:occasionalForceCaseAssessedComponent ?comp .
+  ?comp nltl:occasionalForceComponentStress ?stressQ .
+  ?stressQ qudt:numericValue ?stressVal .
+  ?stressQ qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+  ?comp nltl:hasMaterialProperties ?mat .
+  ?mat nltl:componentMaterialYieldStrength ?yieldQ .
+  ?yieldQ qudt:numericValue ?yieldVal .
+  ?yieldQ qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+  $this nltl:componentYieldSafetyFactor ?sfQ .
+  ?sfQ qudt:numericValue ?sfVal .
+  ?sfQ qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+  FILTER(?stressVal <= (?yieldVal * ?sfVal + 1e-6))   // tolerance?
+}.
+
+But need to use sh:message for failures.
+
+Now, must ensure use of canonical IRIs exactly. componentMaterialYieldStrength property exists, not componentMaterialYieldStrength? Wait property in vocabulary: componentMaterialYieldStrength is a QuantityProperty on materialProperties. So we use that.
+
+Check property names:
+
+- nltl:occasionalForceComponentStress (property)
+- nltl:componentMaterialYieldStrength (property)
+- nltl:componentYieldSafetyFactor (property)
+- nltl:hasOccasionalForceLoadCase (property)
+- nltl:occasionalForceCaseAssessedComponent (property)
+- nltl:hasMaterialProperties (property)
+- nltl:propellerBladeExcludedFromOccasionalForceScope (property)
+
+All are in allowed vocabulary.
+
+Now design shape definitions.
+
+We need a shape for ship.
+
+Define prefix list: @prefix nltl: <...>; @prefix sh: <...>; @prefix xsd: <...>; @prefix qudt: <http://qudt.org/schema/qudt#>; also maybe rdf: and rdfs:.
+
+Let's produce Turtle:
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+urn:nltl:generated-shape:TRF123Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasOccasionalForceLoadCase ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path nltl:propellerBladeExcludedFromOccasionalForceScope ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Propeller blades must be excluded from occasional force scope (true)." 
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "Component stress exceeds allowable limit (yield strength * safety factor)." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt#>
+                    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this WHERE {
+                        $this nltl:occasionalForceCaseAssessedComponent ?comp .
+                        ?comp nltl:occasionalForceComponentStress ?stressQ .
+                        ?stressQ qudt:numericValue ?stressVal .
+                        ?stressQ qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                        ?comp nltl:hasMaterialProperties ?mat .
+                        ?mat nltl:componentMaterialYieldStrength ?yieldQ .
+                        ?yieldQ qudt:numericValue ?yieldVal .
+                        ?yieldQ qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                        $this nltl:componentYieldSafetyFactor ?sfQ .
+                        ?sfQ qudt:numericValue ?sfVal .
+                        ?sfQ qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                        # compute allowable stress
+                        BIND(?yieldVal * ?sfVal AS ?allowable) .
+                        FILTER(?stressVal > ?allowable)   # violation if stress exceeds allowable
+                    }
+                """ ;
+                # Use sh:severity sh:Violation (default)
+            ]
+        ]
+    ] .
+<END_SHACL>
+
+Need to close brackets correctly.
+
+Check nesting: sh:property with path hasOccasionalForceLoadCase, sh:node with inner shape. Inside that shape we have sh:property for propellerBlade, and sh:sparql.
+
+Properties inside node shape need to be in separate brackets: but shape can have multiple property shapes; it's okay to list both property and sparql inside same node shape.
+
+Make sure braces close: Node shape for ship ends after sh:property block..
+
+Let's assemble final Turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+urn:nltl:generated-shape:TRF123Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasOccasionalForceLoadCase ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path nltl:propellerBladeExcludedFromOccasionalForceScope ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Propeller blades must be excluded from occasional‑force scope (true)." 
+            ] ;
+            sh:sparql [
+                a sh:SPARQLConstraint ;
+                sh:message "Component stress exceeds the allowed limit (material yield strength × safety factor)." ;
+                sh:select """
+                    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                    PREFIX qudt: <http://qudt.org/schema/qudt#>
+                    PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+                    SELECT $this WHERE {
+                        $this nltl:occasionalForceCaseAssessedComponent ?comp .
+                        ?comp nltl:occasionalForceComponentStress ?stressQ .
+                        ?stressQ qudt:numericValue ?stressVal .
+                        ?stressQ qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                        ?comp nltl:hasMaterialProperties ?mat .
+                        ?mat nltl:componentMaterialYieldStrength ?yieldQ .
+                        ?yieldQ qudt:numericValue ?yieldVal .
+                        ?yieldQ qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+                        $this nltl:componentYieldSafetyFactor ?sfQ .
+                        ?sfQ qudt:numericValue ?sfVal .
+                        ?sfQ qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+                        BIND(?yieldVal * ?sfVal AS ?allowable) .
+                        FILTER( ?stressVal > ?allowable )
+                    }
+                """ ;
+            ]
+        ]
+    ] .
+<END_SHACL>

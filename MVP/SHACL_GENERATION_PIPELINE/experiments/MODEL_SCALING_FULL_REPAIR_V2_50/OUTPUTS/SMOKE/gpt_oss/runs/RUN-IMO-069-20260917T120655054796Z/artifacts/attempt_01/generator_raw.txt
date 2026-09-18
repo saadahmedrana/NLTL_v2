@@ -1,0 +1,129 @@
+We need to generate a SHACL graph for the requirement:
+
+"If added_life_saving_device_requires_power = true, then device_power_source_independent_of_main_power = true."
+
+Both properties are booleans, domain benchmarkEntity? Actually domains: benchmarkEntity, but requiredOwner is ship. So shape targetClass should be nltl:ship (owner). And we need to enforce conditional constraint: when addedLifeSavingDeviceRequiresPower true, then devicePowerSourceIndependentOfMainPower must be true. We can implement as SHACL SPARQL constraint that checks violation if first is true and second is not true (i.e., false or missing). Also ensure both properties are boolean type (presence? maybe have minCount/ maxCount 1? Requirement only says conditional; not require presence? Probably if addedLifeSavingDeviceRequiresPower true, then second must be true (implies second must be present as true). If first false or missing? What to do with missing? Possibly treat missing as not true, so condition not triggered. But we might need to require presence of first? Not stated. The requirement: "If added_life_saving_device_requires_power = true, THEN device_power_source_independent_of_main_power = true." It does not require that added_life... be present; but typical rule would require that property be present to evaluate. Common practice: enforce that both booleans are present (minCount 1) and THEN enforce implication; but the conditional may be okay to just check when first is true, second must be true if present; if missing, may be a violation because we can't confirm independence. However spec unclear. We'll make shape that requires both to be present (minCount 1) and then check implication. The few-shot examples used minCount 1, maxCount 1 for boolean required values. Use same pattern.
+
+Thus generate shape:
+
+Prefix nltl, sh, xsd, etc.
+
+TargetClass nltl:ship.
+
+Property shapes for each boolean (presence, datatype). Then an SPARQL constraint.
+
+Optional: Use sh:property for first and second with sh:minCount 1, sh:maxCount 1, sh:datatype xsd:boolean . Not need sh:hasValue because we need any boolean for presence.
+
+Then the sh:sparql for the implication:
+
+SELECT $this ( ... ) WHERE {
+  $this nltl:addedLifeSavingDeviceRequiresPower ?req .
+  FILTER(?req = true) .
+  OPTIONAL { $this nltl:devicePowerSourceIndependentOfMainPower ?ind . }
+  FILTER( (!bound(?ind)) || (?ind != true) )
+}
+
+But we need to detect violation: if req true and (ind not true). So we need to produce a result node with message.
+
+Better: use FILTER(?req = true && ( !bound(?ind) || ?ind != true )). Need to ensure boolean.
+
+Sh:message.
+
+Make sure SPARQL inside sh:sparql includes prefixes.
+
+We must not use VALUES, MINUS, etc.
+
+Let's craft.
+
+Turtle shape:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rs: <urn:nltl:generated-shape:> .
+
+rs:AddedDevicePowerShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:addedLifeSavingDeviceRequiresPower ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nltl:devicePowerSourceIndependentOfMainPower ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "If a life‑saving device requires power, its power source must be independent of the ship's main power." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:addedLifeSavingDeviceRequiresPower ?req .
+                FILTER(?req = true) .
+                $this nltl:devicePowerSourceIndependentOfMainPower ?ind .
+                FILTER(?ind != true)
+            }
+        """ ;
+    ] .
+
+Note: we required both to be present, so we don't need OPTIONAL. However we also added minCount for second, but if it's missing the shape's property will already flag missing. That's fine.
+
+Check compliance with rule 8: Use sh:minCount, sh:maxCount only when required. Here requirement didn't mandate presence; but it's reasonable. The few-shot examples did use presence requirement. To be safe, we could avoid presence requirement for second but still need presence for implication. But a missing second is a violation anyway; we could let SPARQL catch missing by using OPTIONAL and bound check. To avoid double violation (missing second yields two violations: property shape missing and SPARQL). That's okay. But they may want only one violation. It's fine.
+
+But rule 7: Do not add constraints unless required. Since the requirement only requires conditional, not presence of the first property. However typical interpretation: we need to know if device requires power; if not present we cannot evaluate. If missing we cannot enforce, but could be missing data. Could be acceptable to just check conditional when present. So maybe we should not require minCount, only datatype.
+
+Thus we could drop minCount/maxCount for first, but keep datatypes; property shape with datatype ensures any present values are booleans.
+
+So property shape: sh:datatype xsd:boolean ; optionally sh:minCount 0 (default). Not needed.
+
+I'll produce shape with only datatype checks and the SPARQL constraint to enforce conditional when first is true.
+
+Thus final.
+
+Make sure we use generatedShapeNamespace prefix as rs:.
+
+Let's craft final answer.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rs: <urn:nltl:generated-shape:> .
+
+rs:AddedDevicePowerShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    
+    # datatype checks (optional presence)
+    sh:property [
+        sh:path nltl:addedLifeSavingDeviceRequiresPower ;
+        sh:datatype xsd:boolean ;
+    ] ;
+    sh:property [
+        sh:path nltl:devicePowerSourceIndependentOfMainPower ;
+        sh:datatype xsd:boolean ;
+    ] ;
+    
+    # conditional implication: if power‑requiring device => independent source must be true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "If a life‑saving device requires power, its power source must be independent of the ship's main power." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:addedLifeSavingDeviceRequiresPower ?req .
+                FILTER(?req = true) .
+                $this nltl:devicePowerSourceIndependentOfMainPower ?ind .
+                FILTER(?ind != true)
+            }
+        """ ;
+    ] .
+<END_SHACL>

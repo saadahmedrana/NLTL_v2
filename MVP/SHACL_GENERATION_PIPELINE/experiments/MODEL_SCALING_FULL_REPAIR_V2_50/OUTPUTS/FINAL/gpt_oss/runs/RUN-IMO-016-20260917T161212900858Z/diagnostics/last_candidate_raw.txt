@@ -1,0 +1,178 @@
+We need to generate SHACL graph for requirement: "polar_ship_certificate_form = 'Appendix I model'; IF certificate_language NOT IN {'English','French','Spanish'}, THEN approved_translation_present = true."
+
+We have vocabulary terms:
+
+- nltl:ship (Class)
+- nltl:hasPolarShipCertificate (ObjectProperty) domain ship, range polarShipCertificateForm
+- nltl:polarShipCertificateForm (Class) requiredOwner ship (though requiredOwner of class is ship; but property has domain ship)
+- nltl:certificateFormModel (ObjectProperty) domain polarShipCertificateForm, range certificateFormModelValue
+- nltl:certificateFormModelValue (Class) requiredOwner ship (some confusion: requiredOwner ship, but used as range)
+- nltl:appendixIPolarShipCertificateModel (NamedIndividual) range certificateFormModelValue; requiredOwner ship (makes sense, individual's value of certificateFormModelValue)
+- nltl:certificateLanguage (DatatypeProperty) domain benchmarkEntity? Actually domain is benchmarkEntity; but requiredOwner ship. The term for language likely attached to ship or to something else? The requirement says certificate language of the form. Probably we can model it as property of ship (or of polarShipCertificateForm). However given requiredOwner ship, we'll attach to ship.
+
+- nltl:approvedTranslationPresent (DatatypeProperty) domain benchmarkEntity, requiredOwner ship, datatype boolean.
+
+Goal:
+
+1. Ensure that ship hasPolarShipCertificate some polarShipCertificateForm.
+
+2. For that certificateForm, ensure that certificateFormModel points to the individual appendixIPolarShipCertificateModel. Since certificateFormModel is object property from polarShipCertificateForm to certificateFormModelValue, which includes the model value. So we need constraint: For each ship, via hasPolarShipCertificate (-> polarShipCertificateForm), then certificateFormModel (-> certificateFormModelValue) must be exactly the individual nltl:appendixIPolarShipCertificateModel.
+
+Implementation: Use SHACL property paths.
+
+sh:path [sh:inversePath nltl:hasPolarShipCertificate ; sh:zeroOrMorePath nltl:certificateFormModel] maybe complex. Simpler: Use SPARQL constraint verifying the condition.
+
+Requirement also includes conditional: If certificateLanguage not in allowed set, then approvedTranslationPresent must be true.
+
+certificateLanguage is attached to ship (requiredOwner ship). We'll enforce:
+
+- sh:property for certificateLanguage: datatype xsd:string, minCount 1.
+
+- sh:property for approvedTranslationPresent: datatype boolean, optional (minCount 0 or 1?), but we need conditional enforcement.
+
+We can use SHACL SPARQL constraint that checks for violation when language not in allowed set and approvedTranslationPresent is not true.
+
+Define node shape targeting nltl:ship.
+
+Add property shapes:
+
+- certificateLanguage presence (maybe mandatory). Since requirement states language must be recorded; We'll set minCount 1.
+
+- approvedTranslationPresent use boolean, minCount 0? Not required unless condition triggers. We'll not enforce minCount, but implement condition.
+
+Also include validation that certificateFormModel points to correct model.
+
+Potential to use sh:property with sh:path [sh:inversePath nltl:hasPolarShipCertificate]/nltl:certificateFormModel? Actually path from ship to certificateFormModelValue: ship hasPolarShipCertificate polarShipCertificateForm . PolarShipCertificateForm certificateFormModel certificateFormModelValue . So we need shape to ensure that for each ship, there exists a certificateFormModelValue that is equal to the individual. Could use property shape with sh:path (nltl:hasPolarShipCertificate / nltl:certificateFormModel) and enforce that its value must be the specific individual.
+
+In SHACL, you can combine path with / as sequence.
+
+Thus property shape:
+
+sh:path (nltl:hasPolarShipCertificate nltl:certificateFormModel)
+sh:hasValue nltl:appendixIPolarShipCertificateModel
+
+Need to ensure the values are individuals not literals. Use sh:hasValue.
+
+Now for conditional translation.
+
+We'll add sh:rule? Probably SPARQL constraint.
+
+Define sh:sparql with query:
+
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+ASK {
+  # Get language
+  ?this nltl:certificateLanguage ?lang .
+  FILTER ( ! (?lang IN ("English","French","Spanish")) )
+  # Check approved translation present
+  OPTIONAL { ?this nltl:approvedTranslationPresent ?ap }
+  FILTER ( (!bound(?ap)) || (?ap != true) )
+}
+
+If ASK returns true => violation. In SHACL, use SELECT and bind errors? Usually SPARQL constraint uses SELECT to return rows for violations. Use SELECT * WHERE { ... }.
+
+We'll produce:
+
+sh:sparql [
+  a sh:SPARQLConstraint ;
+  sh:message "If certificate language is not English, French, or Spanish, approved translation must be present and true." ;
+  sh:prefixes (list?) but must include prefixes inside query.
+
+Inside sh:select:
+
+SELECT $this (STR(?lang) AS ?badLanguage) WHERE {
+   $this nltl:certificateLanguage ?lang .
+   FILTER ( !( ?lang IN ("English","French","Spanish") ) )
+   OPTIONAL { $this nltl:approvedTranslationPresent ?ap }
+   FILTER ( (!bound(?ap)) || (?ap != true) )
+}
+
+But need to ensure proper SPARQL. Use $this variable. The format: SELECT $this WHERE { ... } . In SHACL, you can use $this placeholder.
+
+Thus we can produce.
+
+Now produce the Turtle.
+
+Add prefixes: sh, nltl, xsd.
+
+Shape IRI: urn:nltl:generated-shape:IMO-016_Shape (example). Use generatedShapeNamespace.
+
+Now compile.
+
+Check all constraints:
+
+- Property on certificateLanguage: sh:datatype xsd:string; sh:minCount 1; sh:maxCount 1.
+
+- Property on approvedTranslationPresent maybe we can set datatype boolean, minCount 0 but include sh:datatype.
+
+Optionally add sh:property for approvedTranslationPresent datatypes.
+
+Add property shape:
+
+sh:path nltl:approvedTranslationPresent
+sh:datatype xsd:boolean
+sh:maxCount 1
+
+But we don't require minCount.
+
+Now write final Turtle.
+
+Make sure to close braces. No comments.
+
+Let's craft.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:IMO-016_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Certificate form must be the Appendix I model
+    sh:property [
+        sh:path (nltl:hasPolarShipCertificate nltl:certificateFormModel) ;
+        sh:hasValue nltl:appendixIPolarShipCertificateModel ;
+        sh:message "Polar ship certificate must use the Appendix I model." ;
+    ] ;
+
+    # Certificate language must be recorded
+    sh:property [
+        sh:path nltl:certificateLanguage ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Certificate language must be provided." ;
+    ] ;
+
+    # Approved translation presence (boolean) – optional unless needed by condition
+    sh:property [
+        sh:path nltl:approvedTranslationPresent ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+        sh:message "Approved translation presence must be a boolean value." ;
+    ] ;
+
+    # Conditional rule: non‑English/French/Spanish language → approved translation must be true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the certificate language is not English, French, or Spanish, an approved translation must be present and true." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this (STR(?lang) AS ?nonCompliantLanguage)
+            WHERE {
+                $this nltl:certificateLanguage ?lang .
+                FILTER ( !( ?lang IN ("English", "French", "Spanish") ) )
+                OPTIONAL { $this nltl:approvedTranslationPresent ?ap }
+                FILTER ( (!bound(?ap)) || (?ap != true) )
+            }
+        """ ;
+    ] .
+<END_SHACL>

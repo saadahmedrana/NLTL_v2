@@ -1,0 +1,200 @@
+We need to generate SHACL shape for the requirement. Category Complex, verificationMode COMPLEX_READINESS. According to rules, for COMPLEX_READINESS we should not reconstruct the formula, but we need to enforce readiness: verify applicability, required inputs presence, units, and that a calculation case with evidence is provided? Actually the contract indicates: formulaExecutionRequired false, directCheckSubconstraints empty. So we just need to require that the operand terms are present (nonHemisphericalImpactContactArea, designIceThickness, propellerHubOrThrusterEndCapImpact) on ship, with correct datatype/unit. Also result term equivalentImpactSphereRadius must be present with correct unit. Also perhaps require that if propellerHubOrThrusterEndCapImpact is true, exception? The formula says "except propeller-hub or thruster-end-cap impacts". Might need to model conditional applicability: for impacts of propeller hub or thruster end cap, the formula is not applied (i.e., no requirement). This is an applicability condition: if propellerHubOrThrusterEndCapImpact true => no need equivalentImpactSphereRadius? However requirement says "except propeller-hub or thruster-end-cap impacts". So we need to encode: when propellerHubOrThrusterEndCapImpact is true, the equivalentImpactSphereRadius requirement does not apply (i.e., we should not require it). For other cases, we need to have the result. Also need to ensure that the calculated radius is <= designIceThickness/2? Actually formula sets cap if 2*R_ceq > H_iced then R_ceq = H_iced/2. That's also a constraint maybe but formulaExecutionRequired false, so we might not enforce. But we may need to ensure that the result is present; maybe also need to check that nonHemisphericalImpactContactArea present and designIceThickness present. The requirement is complex readiness: we need to enforce presence of inputs and result, but not the calculation.
+
+Thus shape targeting ship, with property shapes:
+
+- nonHemisphericalImpactContactArea: must be present with datatype quantityValue? Actually it's a QuantityProperty using QUDT QuantityValue with recommended unit M2. So require that ship has a property nltl:nonHemisphericalImpactContactArea linking to a quantity node that is a qudt:QuantityValue, with qudt:numericValue xsd:decimal, qudt:unit recommendedUnit (M2). Could keep as core shape: sh:path nltl:nonHemisphericalImpactContactArea; sh:node with constraints on that node.
+
+- designIceThickness: same, unit m; property shape.
+
+- propellerHubOrThrusterEndCapImpact: datatype boolean, must be present (maybe as boolean). Use sh:datatype xsd:boolean.
+
+- conditional: if propellerHubOrThrusterEndCapImpact true, then we do NOT require equivalentImpactSphereRadius. If false, then require equivalentImpactSphereRadius present with unit m.
+
+How to encode conditional: Use sh:or with two node shapes? Actually we can use sh:if... but SHACL doesn't have if. Use sh:property with sh:condition? Not standard. Could use sh:rule? Not allowed. Simpler: we can create two shapes and apply conjunction using sh:targetClass? Not possible. Instead we can use a SPARQL constraint that checks that if propellerHubOrThrusterEndCapImpact is false or absent, then equivalentImpactSphereRadius must be present. Or if it's true, then not required. Use sh:property for result with sh:node and sh:message. But we need to ensure not required when propellerHubOrThrusterEndCapImpact true. Use sh:property with sh:path nltl:equivalentImpactSphereRadius but set sh:minCount 0 (optional) and then add a SPARQL constraint to enforce presence when not exception.
+
+Thus shape:
+
+sh:targetClass nltl:ship.
+
+Properties:
+
+- nltl:designIceThickness (qdt), like require quantity node with numeric and unit.
+
+- nltl:nonHemisphericalImpactContactArea too.
+
+- nltl:propellerHubOrThrusterEndCapImpact datatype boolean (required minCount 1). Possibly also require.
+
+- nltl:equivalentImpactSphereRadius: optional but with a SPARQL constraint.
+
+Add a SPARQL constraint shape that checks: FILTER NOT EXISTS { ?this nltl:propellerHubOrThrusterEndCapImpact true } => require ?this nltl:equivalentImpactSphereRadius ?radiusNode . Also ensure radiusNode is a quantity value with unit M.
+
+Implementation: inside sh:property with sh:sparql. Or separate sh:SPARQLConstraint component.
+
+We'll do a separate sh:property using sh:path nltl:equivalentImpactSphereRadius with sh:minCount 0 (optional). Then add sh:rule? Probably easier: a sh:property with sh:sparql expression: SELECT ... WHERE { FILTER ( !exists... ) && !exists ... } . However we need to produce a violation if condition violated.
+
+Standard SHACL SPARQL constraint: sh:select (or sh:sparql) returns violating results.
+
+We'll define a sh:property? No, SPARQL constraint as node shape: sh:property not needed.
+
+Define shape:
+
+[ a sh:NodeShape ;
+  sh:targetClass nltl:ship ;
+  sh:property [ sh:path nltl:designIceThickness ;
+                sh:node [
+                    a sh:NodeShape ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                        sh:minCount 1
+                    ]
+                ] ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:message "Design ice thickness must be specified as a QUDT Quantity with unit m."
+              ] ;
+ similarly for nonHemisphericalImpactContactArea with unit M2.
+
+ propeller boolean property: sh:path nltl:propellerHubOrThrusterEndCapImpact ; sh:datatype xsd:boolean ; sh:minCount 1 ; sh:maxCount 1.
+
+ equivalentImpactSphereRadius property shape similar to designIceThickness but unit m, optional minCount 0.
+
+ Then SPARQL constraint:
+
+   a sh:SPARQLConstraint ; sh:message "When the impact is not a propeller hub or thruster end cap, equivalent impact sphere radius must be provided."; sh:select """ 
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT $this
+WHERE {
+  FILTER NOT EXISTS { $this nltl:propellerHubOrThrusterEndCapImpact true } .
+  FILTER NOT EXISTS { $this nltl:equivalentImpactSphereRadius ?r } .
+}
+""" 
+
+Note: need to declare prefixes inside query as required.
+
+All property shapes need to reference qudt terms. Need to prefix qudt: <http://qudt.org/schema/qudt#> and maybe unit.
+
+Also ensure recommended unit URIs: <http://qudt.org/vocab/unit/M> and M2.
+
+Now produce Turtle with prefixes:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+Define shape IRI: urn:nltl:generated-shape:TRF-116Shape (or similar). Use simple local name.
+
+Ok. Ensure no extra constructs.
+
+Now output between markers.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+urn:nltl:generated-shape:TRF-116Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    ## designIceThickness (m)
+    sh:property [
+        sh:path nltl:designIceThickness ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Design ice thickness must be provided as a QUDT Quantity with unit m."
+    ] ;
+
+    ## nonHemisphericalImpactContactArea (m²)
+    sh:property [
+        sh:path nltl:nonHemisphericalImpactContactArea ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M2 ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Non‑hemispherical impact contact area must be provided as a QUDT Quantity with unit m²."
+    ] ;
+
+    ## propellerHubOrThrusterEndCapImpact (boolean)
+    sh:property [
+        sh:path nltl:propellerHubOrThrusterEndCapImpact ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Propeller hub or thruster end‑cap impact flag must be present (true/false)."
+    ] ;
+
+    ## equivalentImpactSphereRadius (m) – required unless exception applies
+    sh:property [
+        sh:path nltl:equivalentImpactSphereRadius ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1
+            ]
+        ] ;
+        sh:minCount 0 ;   # optional; enforced by SPARQL constraint below
+        sh:maxCount 1 ;
+        sh:message "Equivalent impact sphere radius must be a QUDT Quantity with unit m."
+    ] ;
+
+    ## Conditional requirement: when not a propeller‑hub / thruster‑end‑cap impact, the radius must be present
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the impact is not a propeller‑hub or thruster‑end‑cap, equivalent impact sphere radius must be supplied." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                FILTER NOT EXISTS { $this nltl:propellerHubOrThrusterEndCapImpact true } .
+                FILTER NOT EXISTS { $this nltl:equivalentImpactSphereRadius ?r } .
+            }
+        """ ;
+        # declare prefixes used inside the query
+        sh:prefixes (
+            [ sh:namespace "https://w3id.org/nltl/vocab#" ; sh:prefix "nltl" ]
+            [ sh:namespace "http://www.w3.org/2001/XMLSchema#" ; sh:prefix "xsd" ]
+        )
+    ] .
+<END_SHACL>

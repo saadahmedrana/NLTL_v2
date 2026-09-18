@@ -1,0 +1,156 @@
+We need to generate SHACL shape for requirement: ship displacement DUI is the displacement (in kt) of the ship corresponding to the upper ice waterline (UIWL). Where multiple waterlines are used for determining UIWL, the displacement is determined from the waterline corresponding to greatest displacement.
+
+Interpret: We have ship entity (targetClass nltl:ship). We have property nltl:hasUpperIceWaterlineCase linking ship to upperIceWaterlineCase (owner ship). UpperIceWaterlineCase has property nltl:upperIceWaterlineDisplacement (unit kt) - but reading definition: upperIceWaterlineDisplacement is the displacement at the UIWL (maybe overall ship). There's also waterlineCaseDisplacement property on upperIceWaterlineCase that gives displacement for each waterline case. There's also UIWL datatype string property on ship (maybe representing waterline), but requirement says UIWL input is needed.
+
+So need to enforce that the ship's displacement (maybe some property) equals the max waterlineCaseDisplacement among its upperIceWaterlineCase instances. However there is no explicit property for ship displacement. The term "DUI" (upperIceWaterlineDisplacement) is the ship displacement. It appears defined as a property on ship: nltl:upperIceWaterlineDisplacement, requiredOwner ship. So we need to validate that nltl:upperIceWaterlineDisplacement quantity value (kt) matches the maximum of waterlineCaseDisplacement values on the linked upperIceWaterlineCase(s). Also must handle multiple cases: choose greatest displacement.
+
+VerificationMode DIRECT_STATIC: we cannot compute max via SPARQL? We can compute with SPARQL expression using MAX? Might be allowed using aggregate functions? Not sure if allowed. Allowed: direct constraints over static RDF state, no derived engineering result beyond simple comparisons. Calculating max across values may be considered a simple aggregation. Use SPARQL SELECT? In SHACL-SPARQL constraint you can use COUNT, SUM, MAX. I think allowed.
+
+We need shape targeting ship. Ensure ship has property upperIceWaterlineDisplacement (quantity) present with correct unit kt. Also ensure hasUpperIceWaterlineCase relationship exists? Possibly required. Then need a SPARQL constraint that verifies that the numeric value of upperIceWaterlineDisplacement equals the maximum numericValue of waterlineCaseDisplacement on its cases.
+
+Define prefixes: sh, nltl, xsd, qudt, unit (for kt unit). unit: http://qudt.org/vocab/unit/.
+
+We need property shapes for numeric and unit as in few-shot.
+
+First shape: ship must have nltl:upperIceWaterlineDisplacement with quantity value node; inside ensure qudt:numericValue decimal, unit equals unit:KiloTON_Metric (kt). Also has at least one hasUpperIceWaterlineCase? maybe optional but required for calculation. Let's enforce minCount 1.
+
+Second shape: ship must have nltl:hasUpperIceWaterlineCase with at least one case, and each case must have waterlineCaseDisplacement property (quantity) also with unit kt.
+
+But the max calculation: We need SPARQL constraint on ship: compare ship's DUI numeric to max of waterlineCaseDisplacements.
+
+Write sh:sparql constraint:
+
+sh:message "Upper ice waterline displacement must equal the greatest waterline case displacement."
+
+sh:select """
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this (MAX(?caseValue) AS ?maxCaseVal) ?shipValue
+WHERE {
+  $this nltl:upperIceWaterlineDisplacement ?duiNode .
+  ?duiNode qudt:numericValue ?shipValue .
+  FILTER(datatype(?shipValue) = xsd:decimal)
+
+  $this nltl:hasUpperIceWaterlineCase ?case .
+  ?case nltl:waterlineCaseDisplacement ?caseNode .
+  ?caseNode qudt:numericValue ?caseValue .
+  FILTER(datatype(?caseValue) = xsd:decimal)
+}
+GROUP BY $this ?shipValue
+HAVING (?shipValue != ?maxCaseVal)
+"""
+
+Note: need GROUP BY to get max. Use HAVING condition to produce violations.
+
+Make sure to include unit check? Maybe separate property shape ensures unit.
+
+Need to ensure that ship's DUI node has correct unit (kt). Use property shape nested node.
+
+Same for waterlineCaseDisplacement.
+
+Define shape URI: urn:nltl:generated-shape:UpperIceWaterlineDisplacementCheck.
+
+Now assemble turtle.
+
+We must include prefixes at top (sh, nltl, qudt, unit, xsd). Use sh:NodeShape.
+
+Let's produce shape.
+
+Make sure all brackets closed.
+
+No extra comments.
+
+Proceed.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:UpperIceWaterlineDisplacementShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Presence, datatype and unit of the ship displacement (DUI)
+    sh:property [
+        sh:path nltl:upperIceWaterlineDisplacement ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloTON_Metric ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # At least one upper‑ice‑waterline case linked to the ship
+    sh:property [
+        sh:path nltl:hasUpperIceWaterlineCase ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class nltl:upperIceWaterlineCase ;
+            # Each case must provide its waterline case displacement
+            sh:property [
+                sh:path nltl:waterlineCaseDisplacement ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:KiloTON_Metric ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+
+    # Consistency: ship DUI must equal the greatest waterline case displacement
+    sh:sparql [
+        sh:message "The ship displacement (upperIceWaterlineDisplacement) must be equal to the greatest waterline case displacement." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?shipValue ?maxCaseVal
+            WHERE {
+                $this nltl:upperIceWaterlineDisplacement ?duiNode .
+                ?duiNode qudt:numericValue ?shipValue .
+                FILTER(datatype(?shipValue) = xsd:decimal)
+
+                $this nltl:hasUpperIceWaterlineCase ?case .
+                ?case nltl:waterlineCaseDisplacement ?caseNode .
+                ?caseNode qudt:numericValue ?caseValue .
+                FILTER(datatype(?caseValue) = xsd:decimal)
+
+                BIND (MAX(?caseValue) AS ?maxCaseVal)
+            }
+            FILTER (?shipValue != ?maxCaseVal)
+        """
+    ] .
+<END_SHACL>

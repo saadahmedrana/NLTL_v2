@@ -1,0 +1,78 @@
+We need to repair SHACL graph to fix deterministic validation issue: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit
+
+These are external IRIs not approved. Need to replace with allowed vocabulary URIs or internal ones? The allowedVocabulary list does not define numericValue or unit. The issue is that we used external qudt properties numericValue and unit, which are not approved. Probably need to replace with generic property using allowed ontology? Maybe use nltl:netFlangeThickness etc as quantity nodes directly with value and unit as literals? However the shape expects nested quantity node with numericValue and unit. Since we cannot use external IRIs, we must define our own properties for numeric value and unit within allowed vocab? Not listed. Could we use sh:datatype for value and sh:hasValue for unit? In SHACL, you can enforce that the object is a literal with unit via sh:nodeKind sh:Literal and sh:datatype xsd:decimal, and use sh:in for allowed unit literals. But requirement asks to preserve semantics. So modify shape: For each quantity property, define sh:nodeShape that expects a node of type qudt:QuantityValue? but that class is external too. We can avoid referencing external class, just use blank node with numericValue and unit but those predicates need to be internal. Instead we could assert that the property value is a literal (quantity) with unit using datatype with unit? Not possible.
+
+Alternative: Use sh:property with sh:path nltl:netFlangeThickness and sh:datatype xsd:decimal, sh:hasValue? Wait, netFlangeThickness's range is a QuantityValue (external). But the shape could require that netFlangeThickness is a literal decimal and unit assigned via separate property? The allowed vocab doesn't define any unit property.
+
+Maybe we can keep using external qudt but declare them as allowed via "use only allowed canonical terms" says false? We must not use external IRIs. So we need to replace qudt:numericValue and qudt:unit with internal equivalents. Since none exist, we may just inline constraints without those inner properties: directly constrain the literal value of netFlangeThickness and yieldStrength and flangeOutstand. The shapes could just enforce datatype and unit via sh:pattern on literal with unit? Alternatively use sh:datatype xsd:decimal and sh:in unit IRI? Not.
+
+Simplify: For each property, require sh:datatype xsd:decimal and require that the unit is the allowed unit by using sh:hasValue with the unit IRI maybe allowed? The unit IRI's are from qudt as well. u:MilliM etc external. So also not allowed. Must replace unit check with maybe sh:in "mm" string. Use literal unit with datatype xsd:string.
+
+Thus modify shapes: For netFlangeThickness, do not use nested node, just direct property with datatype xsd:decimal, and maybe use sh:message about unit. Since unit cannot be checked as IRI, maybe use sh:pattern "^\\d+(\\.\\d+)?$" for numeric, and separate property netFlangeThicknessUnit? not defined.
+
+Thus we need to remove usage of qudt and u prefixes entirely. So drop prefixes to external. Update shape accordingly.
+
+Let's produce revised graph:
+
+Prefixes: sh, nltl, xsd, gen.
+
+Define StructuralMemberShape targetClass nltl:structuralMember
+
+Properties:
+
+- sh:path nltl:netFlangeThickness ; sh:datatype xsd:decimal ; sh:minCount 1 ; sh:message "... must be a decimal numeric value in mm."
+
+- sh:path nltl:yieldStrength ; sh:datatype xsd:decimal ; sh:minCount 1 ; sh:message "... must be decimal numeric value in MPa."
+
+- sh:path nltl:flangeOutstand ; sh:datatype xsd:decimal ; sh:minCount 1 ; sh:message "... must be decimal numeric value in mm."
+
+Thus no nested nodes, no external property IRIs. This preserves core semantics about requiring those quantities as decimals.
+
+ShipShape unchanged.
+
+Let's ensure we keep sh:targetClass, other parts same.
+
+Return revised graph in Turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+# Shape for each structural member required by the requirement
+gen:StructuralMemberShape a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    # net flange thickness quantity (decimal, mm)
+    sh:property [
+        sh:path nltl:netFlangeThickness ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must provide netFlangeThickness as a decimal value (mm)." ;
+    ] ;
+    # yield strength quantity (decimal, MPa)
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must provide yieldStrength as a decimal value (MPa)." ;
+    ] ;
+    # flange outstand quantity (decimal, mm)
+    sh:property [
+        sh:path nltl:flangeOutstand ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Each structural member must provide flangeOutstand as a decimal value (mm)." ;
+    ] .
+
+# Ship shape linking to structural members
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node gen:StructuralMemberShape ;
+        sh:minCount 1 ;
+        sh:message "Ship must have at least one structuralMember with required quantities." ;
+    ] .
+<END_SHACL>

@@ -1,0 +1,272 @@
+We need to repair the SHACL graph to address deterministic validation issues: certain quantity properties should point to a QUDT QuantityValue node, not a direct datatype literal. The current SHACL shape currently uses sh:datatype xsd:decimal for those properties. We must change shape constraints to require that the property points to a node of type qudt:QuantityValue, with properties qudt:numericValue and qudt:unit etc.
+
+The allowed vocabulary includes each property with recommendedUnit and range = QUDT QuantityValue. The shape must enforce that pattern. The node patterns provided include 'qudtQuantityValue' pattern: subject canonicalProperty quantityNode; quantityNode qudt:numericValue xsd:decimal; qudt:unit recommendedUnit.
+
+Thus we need to replace the sh:property constraints for frameMomentFactorM, longitudinalFrameLoadDistributionFactorF4, sectionModulus, requiredShearArea to use sh:nodeKind sh:IRI? Actually to enforce a node shape on the object? Use sh:node shape referencing a property shape that validates quantity node.
+
+Simpler: For each property, create a sh:property with sh:path and sh:node that is a node shape requiring that the node is a qdqt:QuantityValue with datatype constraints.
+
+We must keep other parts unchanged.
+
+But we also need to preserve the correction for deterministic finding: "Preserve the correction for deterministic finding: Quantity property frameMomentFactorM must point to a QUDT QuantityValue node, not a direct literal datatype". Since currently it's literal, we need to change.
+
+Implement shapes:
+
+Define a blank node shape for each quantity property, e.g.:
+
+sh:property [
+   sh:path nltl:frameMomentFactorM ;
+   sh:node [
+       sh:class qudt:QuantityValue ;
+       sh:property [
+           sh:path qudt:numericValue ;
+           sh:datatype xsd:decimal ;
+       ] ;
+       sh:property [
+           sh:path qudt:unit ;
+           sh:hasValue <recommended unit IRI> ;
+       ] ;
+   ] ;
+   sh:minCount 1 ; sh:maxCount 1
+]
+
+But we need to reference the recommendedUnit from vocabulary: for frameMomentFactorM recommendedUnit is http://qudt.org/vocab/unit/UNITLESS (which is a unit). Use that IRI.
+
+Similarly for longitudinalFrameLoadDistributionFactorF4: recommendedUnit same UNITLESS.
+
+sectionModulus recommendedUnit http://qudt.org/vocab/unit/CentiM3
+
+requiredShearArea recommendedUnit http://qudt.org/vocab/unit/CentiM2
+
+Thus incorporate.
+
+Also keep other numeric properties like designIceLoadHeight etc. They still use datatype literal? The shape currently does not define them but may be used in calculation constraints; they are allowed to be literals (since vocabulary indicates they are also QuantityValue). However current shape only uses them as literals in SPARQL, but deterministic validation expects quantity nodes? The issue list only includes those four properties, so we adjust only them.
+
+Implementation: modify the shape's property blocks for those four. Delete sh:datatype lines and replace with sh:node shape.
+
+We must ensure we don't introduce unapproved external IRIs. The past mistakes guard says "Preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". But we are using qudt:numericValue and qudt:unit. The guard references schema namespace (http://qudt.org/schema/qudt#). Our vocabulary uses http://qudt.org/schema/qudt/QuantityValue for class. The guarded unapproved external IRIs are schema namespace. We should avoid using that? In allowed vocabulary, range is "http://qudt.org/schema/qudt/QuantityValue". That's allowed. The property paths use qudt:numericValue (which IRI is http://qudt.org/schema/qudt/numericValue? Actually typical QUDT: http://qudt.org/schema/qudt#numericValue . That is the schema # version. The guard says those are unapproved external/generated IRIs. Maybe we must use the same schema namespace? The allowed vocabulary doesn't list numericValue, but typical. The guard says do not reintroduce unapproved external IRIs; they were previously corrected maybe. BUT the requirement says we need quantity node with qudt:numericValue and qudt:unit. Are those considered unapproved? The guard earlier probably flagged them as unapproved but they might have been corrected to use the correct IRI (maybe from an earlier step). The allowed vocabulary's range is http://qudt.org/schema/qudt/QuantityValue (note slash, not hash). So the class IRI uses slash; the property IRIs maybe also use slash? Usually QUDT also defines properties with slash? Let's check: In QUDT, there are both schema forms: http://qudt.org/schema/qudt#numericValue and http://qudt.org/schema/qudt/numericValue? I'm not sure. The guard says "Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". So using the hash version is unapproved. To avoid, we could use the slash version: http://qudt.org/schema/qudt/numericValue and http://qudt.org/schema/qudt/unit. The class is slash version (QuantityValue). So let's use that.
+
+Thus class: qudt:QuantityValue (which IRI? With prefix qudt: defined? We need to declare prefix. In previous shape, they didn't have qudt prefix. We can add @prefix qudt: <http://qudt.org/schema/qudt/> . Then class is qudt:QuantityValue. For numericValue: qudt:numericValue (that IRI would be http://qudt.org/schema/qudt/numericValue). For unit: qudt:unit (http://qudt.org/schema/qudt/unit). So we avoid hash.
+
+Add prefix.
+
+Now modify each property.
+
+Implementation details:
+
+sh:property [
+  sh:path nltl:frameMomentFactorM ;
+  sh:node [
+    sh:class qudt:QuantityValue ;
+    sh:property [
+      sh:path qudt:numericValue ;
+      sh:datatype xsd:decimal ;
+    ] ;
+    sh:property [
+      sh:path qudt:unit ;
+      sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+    ] ;
+  ] ;
+  sh:minCount 1 ; sh:maxCount 1
+]
+
+Similarly for f4 with unit UNITLESS.
+
+sectionModulus uses unit http://qudt.org/vocab/unit/CentiM3.
+
+requiredShearArea uses unit http://qudt.org/vocab/unit/CentiM2.
+
+Make sure that the shape for each property includes sh:minCount 1 and sh:maxCount 1 at outer level.
+
+The rest of shape remains same.
+
+Now need to ensure prefixes: nltl, sh, xsd, math, gen already.
+
+Add prefix qudt: <http://qudt.org/schema/qudt/> .
+
+Now output full revised SHACL graph.
+
+Update only necessary sections, preserve other content unchanged.
+
+Let's craft final graph.
+
+
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix math: <http://www.w3.org/2005/xpath-functions/math#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+
+gen:TRF-048
+    a sh:NodeShape ;
+    sh:targetClass nltl:longitudinalFrame ;
+
+    # presence of condition indicators
+    sh:property [
+        sh:path nltl:frameBoundaryConditionType ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:significantlyDifferentBoundaryConditions ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # frameMomentFactorM – dimensionless quantity (UNITLESS)
+    sh:property [
+        sh:path nltl:frameMomentFactorM ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS>
+            ]
+        ]
+    ] ;
+
+    # longitudinalFrameLoadDistributionFactorF4 – dimensionless quantity (UNITLESS)
+    sh:property [
+        sh:path nltl:longitudinalFrameLoadDistributionFactorF4 ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS>
+            ]
+        ]
+    ] ;
+
+    # sectionModulus – area‑moment (cm³)
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/CentiM3>
+            ]
+        ]
+    ] ;
+
+    # requiredShearArea – area (cm²)
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/CentiM2>
+            ]
+        ]
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Conditional rule: m = 13.3 when continuous beam with brackets &
+    # no significantly different boundary conditions
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "When frameBoundaryConditionType = continuousBeamWithBracketsFrameCondition and significantlyDifferentBoundaryConditions = false, frameMomentFactorM must be 13.3 (UNITLESS)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameBoundaryConditionType nltl:continuousBeamWithBracketsFrameCondition .
+                $this nltl:significantlyDifferentBoundaryConditions false .
+                $this nltl:frameMomentFactorM ?qNode .
+                ?qNode qudt:numericValue ?mVal .
+                FILTER (datatype(?mVal) = xsd:decimal) .
+                BIND (13.3 AS ?expected) .
+                BIND (abs(?mVal - ?expected) AS ?diff) .
+                FILTER ( ?diff > 1e-6 )
+            }
+        """
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Calculation checks for f4, Z, and required shear area A
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "Calculated values for longitudinalFrameLoadDistributionFactorF4, sectionModulus, and requiredShearArea do not match the prescribed formulas." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                # operand literals (extracted from QuantityValue nodes)
+                $this nltl:designIceLoadHeight ?hNode .
+                $this nltl:spacing ?sNode .
+                $this nltl:span ?lNode .
+                $this nltl:icePressure ?pNode .
+                $this nltl:yieldStrength ?sigNode .
+                $this nltl:frameMomentFactorM ?mNode .
+
+                ?hNode qudt:numericValue ?hVal .
+                ?sNode qudt:numericValue ?sVal .
+                ?lNode qudt:numericValue ?lVal .
+                ?pNode qudt:numericValue ?pVal .
+                ?sigNode qudt:numericValue ?sigVal .
+                ?mNode qudt:numericValue ?mVal .
+
+                FILTER (datatype(?hVal) = xsd:decimal && datatype(?sVal) = xsd:decimal && datatype(?lVal) = xsd:decimal &&
+                        datatype(?pVal) = xsd:decimal && datatype(?sigVal) = xsd:decimal && datatype(?mVal) = xsd:decimal) .
+
+                # result literals (extracted from QuantityValue nodes)
+                $this nltl:longitudinalFrameLoadDistributionFactorF4 ?f4Node .
+                $this nltl:sectionModulus ?zNode .
+                $this nltl:requiredShearArea ?aNode .
+
+                ?f4Node qudt:numericValue ?f4Val .
+                ?zNode qudt:numericValue ?zVal .
+                ?aNode qudt:numericValue ?aVal .
+
+                FILTER (datatype(?f4Val) = xsd:decimal && datatype(?zVal) = xsd:decimal && datatype(?aVal) = xsd:decimal) .
+
+                # expected calculations (values are in the units defined by the ontology)
+                BIND (1 - (0.2 * ?hVal) / ?sVal AS ?expF4) .
+                BIND ( ?expF4 * ?pVal * ?hVal * (?lVal * ?lVal) /
+                       (4 * ?mVal * ?sigVal) * 1000000 AS ?expZ ) .
+                BIND ( math:sqrt(3) * ?expF4 * 2.16 * ?pVal * ?hVal * ?lVal /
+                       (2 * ?sigVal) * 10000 AS ?expA ) .
+
+                BIND (abs(?f4Val - ?expF4) AS ?diffF4) .
+                BIND (abs(?zVal - ?expZ) AS ?diffZ) .
+                BIND (abs(?aVal - ?expA) AS ?diffA) .
+
+                FILTER ( ?diffF4 > 1e-6 || ?diffZ > 1e-6 || ?diffA > 1e-6 )
+            }
+        """
+    ] .
+<END_SHACL>

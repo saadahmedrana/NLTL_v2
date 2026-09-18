@@ -1,0 +1,330 @@
+We need to generate a SHACL shape for this complex readiness requirement (COMPLEX_READINESS). The dependency contract states verificationMode COMPLEX_READINESS, directCheckSubconstraints empty, formulaExpression empty, but we must verify "readiness" and "evidence only", not reconstruct calculations.
+
+We must capture that for each ship, there must be calculation cases (bow subregion calculation cases) that contain the required result terms (glancingImpactLineLoad, glancingImpactPressure, totalGlancingImpactForce) as outputs, and also presumably have input evidence? The contract provides operandTerms (averageIcePressure, bowShapeCoefficient, ...). It also includes relationship terms: hasBowSubregionCalculationCase, polarClass. The applicability terms: polarClass (i.e., requirement applies depending on polar class). The requirement says: Within bow area of all Polar Class ships, and within Bow Intermediate Icebelt area of PC6 and PC7, the ice load parameters are functions of actual bow shape. So applicability: for all ships with polarClass any of the class (PC1..PC7?) Actually "all Polar Class ships" -> polarClass must be one of the controlled values. Also for PC6 and PC7, perhaps additional area but not needed.
+
+Thus shape: targetClass nltl:ship. Need property shape for polarClass (must be present with value of type polarClassValue). Should we require existence of hasBowSubregionCalculationCase with a node shape that includes required result terms (as quantity values). Also maybe require that the calculation case includes evidence for inputs? The contract does not specify evidence terms; but typical complex readiness requires documentation of inputs and results. Could include minimal presence of required result terms; other optional ones may be inputs.
+
+Thus shape will have:
+
+sh:targetClass nltl:ship.
+
+Then property: sh:path nltl:polarClass; sh:class nltl:polarClassValue; sh:minCount 1.
+
+Then property: sh:path nltl:hasBowSubregionCalculationCase; sh:minCount 1; sh:node with class nltl:bowSubregionCalculationCase. Inside that node:
+
+- property for glancingImpactLineLoad with qudt:QuantityValue pattern: we can check presence and datatype: path nltl:glancingImpactLineLoad, then node shape for quantity: shape that expects qudt:numericValue xsd:decimal and qudt:unit recommendedUnit. Could use sh:node to specify node shape on the quantity value.
+
+- similarly for glancingImpactPressure, totalGlancingImpactForce.
+
+Maybe also require bowShapeCoefficient? but that's per calculation case? Actually bowShapeCoefficient is owned by bowSubregionCalculationCase (requiredOwner). So we may include that as required input existence.
+
+Thus inside the calculation case node shape include properties for bowShapeCoefficient, shapeCoefficient (ship level?), averageIcePressure etc. But these are defined with requiredOwner ship (averageIcePressure owned by ship). The requirement indicates these are inputs to the calculation; but the shape only needs to ensure presence of inputs? Typically readiness requires that inputs are documented (evidence) but not necessarily present on ship? Should we require presence of these operand terms as properties on the ship (or appropriate owners). According to allowedVocabulary, averageIcePressure requiredOwner ship. shapeCoefficient requiredOwner ship. lineLoad, loadPatchHeight, loadPatchLength, localIcePressure also requiredOwner ship. So we can enforce presence of these on the ship.
+
+Thus overall shape:
+
+- ship must have averageIcePressure (quantity); shapeCoefficient; lineLoad; loadPatchHeight; loadPatchLength; localIcePressure.
+
+- ship must have polarClass (object property).
+
+- ship must have hasBowSubregionCalculationCase linking to calculation case(s), each with required result and input terms as above.
+
+For quantity property check, we need to assert presence of qudt:QuantityValue node with numericValue of decimal and unit = recommendedUnit. This can be done via sh:node containing sh:property shape for qudt:numericValue and qudt:unit.
+
+Simplify: create a reusable shape for quantityProperty where value must be a node of type qudt:QuantityValue with numericValue xsd:decimal and unit equal to the recommended unit.
+
+Will need prefixes: nltl, sh, xsd, qudt.
+
+Add sh:message where missing.
+
+Define shape resource URN: urn:nltl:generated-shape:ComplexReadinessI2_008
+
+Now produce Turtle.
+
+Need to include each property shape.
+
+Example pattern:
+
+:ComplexReadinessShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:polarClass ;
+        sh:class nltl:polarClassValue ;
+        sh:minCount 1 ;
+        sh:message "Ship must have a polarClass value."
+    ] ;
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:node :QuantityShapeAvgIcePressure ;
+        sh:minCount 1 ;
+        sh:message "Average ice pressure must be provided."
+    ] ; etc.
+
+Define :QuantityShapeAvgIcePressure a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+    ] .
+
+Similarly for each quantity with its recommended unit.
+
+Define shape for calculation case: property path nltl:hasBowSubregionCalculationCase; node shape? could be:
+
+sh:property [
+    sh:path nltl:hasBowSubregionCalculationCase ;
+    sh:minCount 1 ;
+    sh:node :BowSubregionCaseShape ;
+] .
+
+Define :BowSubregionCaseShape a sh:NodeShape ;
+    sh:class nltl:bowSubregionCalculationCase ;
+    sh:property [ sh:path nltl:bowShapeCoefficient ; sh:node :QuantityShapeBowShapeCoeff ; sh:minCount 1 ; ... ] ;
+    sh:property [ sh:path nltl:glancingImpactLineLoad ; sh:node :QuantityShapeQ ; sh:minCount 1 ; ... ] ;
+    ... for pressure and total force.
+
+Do we also need shapeCoefficient etc? That's ship-level, already covered.
+
+Make sure using exact IRIs.
+
+Now produce final output.
+
+Check that all used IRIs are allowedVocabulary: averageIcePressure, bowShapeCoefficient, glancingImpactLineLoad, glancingImpactPressure, totalGlancingImpactForce, polarClass, hasBowSubregionCalculationCase, bowSubregionCalculationCase, ship.
+
+All are present.
+
+Now generate Turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ComplexReadinessShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Polar class (applicability)
+    sh:property [
+        sh:path nltl:polarClass ;
+        sh:class nltl:polarClassValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must declare its Polar Class (value of type nltl:polarClassValue)." ;
+    ] ;
+    # Ship‑level input quantities
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:node :AvgIcePressureShape ;
+        sh:minCount 1 ;
+        sh:message "Average ice pressure (MPa) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:shapeCoefficient ;
+        sh:node :ShapeCoeffShape ;
+        sh:minCount 1 ;
+        sh:message "Shape coefficient (unitless) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:lineLoad ;
+        sh:node :LineLoadShape ;
+        sh:minCount 1 ;
+        sh:message "Line load (kN/m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:node :LoadPatchHeightShape ;
+        sh:minCount 1 ;
+        sh:message "Load patch height (m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchLength ;
+        sh:node :LoadPatchLengthShape ;
+        sh:minCount 1 ;
+        sh:message "Load patch length (m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:localIcePressure ;
+        sh:node :LocalIcePressureShape ;
+        sh:minCount 1 ;
+        sh:message "Local ice pressure (MPa) must be supplied." ;
+    ] ;
+    # Bow‑subregion calculation case(s) containing result quantities
+    sh:property [
+        sh:path nltl:hasBowSubregionCalculationCase ;
+        sh:minCount 1 ;
+        sh:node :BowSubregionCaseShape ;
+        sh:message "At least one Bow sub‑region calculation case must be provided." ;
+    ] .
+
+# ---- Quantity value shapes ----
+:AvgIcePressureShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "Numeric value (decimal) required for average ice pressure." ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+        sh:message "Unit must be MPa for average ice pressure." ;
+    ] .
+
+:ShapeCoeffShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+    ] .
+
+:LineLoadShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN-PER-M> ;
+        sh:minCount 1 ;
+    ] .
+
+:LoadPatchHeightShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+    ] .
+
+:LoadPatchLengthShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/M> ;
+        sh:minCount 1 ;
+    ] .
+
+:LocalIcePressureShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+    ] .
+
+# ---- Bow sub‑region calculation case shape ----
+:BowSubregionCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:bowSubregionCalculationCase ;
+    # Input: bow shape coefficient (f_ai)
+    sh:property [
+        sh:path nltl:bowShapeCoefficient ;
+        sh:node :BowShapeCoeffShape ;
+        sh:minCount 1 ;
+        sh:message "Bow shape coefficient must be supplied for the calculation case." ;
+    ] ;
+    # Result: glancing impact line load (Qi)
+    sh:property [
+        sh:path nltl:glancingImpactLineLoad ;
+        sh:node :GlancingImpactLineLoadShape ;
+        sh:minCount 1 ;
+        sh:message "Glancing impact line load (MN·m⁻²) must be supplied." ;
+    ] ;
+    # Result: glancing impact pressure (Pi)
+    sh:property [
+        sh:path nltl:glancingImpactPressure ;
+        sh:node :GlancingImpactPressureShape ;
+        sh:minCount 1 ;
+        sh:message "Glancing impact pressure (MPa) must be supplied." ;
+    ] ;
+    # Result: total glancing impact force (Fi)
+    sh:property [
+        sh:path nltl:totalGlancingImpactForce ;
+        sh:node :TotalGlancingImpactForceShape ;
+        sh:minCount 1 ;
+        sh:message "Total glancing impact force (kN) must be supplied." ;
+    ] .
+
+:BowShapeCoeffShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+        sh:minCount 1 ;
+    ] .
+
+:GlancingImpactLineLoadShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaN-M-PER-M2> ;
+        sh:minCount 1 ;
+    ] .
+
+:GlancingImpactPressureShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/MegaPA> ;
+        sh:minCount 1 ;
+    ] .
+
+:TotalGlancingImpactForceShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloN> ;
+        sh:minCount 1 ;
+    ] .
+<END_SHACL>

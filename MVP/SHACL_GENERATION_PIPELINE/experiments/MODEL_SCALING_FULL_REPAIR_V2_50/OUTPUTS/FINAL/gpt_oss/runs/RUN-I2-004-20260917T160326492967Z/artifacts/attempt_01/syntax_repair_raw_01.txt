@@ -1,0 +1,102 @@
+We need to fix the SPARQL syntax error. In SHACL-SPARQL select queries, the structure is SELECT ?this ... WHERE { ... } GROUP BY ... HAVING ... or you can use SELECT ... WHERE ... FILTER after the WHERE but the error arises because after WHERE clause they placed FILTER after closing brace but also using BIND inside WHERE then closing brace and then FILTER outside. In SPARQL, FILTER must be inside WHERE clause, before the closing brace, or you can have another clause after but not after closing brace. So move FILTER inside the WHERE before the closing brace.
+
+Alternatively we can compute MAX via aggregation using GROUP BY. The current query uses BIND (MAX(?caseValue) AS ?maxCaseVal) which is not allowed; aggregate functions must be used in SELECT or HAVING, not BIND. So better to use SELECT (MAX(?caseValue) AS ?maxCaseVal) ?shipValue where GROUP BY ?shipValue. Simpler: SELECT $this ?shipValue (MAX(?caseValue) AS ?maxCaseVal) WHERE { ... } GROUP BY $this ?shipValue HAVING (?shipValue != ?maxCaseVal)
+
+So rewrite select query accordingly. Use GROUP BY and HAVING. Ensure syntax correct.
+
+Let's produce corrected shape. Ensure prefixes correct.
+
+We'll replace sh:select string with corrected query.
+
+Provide final SHACL Turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:UpperIceWaterlineDisplacementShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Ship displacement (DUI) – present, decimal, unit kt
+    sh:property [
+        sh:path nltl:upperIceWaterlineDisplacement ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloTON_Metric ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # At least one UIWL case linked to the ship
+    sh:property [
+        sh:path nltl:hasUpperIceWaterlineCase ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class nltl:upperIceWaterlineCase ;
+            # Each case must provide its displacement (decimal, unit kt)
+            sh:property [
+                sh:path nltl:waterlineCaseDisplacement ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:KiloTON_Metric ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+
+    # Consistency: ship DUI must equal the greatest waterline case displacement
+    sh:sparql [
+        sh:message "The ship displacement (upperIceWaterlineDisplacement) must be equal to the greatest waterline case displacement." ;
+        sh:select """
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this ?shipValue ?maxCaseVal
+            WHERE {
+                $this nltl:upperIceWaterlineDisplacement ?duiNode .
+                ?duiNode qudt:numericValue ?shipValue .
+                FILTER(datatype(?shipValue) = xsd:decimal)
+
+                $this nltl:hasUpperIceWaterlineCase ?case .
+                ?case nltl:waterlineCaseDisplacement ?caseNode .
+                ?caseNode qudt:numericValue ?caseValue .
+                FILTER(datatype(?caseValue) = xsd:decimal)
+            }
+            GROUP BY $this ?shipValue
+            HAVING (?shipValue != MAX(?caseValue))
+        """
+    ] .
+<END_SHACL>

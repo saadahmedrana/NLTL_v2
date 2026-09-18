@@ -1,0 +1,50 @@
+We need to evaluate candidate SHACL vs requirement. Identify concrete blocking defects: target, applicability, ownership/path, cardinality, logic etc. If none, accept (accept:true, no issues). Must output JSON line with accept false and issues if any.
+
+We must check against requirement: need to ensure that shape captures constraint: exclude propeller blades (propellerBladeExcludedFromOccasionalForceScope true) and check stress vs yield * safety factor. The shape defines targetClass nltl:ship (correct target owner requiredTargetOwner ship). Good.
+
+Property path nltl:hasOccasionalForceLoadCase. Inside node shape, there is property for propellerBladeExcludedFromOccasionalForceScope as boolean true minCount 1 maxCount1 — good: requires property with value true. That matches requirement "excluding propeller blade" so need to assert true. OK.
+
+Then there's a sh:sparql constraint within that node shape (the same node shape for occasional force load case) that checks stress > allowable. It selects $this where stress exceeds allowable (so violation). That is okay: shape violation when stress exceeds permissible. But check condition: they compute BIND(?yieldVal * ?sfVal AS ?allowable). Then FILTER(?stressVal > ?allowable). That's correct.
+
+Potential issues: They use datatype xsd:decimal but the quantities are likely QUDT QuantityValue objects (which are typed as RDF literals with measurement? Usually QuantityValue is a complex node with value and unit. Using datatype check may be incorrect – not matching actual data representation. This is a concrete defect: datatype mismatch, expecting numeric literal but quantity is a node of type QuantityValue. That's a blocking defect because missing-value behavior? The shape assumes direct decimal literals; requirement expects using quantities with units. This could be a blocking issue: datatype mismatch causes shape to never fire or mis-evaluate, affecting regulatory semantics.
+
+Check also missing path for componentYieldSafetyFactor: they reference $this nltl:componentYieldSafetyFactor? Wait $this is the occasionalForceLoadCase? Actually $this is the node bound to the node shape for each load case (the value of nltl:hasOccasionalForceLoadCase). The property componentYieldSafetyFactor belongs to occLoad case? According to vocab, componentYieldSafetyFactor requiredOwner is loadCase. That matches. So fine.
+
+But componentMaterialYieldStrength is attached to materialProperties, which is linked via hasMaterialProperties from shipComponent. They correctly navigate: $comp nltl:hasMaterialProperties ?mat . ?mat nltl:componentMaterialYieldStrength ?yieldVal .
+
+Good.
+
+Potential missing check for propellerBlade exclusion: they require boolean true, okay.
+
+Missing cardinality maybe: The shape for propellerBladeExcludedFromOccasionalForceScope uses minCount and maxCount 1, requiring exactly one value. That's okay.
+
+Potential issue: Using sh:hasValue true includes both true literal and possibly typed boolean; they set datatype xsd:boolean; fine.
+
+Possible issue: The shape doesn't enforce that propellerBladeExcludedFromOccasionalForceScope must be true for load cases; but it also doesn't enforce that if false maybe excluded? The requirement says excluding propeller blade, so we need to ensure that for the load case, the property is true (propeller blade excluded). That's captured.
+
+Potential issue: The shape's targetClass is ship, but the constraint to examine load case is nested inside property of ship; so overall evaluation will apply to each ship node. That's as required: target owner ship.
+
+Missing: The shape does not ensure that all components are assessed; maybe not required.
+
+What about missing requirement of "reasonable safety margin"? They use componentYieldSafetyFactor, which presumably is that margin. That is okay.
+
+Potential blocking defect: The shape uses sh:node for hasOccasionalForceLoadCase but not sh:class or path for each load case; fine.
+
+Check that the namespace prefixes: nltl prefix in shape is https://w3id.org/nltl/vocab# while canonicalVocabularyNamespace is same; good.
+
+Potential issue: In SPARQL they use PREFIX nltl: <https://w3id.org/nltl/vocab#> (typo: missing trailing slash). The canonical IRI is https://w3id.org/nltl/vocab# . Provided shape uses prefix nltl: <https://w3id.org/nltl/vocab#>. In the shape earlier they defined nltl: <https://w3id.org/nltl/vocab#>. That's fine.
+
+Potential issue: The shape uses nltl:componentYieldSafetyFactor but the candidateUsedCanonicalTerms includes that term. Good.
+
+Check the property path for componentYieldSafetyFactor being directly on $this (load case). The vocab says requiredOwner loadCase, okay.
+
+Potential issue: Missing reference to 'occasionalForceComponentStress' may be requiredOwner shipComponent, but they get from ?comp nltl:occasionalForceComponentStress ?stressVal . That's correct.
+
+Thus only defect might be datatype checking expecting xsd:decimal literal not QuantityValue literal. In the data model, quantities are probably represented as QUDT quantity value nodes not plain literals: they have range http://qudt.org/schema/qudt/QuantityValue which is a node with value and unit. Therefore filter datatype(?stressVal) = xsd:decimal would never be true, causing constraint not to detect violations. This is a concrete blocking defect because it changes semantics. So we should report WRONG_DATATYPE? The categories allowed: WRONG_TARGET, APPLICABILITY, OWNERSHIP, LOGIC, CARDINALITY, THRESHOLD, FORMULA, UNIT, DATATYPE/QUANTITY ACCESS, MISSING_VALUE_BEHAVIOR, CANONICAL TERM, etc. The spec says categories: "wrong target, applicability, ownership/path, mandatory condition, logic, cardinality, threshold/boundary, formula/table, unit/conversion, datatype/quantity access, missing-value behavior, canonical term, locked-vocabulary scope, or an omitted obligatory semantic element." So we need to pick category: DATATYPE/QUANTITY ACCESS. Use category field? The example uses "WRONG_TARGET". Must use one of those categories. The key must be "category" value; we can choose "DATATYPE/QUANTITY_ACCESS" perhaps but format? In earlier example they used "WRONG_TARGET". Let's use "DATATYPE_ACCESS". But need to be concrete.
+
+Let's use "DATATYPE_ACCESS". Provide location: maybe "MainShape" as required. Problem description: "SPARQL constraint expects stress, yield, safety factor values as xsd:decimal literals, but the ontology defines them as QuantityValue nodes, causing datatype check to fail." Required change: "Remove datatype filter or extract numeric value from QuantityValue using appropriate property (e.g., qudt:numericValue)." Regression guard: "Preserve correct datatype handling for quantity values." Blocking true, needsVocabularyResolution false.
+
+Return JSON.
+
+
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"DATATYPE_ACCESS","location":"MainShape","problem":"SPARQL constraint filters ?stressVal, ?yieldVal, and ?sfVal with datatype xsd:decimal, but the ontology defines these terms as QuantityValue nodes, so the datatype check never succeeds, preventing proper violation detection.","required_change":"Remove or adjust the datatype filters to retrieve the numeric value from the QuantityValue (e.g., using qudt:numericValue) instead of expecting a plain xsd:decimal literal.","regression_guard":"Preserve correct handling of quantity values and their datatypes in the constraint.","blocking":true,"needs_vocabulary_resolution":false}]}

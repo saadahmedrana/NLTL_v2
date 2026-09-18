@@ -1,0 +1,185 @@
+We need to generate SHACL graph for the requirement:
+
+"If personal_or_group_survival_equipment_required = true, THEN available_survival_equipment_capacity >= ceil(persons_on_board * 1.10) AND storage_accessibility_status = accessible."
+
+We have allowed vocabulary terms:
+
+- nltl:personalOrGroupSurvivalEquipmentRequired (xsd:boolean)
+- nltl:availableSurvivalEquipmentCapacity (xsd:integer)
+- nltl:personsOnBoard (xsd:integer)
+- nltl:storageAccessibilityStatus (xsd:boolean) (but the requirement says "accessible" presumably true)
+- nltl:storageDistanceToMusterOrEmbarkation (QuantityProperty) with unit meters. Not used in this requirement but maybe part of requirement? The normalized requirement: "AND storage_accessibility_status = accessible." accessible likely means true also. So we just need storageAccessibilityStatus = true.
+
+Thus SHACL must be:
+
+- NodeShape targeting nltl:ship (or the requirementTargetOwner is ship)
+- Property shapes: each property must be present with datatype, minCount 1, maxCount 1 maybe? The requirement may only require presence of personalOrGroupSurvivalEquipmentRequired, personsOnBoard, availableSurvivalEquipmentCapacity, storageAccessibilityStatus. However some could be optional based on applicability: If personalOrGroup... true, then two constraints. So we need:
+
+1. presence of personalOrGroupSurvivalEquipmentRequired (boolean). Required.
+
+2. Conditional: If that is true, then enforce:
+   a) availableSurvivalEquipmentCapacity >= ceil(personsOnBoard * 1.10)
+   b) storageAccessibilityStatus = true
+
+Thus we need a SPARQL constraint that checks the condition.
+
+We also need property shapes for personsOnBoard, availableSurvivalEquipmentCapacity, storageAccessibilityStatus maybe required presence (minCount 1). But personsOnBoard is needed for calculation only when applicability true. It could be required regardless? It's likely required to compute; but the requirement may only require it when applicable. But typically we enforce presence regardless because if personalOrGroupSurvivalEquipmentRequired false, the capacity and storage may not be required. However safe to enforce presence of personsOnBoard anyway, maybe they have it.
+
+We can implement: property shapes for each with datatype and minCount 1.
+
+Now SPARQL constraint: We'll embed prefixes within query: define prefixes nltl, xsd, sh, math (maybe not needed), but we need ceil function. SPARQL 1.1 supports FLOOR, CEIL? Actually SPARQL supports functions like CEIL. It's written as CEIL(x). So we can use CEIL(?persons * 1.10). This returns an integer? CEIL returns a double. We'll compare numeric.
+
+Expression: FILTER ( ?personal = true && ( ?available < CEIL(?persons * 1.10) || ?storage != true) )
+
+But we need to flag violation when requirement not met. So we invert: select rows where personalOrGroupSurvivalEquipmentRequired = true and (available < ceil(persons*1.10) OR storageAccessibilityStatus != true). Include also check that required properties exist, but property shapes ensure presence.
+
+So SPARQL:
+
+SELECT $this WHERE {
+  $this nltl:personalOrGroupSurvivalEquipmentRequired ?personal .
+  FILTER ( ?personal = true )
+  $this nltl:personsOnBoard ?persons .
+  $this nltl:availableSurvivalEquipmentCapacity ?available .
+  $this nltl:storageAccessibilityStatus ?storage .
+  FILTER ( ?available < CEIL(?persons * 1.10) || ?storage != true )
+}
+
+Add sh:message.
+
+Need to use proper IRI.
+
+Now prefixes inside query:
+
+PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+Sure.
+
+Now build Turtle.
+
+We need to include prefixes: sh, nltl, xsd, maybe math not needed.
+
+Define a shape, maybe with identifier generatedShapeNamespace: urn:nltl:generated-shape:IMO-075Shape
+
+Within that shape: sh:targetClass nltl:ship; property shapes.
+
+property shapes: use sh:path etc.
+
+For each property shape, we also want the datatype and cardinality.
+
+Define each shape.
+
+Now generate final output:
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:IMO-075Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:personalOrGroupSurvivalEquipmentRequired ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:personsOnBoard ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:availableSurvivalEquipmentCapacity ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:storageAccessibilityStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "When personal or group survival equipment is required, available capacity must be at least 110% of persons on board (rounded up) and storage must be accessible." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:personalOrGroupSurvivalEquipmentRequired ?personal .
+                FILTER ( ?personal = true )
+                $this nltl:personsOnBoard ?persons .
+                $this nltl:availableSurvivalEquipmentCapacity ?available .
+                $this nltl:storageAccessibilityStatus ?storage .
+                FILTER ( ?available < CEIL(?persons * 1.10) || ?storage != true )
+            }
+        """ ;
+    ] .
+<END_SHACL>
+
+Check syntax correctness: The path prefix uses nltl: property. Good.
+
+Make sure that property shape path uses nltl:personalOrGroupSurvivalEquipmentRequired etc.
+
+Check names: The allowed property names: nltl:personalOrGroupSurvivalEquipmentRequired, nltl:availableSurvivalEquipmentCapacity, nltl:personsOnBoard, nltl:storageAccessibilityStatus. All correct.
+
+Now verify that we've only used canonical IRIs. Yes.
+
+No extra terms.
+
+The shape's identifier uses colon prefix (:) which is bound to generated shape namespace. That is fine.
+
+Make sure there's no stray '.' inside query triple. The query string must be double quotes inside triple quotes and we have triple quotes as sh:select """ ... """. That is allowed in Turtle: sh:select """...""" . Good.
+
+Now final answer.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:IMO-075Shape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:personalOrGroupSurvivalEquipmentRequired ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:personsOnBoard ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:availableSurvivalEquipmentCapacity ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:storageAccessibilityStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:sparql [
+        sh:message "When personal or group survival equipment is required, available capacity must be at least 110 % of persons on board (rounded up) and storage must be accessible." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:personalOrGroupSurvivalEquipmentRequired ?personal .
+                FILTER ( ?personal = true )
+                $this nltl:personsOnBoard ?persons .
+                $this nltl:availableSurvivalEquipmentCapacity ?available .
+                $this nltl:storageAccessibilityStatus ?storage .
+                FILTER ( ?available < CEIL(?persons * 1.10) || ?storage != true )
+            }
+        """ ;
+    ] .
+<END_SHACL>

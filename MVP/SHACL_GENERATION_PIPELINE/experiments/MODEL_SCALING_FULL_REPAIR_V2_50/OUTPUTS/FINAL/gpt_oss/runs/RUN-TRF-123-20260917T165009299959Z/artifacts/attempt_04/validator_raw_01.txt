@@ -1,0 +1,52 @@
+We need to evaluate candidate SHACL for concrete blocking defects. Deterministic validation says valid. We must check target, applicability, ownership, paths, etc.
+
+Requirement: complex readiness, but DIRECT_CHECK subconstraint present. That seems okay.
+
+Check targetClass: sh:targetClass nltl:ship. Required target owner is ship, matches.
+
+Check property path: nltl:hasOccasionalForceLoadCase (object property). That's correct per model path from ship to occasionalForceLoadCase.
+
+Inside that node shape, there is property for propellerBladeExcluded... with datatype boolean, hasValue true, minCount=1, maxCount=1. This ensures inclusion. Requirement says "excluding propeller blade", i.e., propeller blade excluded from scope, need boolean true? Might be okay.
+
+But check that the property path for propellerBladeExcludedFromOccasionalForceScope is within the occasionalForceLoadCase node shape. The node is the occasionalForceLoadCase (the $this). The shape defines path ... as property within that node, which is correct.
+
+Now SPARQL constraint: uses $this nltl:occasionalForceCaseAssessedComponent ?comp . Note property name oc... but in vocab it is "occasionalForceCaseAssessedComponent" (note capital C in "Case"? Actually vocab shows "occasionalForceCaseAssessedComponent". The candidate uses "occasionalForceCaseAssessedComponent". It matches exactly? Vocab IRI: https://w3id.org/nltl/vocab#occasionalForceCaseAssessedComponent . Candidate uses nltl:occasionalForceCaseAssessedComponent . Good.
+
+Then it accesses ?comp nltl:occasionalForceComponentStress ?stressVal . IRI matches vocab: "occasionalForceComponentStress". Good.
+
+It accesses ?comp nltl:hasMaterialProperties ?mat . matches vocab.
+
+Then ?mat nltl:componentMaterialYieldStrength ?yieldVal . matches vocab.
+
+Then $this nltl:componentYieldSafetyFactor ?sfVal . matches vocab.
+
+Thus uses quantities.
+
+Now issue: The requirement expects yield strength in MPa; the quantities are QuantityValue from QUDT. The candidate filters datatype(?stressVal) = xsd:decimal. But quantity values are likely typed as qudt:QuantityValue, not xsd:decimal. So the concrete value is a node with value and unit; datatype is a blank node? Might not be xsd:decimal. The constraint incorrectly assumes the literal is decimal. That could be a blocking defect: wrong datatype handling for quantity values.
+
+Spec says need to preserve correct handling of quantity values and their datatypes. PastMistakesToAvoid mention that. Deterministic validation didn't catch datatype unit validity? It says datatype_unit_valid true but that's about SHACL structure maybe not query.
+
+Nevertheless the SPARQL constraint's FILTER expects xsd:decimal and will likely never pass, causing false negatives (i.e., not detecting violations). This is a logical defect: mis-handling of quantity values.
+
+Is that a concrete blocking defect? Yes, logic error causing incorrect validation. Must be reported as WRONG_LOGIC? Category list includes: wrong target, applicability, ownership/path, mandatory condition, logic, cardinality, threshold/boundary, formula/table, unit/conversion, datatype/quantity access, missing-value behavior, canonical term, etc. Here the defect is datatype/quantity access. Category should be "DATATYPE_ACCESS" (or "DATATYPE/QUANTITY ACCESS"? The spec says "datatype/quantity access". Use category "DATATYPE_QUANTITY_ACCESS"? The required keys: category must be one of those strings? Not explicitly defined. In examples earlier they used "WRONG_TARGET". So we need to pick appropriate category. Use "DATATYPE_ACCESS". Must include that string.
+
+Check if any other defects: Path to safety factor: componentYieldSafetyFactor is defined with requiredOwner loadCase, but here it's attached to $this which is occasionalForceLoadCase (a subclass of loadCase). That's okay.
+
+Check missing mandatory condition: need "propellerBladeExcludedFromOccasionalForceScope" boolean true. The shape enforces that on each occasionalForceLoadCase. But requirement says exclude propeller blade from occasional force scope. That's fine.
+
+Cardinality: hasValue true AND minCount 1 maxCount1 ensures exactly one? It's okay.
+
+Potential issue: sh:hasValue true on datatype property alongside minCount/maxCount may be redundant but not blocking.
+
+Thus main defect is datatype handling in SPARQL.
+
+We need to produce JSON with one issue. Category maybe "DATATYPE_ACCESS". Location: could be "SPARQLConstraint". Or shape name: "MainShape". The shape name is <urn:nltl:generated-shape:TRF123Shape>. Use "MainShape". Problem description: "SPARQL constraint filters quantity values as xsd:decimal literals, but quantity values are expressed as QUDT QuantityValue objects, causing the check never to trigger."
+
+Required change: "Remove datatype filter and access the numeric value via appropriate QUDT property (e.g., qudt:numericValue) or adjust filter to handle QuantityValue."
+
+Regression guard: "Preserve correct handling of quantity values and their datatypes in the constraint."
+
+needs_vocabulary_resolution: false (no term missing). So activate_variable_matcher false.
+
+Return JSON line.
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"DATATYPE_ACCESS","location":"MainShape","problem":"The SPARQL constraint filters quantity values with FILTER(datatype(?stressVal) = xsd:decimal) (and similarly for ?yieldVal and ?sfVal), but these values are modeled as QUDT QuantityValue instances, not plain xsd:decimal literals, so the check never evaluates true.","required_change":"Remove the datatype= xsd:decimal filters and retrieve the numeric value via the appropriate QUDT property (e.g., qudt:numericValue) or otherwise handle QuantityValue objects correctly.","regression_guard":"Preserve the corrected handling of quantity values and their datatypes in the constraint.","blocking":true,"needs_vocabulary_resolution":false}]}

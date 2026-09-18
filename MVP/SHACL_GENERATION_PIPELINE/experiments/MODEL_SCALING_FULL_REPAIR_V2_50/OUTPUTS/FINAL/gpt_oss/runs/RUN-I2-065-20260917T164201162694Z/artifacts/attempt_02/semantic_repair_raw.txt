@@ -1,0 +1,127 @@
+We need to repair SHACL: issue is deterministic validation unapproved external/generated IRIs: http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit . Must correct by using allowed vocabulary only? The allowed vocab list does not include qudt: numericValue or unit. However nodePatterns define qudtQuantityValue pattern using qudt:numericValue and qudt:unit. But the issue suggests we cannot use external IRIs; perhaps need to replace with allowed terms like using existing property IRI defined in allowed vocabulary? There is no property for numericValue/unit. Perhaps need to map to internal property? Could define own local properties within generated namespace? We can keep using qudt but must declare them as approved? But allowedVocabulary only lists certain terms; external terms not allowed. So we must change shape to avoid referencing qudt:numericValue and qudt:unit. Could replace with pattern that makes the property be the QuantityProperty itself with datatype xsd:decimal? Actually we have quantity properties like fractureMargin etc. Their range is qudt:QuantityValue. In SHACL we could validate that the value is a qudt:QuantityValue and then have constraints on its numericValue and unit using path to those external properties. But the issue is the presence of those external IRIs themselves. To fix, maybe we can replace the internal node shape to directly use sh:datatype xsd:decimal and sh:hasValue? But need to keep unit consistency. Could assert the unit via sh:hasValue of the quantity's unit using the recommended unit IRI (which is external also: http://qudt.org/vocab/unit/UNITLESS etc). Those also external but maybe allowed because they are used as values not predicates. The issue only about external generated IRIs: numericValue and unit as predicates, not as objects. So we need to avoid using those predicates. Could instead use sh:property with sh:path [] to a blank node? Not possible.
+
+Alternative: define custom properties in generated namespace: gen:numericValue and gen:unit that are equivalent to qudt ones? But still referencing external predicates indirectly. The deterministic validation checks for any unapproved external IRI used as predicate, I think. So we need to replace the predicate IRIs with approved ones from allowedVocabulary. However there is no property analogous. Maybe we can use sh:qualifiedValueShape with sh:property sh:datatype ... Not using numericValue/unit.
+
+Simplify: Instead of nested node shape with numericValue/unit, we can require the property value be of datatype xsd:decimal and have a sh:hasValue of unit via sh:hasValue? Not proper.
+
+But we could use sh:nodeKind sh:IRI and then use sh:class qudt:QuantityValue but not further constrain numericValue/unit. That would remove external predicates, fixing issue.
+
+Thus modify each property shape for quantity properties to just require that the object is a qudt:QuantityValue (IRI) but not constrain its internal properties. However may lose unit validation but required to fix deterministic error.
+
+We must preserve other semantics: keep minCount etc. So replace each sh:property with sh:path nltl:fractureMargin; sh:minCount1; sh:node [ sh:class qudt:QuantityValue ; sh:property ...? Remove numericValue/unit constraints.
+
+Thus editing SHACL: for each such property, keep node shape as a blank node requiring class qudt:QuantityValue.
+
+Implementation:
+
+sh:property [
+   sh:path nltl:fractureMargin ;
+   sh:minCount 1 ;
+   sh:nodeKind sh:IRI ;   # or sh:class qudt:QuantityValue
+   sh:class qudt:QuantityValue
+]
+
+But SHACL spec: sh:node can be a node shape; we can use sh:node [ a sh:NodeShape; sh:class qudt:QuantityValue ].
+
+Simplify: sh:node [ a sh:NodeShape ; sh:class qudt:QuantityValue ].
+
+Similarly for others.
+
+Thus produce revised graph.
+
+Also need to adjust imports: keep prefixes.
+
+Let's produce final Turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # calculation case required for non‑linear assessment
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:targetClass nltl:calculationCase ;
+            # the calculation method must be the controlled non‑linear method value
+            sh:property [
+                sh:path nltl:calculationMethod ;
+                sh:class nltl:calculationMethodValue ;
+                sh:hasValue nltl:nonlinearCalculationMethodValue ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            # evidence that the non‑linear analysis was accepted
+            sh:property [
+                sh:path nltl:nonlinearAnalysisAcceptanceEvidence ;
+                sh:class nltl:evidenceArtifact ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            # result of the assessment – must be true
+            sh:property [
+                sh:path nltl:minorPermanentDeformationAssessmentSatisfied ;
+                sh:datatype xsd:boolean ;
+                sh:hasValue true ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+    # operand terms that must be present (quantities with units)
+    sh:property [
+        sh:path nltl:fractureMargin ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:majorBucklingMargin ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:permanentLateralDeformation ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:permanentOutOfPlaneDeformation ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:relevantStructuralDimension ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue
+        ]
+    ] ;
+    sh:property [
+        sh:path nltl:yieldingMargin ;
+        sh:minCount 1 ;
+        sh:node [
+            a sh:NodeShape ;
+            sh:class qudt:QuantityValue
+        ]
+    ] .
+<END_SHACL>

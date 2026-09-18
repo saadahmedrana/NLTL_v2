@@ -1,0 +1,168 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix math: <http://www.w3.org/2005/xpath-functions/math#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-048
+    a sh:NodeShape ;
+    sh:targetClass nltl:longitudinalFrame ;
+
+    # presence of condition indicators
+    sh:property [
+        sh:path nltl:frameBoundaryConditionType ;
+        sh:minCount 1 ; sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:significantlyDifferentBoundaryConditions ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ; sh:maxCount 1
+    ] ;
+
+    # frameMomentFactorM – quantity with unit UNITLESS
+    sh:property [
+        sh:path nltl:frameMomentFactorM ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS>
+            ]
+        ]
+    ] ;
+
+    # longitudinalFrameLoadDistributionFactorF4 – unit UNITLESS
+    sh:property [
+        sh:path nltl:longitudinalFrameLoadDistributionFactorF4 ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS>
+            ]
+        ]
+    ] ;
+
+    # sectionModulus – unit cm^3
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/CentiM3>
+            ]
+        ]
+    ] ;
+
+    # requiredShearArea – unit cm^2
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/CentiM2>
+            ]
+        ]
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Conditional rule: m = 13.3 when continuous beam with brackets &
+    # no significantly different boundary conditions
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "When frameBoundaryConditionType = continuousBeamWithBracketsFrameCondition and significantlyDifferentBoundaryConditions = false, frameMomentFactorM must be 13.3 (UNITLESS)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameBoundaryConditionType ?cond .
+                $this nltl:significantlyDifferentBoundaryConditions ?sdiff .
+                $this nltl:frameMomentFactorM ?mNode .
+                ?mNode qudt:numericValue ?mVal .
+
+                FILTER ( ?cond = nltl:continuousBeamWithBracketsFrameCondition && ?sdiff = false ) .
+                BIND (13.3 AS ?expected) .
+                BIND (abs(?mVal - ?expected) AS ?diff) .
+                BIND (1e-6 AS ?tol) .
+                FILTER ( ?diff > ?tol )
+            }
+        """
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Calculation checks for f4, Z, and required shear area A
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "Calculated values for longitudinalFrameLoadDistributionFactorF4, sectionModulus, and requiredShearArea do not match the prescribed formulas." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+
+            SELECT $this
+            WHERE {
+                # operand quantity nodes
+                $this nltl:designIceLoadHeight ?hNode .
+                $this nltl:spacing ?sNode .
+                $this nltl:span ?lNode .
+                $this nltl:icePressure ?pNode .
+                $this nltl:yieldStrength ?sigNode .
+                $this nltl:frameMomentFactorM ?mNode .
+
+                # result quantity nodes
+                $this nltl:longitudinalFrameLoadDistributionFactorF4 ?f4Node .
+                $this nltl:sectionModulus ?zNode .
+                $this nltl:requiredShearArea ?aNode .
+
+                # numeric values
+                ?hNode qudt:numericValue ?hVal .
+                ?sNode qudt:numericValue ?sVal .
+                ?lNode qudt:numericValue ?lVal .
+                ?pNode qudt:numericValue ?pVal .
+                ?sigNode qudt:numericValue ?sigVal .
+                ?mNode qudt:numericValue ?mVal .
+
+                ?f4Node qudt:numericValue ?f4Val .
+                ?zNode qudt:numericValue ?zVal .
+                ?aNode qudt:numericValue ?aVal .
+
+                # expected calculations
+                BIND (1 - (0.2 * ?hVal) / ?sVal AS ?expF4) .
+                BIND ( ?expF4 * ?pVal * ?hVal * (?lVal * ?lVal) /
+                       (4 * ?mVal * ?sigVal) * 1000000 AS ?expZ ) .
+                BIND ( math:sqrt(3) * ?expF4 * 2.16 * ?pVal * ?hVal * ?lVal /
+                       (2 * ?sigVal) * 10000 AS ?expA ) .
+
+                # differences
+                BIND (abs(?f4Val - ?expF4) AS ?diffF4) .
+                BIND (abs(?zVal - ?expZ) AS ?diffZ) .
+                BIND (abs(?aVal - ?expA) AS ?diffA) .
+
+                BIND (1e-6 AS ?tol) .
+                FILTER ( ?diffF4 > ?tol || ?diffZ > ?tol || ?diffA > ?tol )
+            }
+        """
+    ] .

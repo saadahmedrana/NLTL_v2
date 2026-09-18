@@ -1,0 +1,108 @@
+We need to output corrected SHACL Turtle, fixing syntax errors. The error is inside sh:select literal: the SPARQL query is missing a SELECT clause at start? Actually it has SELECT ?this WHERE { ... } starts at line 4. But the parser error says line 5 column 5 FILTER EXISTS unexpected; maybe the query missing a proper WHERE after SELECT? Wait the query is:
+
+PREFIX nltl: ...
+PREFIX xsd: ...
+
+SELECT ?this WHERE {
+    FILTER EXISTS {
+        ?this nltl:ownerRequested2008EngineOutputRequirements true^^xsd:boolean .
+    }
+    FILTER NOT EXISTS {
+        ?this nltl:engineOutputRegulationEdition nltl:iceClassRegulationEdition2008 .
+    }
+}
+
+SPARQL syntax: Within WHERE clause, you cannot have FILTER EXISTS directly without a pattern inside. You need something like FILTER EXISTS { ?this ... } is fine, but pattern must refer to ?this. It's okay. But the error may be because the query is not a SELECT query but maybe missing a triple pattern before FILTERs (maybe it's ok?). Actually SPARQL grammar allows just filters inside group graph pattern; I think it's allowed. But the parser error might be from SHACL's SPARQL constraint requiring that query returns ?this binding; maybe they require something else? Usually SPARQLConstraint expects a SELECT query where variables are named ?this; okay.
+
+But the parse error expects SELECT but got FILTER. Possibly the query string includes some stray leading whitespace or newline before SELECT? The error shows line 5 where FILTER exists; maybe SELECT line not recognized due to preceding whitespace? No, they said missing SELECT statement.
+
+Maybe the query string starts with a newline before SELECT, causing the parser misreading? Might need to remove blank line at start. Actually our literal currently includes "PREFIX nltl: ...\nPREFIX xsd: ...\n\nSELECT ..." So it's fine.
+
+But maybe the SHACL SPARQL parser expects that the query begins with "SELECT" as first token, not after prefixes? No, prefixes are allowed. The error says expected SelectQuery, found 'FILTER' at line5 col5, which is the FILTER after opening brace. Means the parser parsed SELECT ?this WHERE { then sees FILTER but expects a triple pattern? In SPARQL, FILTER is allowed as part of GroupGraphPattern, after optional triples. That's okay. However the parser error indicates maybe the query uses empty group pattern and then FILTER. Actually inside group graph pattern, you need at least one TriplePattern before a FILTER? No, spec allows FILTER with no preceding triple patterns. Eg: SELECT WHERE { FILTER(true) }. That is legal.
+
+But maybe the SHACL parser version expects a triple pattern before filters. Safer to include a trivial pattern like ?this a nltl:ship . That would satisfy.
+
+Thus modify the query to include a triple pattern: ?this a nltl:ship . Then filters.
+
+Add that within WHERE.
+
+Also need to ensure correct prefixes: Already defined.
+
+Thus corrected sh:select includes:
+
+SELECT ?this WHERE {
+    ?this a nltl:ship .
+    FILTER EXISTS { ... }
+    FILTER NOT EXISTS { ... }
+}
+
+Implement this.
+
+Also ensure turtle syntax: property shapes close with ; and final . . Already.
+
+We must output with <BEGIN_SHACL> and <END_SHACL>. No extra.
+
+Let's craft final corrected candidate.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:TRF-006_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Construction stage must be >= 1986-11-01 and < 2003-09-01
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "1986-11-01"^^xsd:date ;
+        sh:maxExclusive "2003-09-01"^^xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Owner request flag must be present and boolean
+    sh:property [
+        sh:path nltl:ownerRequested2008EngineOutputRequirements ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Applicable Ice Class Regulation Edition is fixed to 1985 rule edition
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:in ( nltl:iceClassRuleEdition1985 ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Conditional: when owner requests 2008 engine‑output requirements,
+    # the engineOutputRegulationEdition must be the 2008 edition.
+    sh:property [
+        sh:path nltl:engineOutputRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:sparql [
+            a sh:SPARQLConstraint ;
+            sh:message "When ownerRequested2008EngineOutputRequirements is true, engineOutputRegulationEdition must be iceClassRegulationEdition2008." ;
+            sh:select """PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT ?this WHERE {
+    ?this a nltl:ship .
+    FILTER EXISTS {
+        ?this nltl:ownerRequested2008EngineOutputRequirements true^^xsd:boolean .
+    }
+    FILTER NOT EXISTS {
+        ?this nltl:engineOutputRegulationEdition nltl:iceClassRegulationEdition2008 .
+    }
+}
+""" ;
+        ]
+    ] .
+<END_SHACL>

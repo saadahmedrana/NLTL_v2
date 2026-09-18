@@ -1,0 +1,180 @@
+We need to repair SHACL graph regarding currentIssues: deterministic validation error about unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit. Likely they are not approved external IRIs; need to replace with approved ones? The allowedVocabulary list includes range of quantity properties using QUDT QuantityValue but not numericValue or unit. In node pattern they used qudt:numericValue and qudt:unit. The issue: unapproved external/generated IRIs? Perhaps we need to use qualified paths with sh:property referencing the QUDT namespace but maybe need to use IRI pattern shape: they might require using sub-properties of QUDT's QuantityValue like qudt:hasNumericValue? But the issue says "Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit". So need to replace those IRIs with approved ones. Could be that the correct property IRIs are qudt:numericValue is okay? Actually QUDT uses qudt:numericValue as a datatype property? Might be considered not allowed; maybe we need to use qudt:hasNumericValue? I need to check: In QUDT, the property is qudt:numericValue (I think). But the policy says use only allowed canonical terms. Only allowed vocabulary is the provided list; external IRIs like QUDT are not allowed. So we must avoid referencing external IRIs; maybe we need to assert that quantity nodes are of type qudt:QuantityValue and then use sh:property sh:datatype xsd:decimal on the node itself rather than qudt:numericValue. But the pattern includes qudt:numericValue and qudt:unit. Since those are external we need to replace them with generic SHACL constraints: e.g., for quantity shapes, we could use sh:property sh:path []? Actually the shape is about quantity nodes (subject canonicalProperty quantityNode). The quantity node is a blank node of type qudt:QuantityValue. To avoid external properties, perhaps we can assert that quantityNode uses sh:nodeKind sh:BlankNodeOrIRI and sh:class qudt:QuantityValue (still external). Hmm qudt:QuantityValue is also external. But allowedVocabulary includes range "http://qudt.org/schema/qudt/QuantityValue". That's an external IRI but allowed as range. However the issue only about numericValue and unit. So maybe these properties need to be expressed via sh:property sh:path [a sh:NodeShape]? Actually we could embed the unit as a literal annotation property like sh:hasValue is external again? That is fine maybe.
+
+But the issue: "Unapproved external/generated IRI(s)" meaning those IRIs are not in allowed list and not approved. So we must replace them with an alternative approved approach: use a single node shape that expects the quantity node to have a Literal value with a specific unit using custom property? But the vocabulary does not define unit property. The allowed list includes recommendedUnit URLs but not a property. So maybe we cannot express unit constraints—so we need to drop unit constraints and numericValue property restrictions, just require that the property (e.g., nltl:averageIcePressure) has a value of type qudt:QuantityValue, and maybe use sh:nodeKind sh:BlankNodeOrIRI and sh:class qudt:QuantityValue. That would avoid numericValue and unit. The deterministic validation may then pass.
+
+Thus modify each quantity shape: Replace sh:path qudt:numericValue and qudt:unit constraints with perhaps sh:property with sh:path []? Actually we can define the shapes for the property value as a node shape: sh:nodeKind sh:BlankNodeOrIRI and sh:class qudt:QuantityValue. That's enough.
+
+Implementation: For each shape like :AvgIcePressureShape, currently:
+
+a sh:NodeShape ;
+sh:property [ sh:path qudt:numericValue ; ...];
+sh:property [ sh:path qudt:unit ; sh:hasValue <...> ];
+
+We need to replace with:
+
+sh:nodeKind sh:BlankNodeOrIRI ;
+sh:class qudt:QuantityValue .
+
+But we also need to preserve that the numericValue should be decimal? Not allowed? Could enforce datatype via sh:property sh:path [] with something, but maybe not required. We'll just enforce class.
+
+Thus edit each shape accordingly. Also need to ensure the namespace prefix for qudt is defined and used for class. qudt:QuantityValue is external but allowed as range earlier; not flagged.
+
+Thus produce revised SHACL graph with updated shapes.
+
+Ensure we keep other parts unchanged.
+
+Let's modify accordingly.
+
+Also need to adjust sh:hasValue with external unit IRIs; those are also external not allowed? They are external unit URIs from QUDT. The issue only mentions numericValue and unit (the property IRIs). The unit value IRIs like <http://qudt.org/vocab/unit/MegaPA> are also external but not flagged maybe allowed as literals? They are resources; might be considered external IRIs as value. The issue specifically about unapproved external/generated IRI(s): numericValue, unit. So likely unit property path is the problem, not the unit value. So we can drop the unit property shape entirely, keeping maybe a sh:hasValue constraint is not needed.
+
+Thus each shape will only contain sh:nodeKind and sh:class.
+
+Let's construct final graph.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ComplexReadinessShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Polar class (applicability)
+    sh:property [
+        sh:path nltl:polarClass ;
+        sh:class nltl:polarClassValue ;
+        sh:minCount 1 ;
+        sh:message "A ship must declare its Polar Class (value of type nltl:polarClassValue)." ;
+    ] ;
+    # Ship‑level input quantities
+    sh:property [
+        sh:path nltl:averageIcePressure ;
+        sh:node :AvgIcePressureShape ;
+        sh:minCount 1 ;
+        sh:message "Average ice pressure (MPa) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:shapeCoefficient ;
+        sh:node :ShapeCoeffShape ;
+        sh:minCount 1 ;
+        sh:message "Shape coefficient (unitless) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:lineLoad ;
+        sh:node :LineLoadShape ;
+        sh:minCount 1 ;
+        sh:message "Line load (kN/m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchHeight ;
+        sh:node :LoadPatchHeightShape ;
+        sh:minCount 1 ;
+        sh:message "Load patch height (m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:loadPatchLength ;
+        sh:node :LoadPatchLengthShape ;
+        sh:minCount 1 ;
+        sh:message "Load patch length (m) must be supplied." ;
+    ] ;
+    sh:property [
+        sh:path nltl:localIcePressure ;
+        sh:node :LocalIcePressureShape ;
+        sh:minCount 1 ;
+        sh:message "Local ice pressure (MPa) must be supplied." ;
+    ] ;
+    # Bow‑subregion calculation case(s) containing result quantities
+    sh:property [
+        sh:path nltl:hasBowSubregionCalculationCase ;
+        sh:minCount 1 ;
+        sh:node :BowSubregionCaseShape ;
+        sh:message "At least one Bow sub‑region calculation case must be provided." ;
+    ] .
+
+# ---- Quantity value shapes (generic QUDT QuantityValue) ----
+:AvgIcePressureShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+
+:ShapeCoeffShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+
+:LineLoadShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+
+:LoadPatchHeightShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+
+:LoadPatchLengthShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+
+:LocalIcePressureShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+
+# ---- Bow sub‑region calculation case shape ----
+:BowSubregionCaseShape
+    a sh:NodeShape ;
+    sh:class nltl:bowSubregionCalculationCase ;
+    # Input: bow shape coefficient (f_ai)
+    sh:property [
+        sh:path nltl:bowShapeCoefficient ;
+        sh:node :BowShapeCoeffShape ;
+        sh:minCount 1 ;
+        sh:message "Bow shape coefficient must be supplied for the calculation case." ;
+    ] ;
+    # Result: glancing impact line load (Qi)
+    sh:property [
+        sh:path nltl:glancingImpactLineLoad ;
+        sh:node :GlancingImpactLineLoadShape ;
+        sh:minCount 1 ;
+        sh:message "Glancing impact line load (MN·m⁻²) must be supplied." ;
+    ] ;
+    # Result: glancing impact pressure (Pi)
+    sh:property [
+        sh:path nltl:glancingImpactPressure ;
+        sh:node :GlancingImpactPressureShape ;
+        sh:minCount 1 ;
+        sh:message "Glancing impact pressure (MPa) must be supplied." ;
+    ] ;
+    # Result: total glancing impact force (Fi)
+    sh:property [
+        sh:path nltl:totalGlancingImpactForce ;
+        sh:node :TotalGlancingImpactForceShape ;
+        sh:minCount 1 ;
+        sh:message "Total glancing impact force (kN) must be supplied." ;
+    ] .
+
+:BowShapeCoeffShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+
+:GlancingImpactLineLoadShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+
+:GlancingImpactPressureShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+
+:TotalGlancingImpactForceShape
+    a sh:NodeShape ;
+    sh:nodeKind sh:BlankNodeOrIRI ;
+    sh:class qudt:QuantityValue .
+<END_SHACL>

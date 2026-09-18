@@ -1,0 +1,454 @@
+We need to generate SHACL graph for this requirement.
+
+Requirement summary: FI = Cf * FIB where Cf is longitudinal distribution factor (LD factor) defined piecewise based on position along hull girder relative to Upper Ice Waterline Length LUI. Also Cf = 0.0 for positions between aft end of LUI and 0.6 LUI from aft; Cf =1.0 between 0.9 LUI from aft and forward end of LUI. Positive shear force (controlled value) perhaps indicates which region? Let's parse.
+
+Terms:
+
+- designVerticalIceForceAtBow (FIB) [unit MN] owned by ship.
+- designVerticalIceShearForce (FI) [unit kN] owned by ship (though it's derived, maybe same owner).
+But designVerticalIceShearForce is a property of benchmarkEntity, but requiredOwner is ship. It is a QuantityProperty with unit kN. Actually recommendedUnit is KiloN. Owned by ship.
+
+- hullGirderLongitudinalPositionFromAft: quantity (position) unit m owned by calculationCase (owner calculationCase). It's used to locate position along hull.
+
+- longitudinalDistributionFactor: quantity (dimensionless) unit UNITLESS owned by ship.
+
+- upperIceWaterlineLengthLUI: quantity (length) unit m owned by ship.
+
+- positiveShearForce: controlled value (class) used maybe as direction indicator but not needed.
+
+- shearForceDirection property (object property) from calculationCase to shearForceDirectionValue class.
+
+But requirement: piecewise Cf: 0.0 for positions between aft end of LUI and 0.6 LUI from aft. That suggests when hullGirderLongitudinalPositionFromAft <= 0.6*LUI? Actually LUI is length; aft end of LUI presumably at position 0 (aft end). So position <= 0.6 * LUI => Cf=0.0. For positions >= 0.9 * LUI => Cf=1.0. In between (0.6-0.9) perhaps unspecified? maybe interpolation, but not needed.
+
+Hence we need to enforce constraints:
+
+- If hullGirderLongitudinalPositionFromAft <= 0.6*LUI then longitudinalDistributionFactor must be 0.0 (value zero, unitless). Possibly also enforce shearForceDirection = positiveShearForce? Possibly controlled value for positive shear force.
+
+Actually controlled value terms list includes positiveShearForce; maybe we need to assert that shearForceDirection is positiveShearForce when Cf=0.0? Not sure.
+
+But the requirement mainly about FI = Cf * FIB. So we need to compute FI (designVerticalIceShearForce) as product of Cf * FIB; but verification mode is DIRECT_CALCULATION, we can encode formula as SHACL-SPARQL constraint checking that FI equals Cf * FIB (with proper unit conversion? FIB in MN, FI in kN. 1 MN = 1000 kN. So FI result unit kN? The equation says FI = Cf * FIB [MN]; but designVerticalIceShearForce unit is kN, but recommended unit is KiloN. So we need convert FIB from MN to kN: multiply by 1000. So FI (kN) = Cf * FIB (MN) * 1000. Or maybe treat both as same unit; but recommend unit for FI is kN, FIB is MN.
+
+Thus constraint: FI_kN = Cf * FIB_MN * 1000.
+
+We have CF from longitudinalDistributionFactor maybe computed from position and LUI. However, longitudinalDistributionFactor is a property; we may need to enforce its value based on position piecewise. Since verification mode is DIRECT_CALCULATION, we can encode both constraints:
+
+1. piecewise factor rule
+2. FI computation rule using Cf and FIB
+
+Need to reference calculationCase node: we need to get Cf, which is property longitudinalDistributionFactor owned by ship, but maybe derived. However we also have calculationCase linking to hullGirderLongitudinalPositionFromAft; also has shearForceDirection property linking to direction value, maybe to indicate positivity?
+
+But requirement specifies Cf derived based on hullGirderLongitudinalPositionFromAft and LUI. So we need to ensure that when a calculationCase exists (hasCalculationCase linking ship to case) we can evaluate position.
+
+Thus shape target should be ship class. Then we need to contain property constraints:
+
+- Provide presence of designVerticalIceForceAtBow (FIB) quantity with numericValue and unit MN.
+- Provide presence of upperIceWaterlineLengthLUI (LUI) quantity with numericValue and unit m.
+- Provide presence of designVerticalIceShearForce (FI) quantity with numericValue and unit kN.
+- Provide presence of longitudinalDistributionFactor (LD) quantity with numericValue and unit UNITLESS.
+- Provide a linked calculationCase via hasCalculationCase, which contains hullGirderLongitudinalPositionFromAft quantity.
+
+Given DIRECT_CALCULATION, we can embed SPARQL that navigates these relationships.
+
+We must use only canonical IRIs. Check allowedVocabulary for each term: all present.
+
+We need to ensure datatypes: qudt:QuantityValue has qudt:numericValue (xsd:decimal) and qudt:unit.
+
+Thus property shapes for each of these properties should have node shapes that enforce quantity structure.
+
+Simplify: we can enforce existence of required quantity nodes via sh:property shapes containing sh:node [ sh:class qudt:QuantityValue ; ...] patterns similar to few-shot.
+
+Now for calculations: we can add sh:sparql constraint at ship level.
+
+Need to calculate Cf value: we need numericValue of longitudinalDistributionFactor (LD) and also compute expected factor based on position and LUI.
+
+Let's retrieve:
+
+- ?ship nltl:hasCalculationCase ?case .
+- ?case nltl:hullGirderLongitudinalPositionFromAft ?posQty .
+- ?posQty qudt:numericValue ?pos .
+- ?posQty qudt:unit unit:M .
+
+- ?ship nltl:upperIceWaterlineLengthLUI ?luiQty .
+- ?luiQty qudt:numericValue ?lui .
+- ?luiQty qudt:unit unit:M .
+
+Compute thresholds: 0.6 * ?lui and 0.9 * ?lui. Then expected Cf should be:
+
+IF (?pos <= 0.6 * ?lui) THEN expectedCf = 0.0
+ELSE IF (?pos >= 0.9 * ?lui) THEN expectedCf = 1.0
+ELSE maybe allowed either? But not required; we may not enforce middle region.
+
+Thus constraint: if pos <= 0.6*lui then LD not equal 0.0 is violation.
+
+Similarly, if pos >=0.9*lui then LD must be 1.0.
+
+Thus two constraints.
+
+Also FI calculation: retrieve designVerticalIceForceAtBow quantity:
+
+- ?ship nltl:designVerticalIceForceAtBow ?fibQty .
+- ?fibQty qudt:numericValue ?fib .
+- ?fibQty qudt:unit unit:MN .
+
+designVerticalIceShearForce quantity:
+
+- ?ship nltl:designVerticalIceShearForce ?fiQty .
+- ?fiQty qudt:numericValue ?fi .
+- ?fiQty qudt:unit unit:kN .
+
+longitudinalDistributionFactor numeric value:
+
+- ?ship nltl:longitudinalDistributionFactor ?cfQty .
+- ?cfQty qudt:numericValue ?cf .
+- ?cfQty qudt:unit unit:UNITLESS .
+
+Check unit UNITLESS I think unit IRI is http://qudt.org/vocab/unit/UNITLESS.
+
+Now compute expectedFi = ?cf * ?fib * 1000. Then verify equality within tolerance (relative 1e-6). Use FILTER (abs(?fi - (?cf * ?fib * 1000)) > tolerance).
+
+Define tolerance = 1e-6 * max(abs(?fi), abs(?cf*?fib*1000)) maybe simpler: absolute tolerance 1e-3? But per rule, use relative tolerance 1e-6. We can use: let ?expected = ?cf * ?fib * 1000. FILTER (abs(?fi - ?expected) > (1e-6 * (abs(?expected) + 1e-9))) . This ensures relative.
+
+Now we need to embed prefixes: nltl, sh, xsd, qudt, unit (http://qudt.org/vocab/unit/), math maybe not needed.
+
+Now define shape:
+
+prefix definitions at top of Turtle: declare used prefixes: sh, nltl, xsd, qudt, unit, rdf maybe not needed.
+
+Our shapes with generated IDs: e.g., urn:nltl:generated-shape:Shape_I2-051
+
+We need sh:targetClass nltl:ship.
+
+Then property shapes for each needed property. For each quantity property, we can enforce node shape with minCount 1 and maxCount 1.
+
+Simplify: for each property we enforce at least one value with node shape constraints for QuantityValue presence.
+
+Now the SPARQL constraints will produce $this for violation detection.
+
+We need sh:message messages.
+
+Now final Turtle ensure proper syntax.
+
+Consider property shape for nltl:hasCalculationCase: maybe need to ensure at least one case exists. It could be optional? Since formula uses case data, shape should require it.
+
+Thus include sh:property with sh:path nltl:hasCalculationCase ; sh:minCount 1 ; sh:maxCount 1 ; sh:node [ sh:class nltl:calculationCase ] maybe also not needed to enforce but okay.
+
+Now ensure that in SPARQL we use $this to represent the ship.
+
+Complexities: The position data may be missing; we need to enforce presence of required quantities.
+
+Thus separate property shapes ensures presence.
+
+Now produce shape.
+
+Let's craft Turtle.
+
+Will include for each quantity property:
+
+sh:property [
+  sh:path nltl:designVerticalIceForceAtBow ;
+  sh:minCount 1 ; sh:maxCount 1 ;
+  sh:node [
+    sh:class qudt:QuantityValue ;
+    sh:property [
+      sh:path qudt:numericValue ;
+      sh:datatype xsd:decimal ; sh:minCount 1 ; sh:maxCount 1
+    ] ;
+    sh:property [
+      sh:path qudt:unit ;
+      sh:hasValue unit:MN ;
+      sh:minCount 1 ; sh:maxCount 1
+    ]
+  ]
+] ;
+
+Similarly for others.
+
+Now SPARQL constraints: we can combine into one SELECT that checks all violations and returns $this for each violation condition. Use UNION to flag each condition? Could just produce separate sh:sparql constraints each with its own message. Simpler.
+
+Constraint 1: piecewise Cf at aft region 0.6*LUI.
+
+Constraint 2: piecewise Cf at forward region 0.9*LUI.
+
+Constraint 3: FI calculation.
+
+Now write each.
+
+Constraint syntax:
+
+sh:sparql [
+  sh:message "Longitudinal distribution factor must be 0.0 when position is within 0.6 * LUI from aft";
+  sh:select """
+    SELECT $this WHERE {
+      $this nltl:hasCalculationCase ?case .
+      ?case nltl:hullGirderLongitudinalPositionFromAft ?posQty .
+      ?posQty qudt:numericValue ?pos .
+      $this nltl:upperIceWaterlineLengthLUI ?luiQty .
+      ?luiQty qudt:numericValue ?lui .
+      $this nltl:longitudinalDistributionFactor ?cfQty .
+      ?cfQty qudt:numericValue ?cf .
+      FILTER ( ?pos <= (0.6 * ?lui) && (abs(?cf - 0.0) > 1e-9) )
+    }
+  """ ;
+] .
+
+Second similar but for >=0.9 * LUI and cf !=1.0.
+
+Third:
+
+sh:sparql [
+  sh:message "Design vertical ice shear force (FI) must equal Cf * FIB * 1000 (kN)" ;
+  sh:select """
+    PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+    SELECT $this WHERE {
+      $this nltl:designVerticalIceForceAtBow ?fibQty .
+      ?fibQty qudt:numericValue ?fib .
+      $this nltl:designVerticalIceShearForce ?fiQty .
+      ?fiQty qudt:numericValue ?fi .
+      $this nltl:longitudinalDistributionFactor ?cfQty .
+      ?cfQty qudt:numericValue ?cf .
+      BIND(?cf * ?fib * 1000.0 AS ?expected) .
+      FILTER ( abs(?fi - ?expected) > (1e-6 * (abs(?expected) + 1e-9)) )
+    }
+  """ ;
+] .
+
+Need to include prefixes inside each query: nltl, qudt, unit, xsd, maybe math not used (except we could use arithmetic directly). We'll declare inside query.
+
+Add necessary prefixes: nltl, qudt, unit, xsd.
+
+Now assemble shape.
+
+Check that we referenced unit:unit values: unit:MN, unit:K (??) Actually unit for kN is http://qudt.org/vocab/unit/KiloN; unit for MN is http://qudt.org/vocab/unit/MegaN; unit for unitless is http://qudt.org/vocab/unit/UNITLESS; unit for meters is http://qudt.org/vocab/unit/M.
+
+Thus we need to use these IRIs accordingly:
+
+- unit:MN for MegaN; but official IRI is http://qudt.org/vocab/unit/MegaN? Actually QUDT uses scheme: http://qudt.org/vocab/unit/MegaN . The prefix "unit:" defined as http://qudt.org/vocab/unit/. So unit:MegaN corresponds to MegaN. But given recommendedUnit in vocabulary is "http://qudt.org/vocab/unit/MegaN". So we use unit:MegaN.
+
+- unit:KiloN.
+
+- unit:UNITLESS.
+
+- unit:M.
+
+Thus property shape's unit hasValue unit:MegaN etc.
+
+Now shape skeleton.
+
+We'll write:
+
+@prefix sh: <http://www.w3.org/2001/XMLSchema#> ?? Actually sh is http://www.w3.org/ns/shacl#. Let's list:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+Now shape ID: urn:nltl:generated-shape:Shape_I2-051
+
+Now define.
+
+Now final answer as required.
+
+Check for any missing property shape: have we included designVerticalIceShearForce? Not required for pieces but needed for Fi compute; presence shape ensures its existence.
+
+Add property shape for designVerticalIceShearForce similar to others.
+
+Now final Turtle.
+
+Check syntax: each property shape line ends with ; and close with . at final.
+
+Will need many brackets. Ensure each sh:property[] ends with ; and final . after last property before constraints.
+
+Let's write.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+urn:nltl:generated-shape:Shape_I2-051 a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Design vertical ice force at bow (FIB) – required quantity in MN
+    sh:property [
+        sh:path nltl:designVerticalIceForceAtBow ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # Upper ice waterline length LUI – required quantity in metres
+    sh:property [
+        sh:path nltl:upperIceWaterlineLengthLUI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:M ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # Longitudinal distribution factor (Cf) – dimensionless, required
+    sh:property [
+        sh:path nltl:longitudinalDistributionFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # Design vertical ice shear force (FI) – required quantity in kN
+    sh:property [
+        sh:path nltl:designVerticalIceShearForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # Link to calculation case (holds position data)
+    sh:property [
+        sh:path nltl:hasCalculationCase ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class nltl:calculationCase ;
+            sh:property [
+                sh:path nltl:hullGirderLongitudinalPositionFromAft ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+                sh:node [
+                    sh:class qudt:QuantityValue ;
+                    sh:property [
+                        sh:path qudt:numericValue ;
+                        sh:datatype xsd:decimal ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ] ;
+                    sh:property [
+                        sh:path qudt:unit ;
+                        sh:hasValue unit:M ;
+                        sh:minCount 1 ;
+                        sh:maxCount 1
+                    ]
+                ]
+            ]
+        ]
+    ] ;
+
+    # --- SPARQL constraint: Cf = 0.0 when position ≤ 0.6·LUI ---
+    sh:sparql [
+        sh:message "Longitudinal distribution factor must be 0.0 when hull‑girder position is within 0.6 × LUI from the aft end." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            SELECT $this WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case nltl:hullGirderLongitudinalPositionFromAft ?posQty .
+                ?posQty qudt:numericValue ?pos .
+                $this nltl:upperIceWaterlineLengthLUI ?luiQty .
+                ?luiQty qudt:numericValue ?lui .
+                $this nltl:longitudinalDistributionFactor ?cfQty .
+                ?cfQty qudt:numericValue ?cf .
+                FILTER ( ?pos <= (0.6 * ?lui) && (abs(?cf - 0.0) > 1e-9) )
+            }
+        """
+    ] ;
+
+    # --- SPARQL constraint: Cf = 1.0 when position ≥ 0.9·LUI ---
+    sh:sparql [
+        sh:message "Longitudinal distribution factor must be 1.0 when hull‑girder position is at or beyond 0.9 × LUI from the aft end." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            SELECT $this WHERE {
+                $this nltl:hasCalculationCase ?case .
+                ?case nltl:hullGirderLongitudinalPositionFromAft ?posQty .
+                ?posQty qudt:numericValue ?pos .
+                $this nltl:upperIceWaterlineLengthLUI ?luiQty .
+                ?luiQty qudt:numericValue ?lui .
+                $this nltl:longitudinalDistributionFactor ?cfQty .
+                ?cfQty qudt:numericValue ?cf .
+                FILTER ( ?pos >= (0.9 * ?lui) && (abs(?cf - 1.0) > 1e-9) )
+            }
+        """
+    ] ;
+
+    # --- SPARQL constraint: FI = Cf × FIB × 1000 (kN) ---
+    sh:sparql [
+        sh:message "Design vertical ice shear force (FI) must equal Cf × FIB × 1000 (kN)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:designVerticalIceForceAtBow ?fibQty .
+                ?fibQty qudt:numericValue ?fib .
+                $this nltl:designVerticalIceShearForce ?fiQty .
+                ?fiQty qudt:numericValue ?fi .
+                $this nltl:longitudinalDistributionFactor ?cfQty .
+                ?cfQty qudt:numericValue ?cf .
+                BIND ( ?cf * ?fib * 1000.0 AS ?expected ) .
+                FILTER ( abs(?fi - ?expected) > (1e-6 * (abs(?expected) + 1e-9)) )
+            }
+        """
+    ] .
+<END_SHACL>

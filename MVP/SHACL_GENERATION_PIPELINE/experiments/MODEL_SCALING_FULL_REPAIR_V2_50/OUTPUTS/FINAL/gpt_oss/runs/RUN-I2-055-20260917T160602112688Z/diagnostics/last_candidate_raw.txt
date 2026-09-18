@@ -1,0 +1,96 @@
+We need to repair Turtle syntax errors. The error is about "Prefix \"urn:\" not bound". In Turtle, you cannot use urn prefix by default. The subject IRI can be absolute IRI, but "urn:nltl:generated-shape:StrengthCriteriaShape" is a full IRI? In Turtle, absolute IRIs can be given as <...>. But using a CURIE with undefined prefix is not allowed. So we need to either define a prefix for "urn" (like @prefix urn: <urn:nltl:generated-shape:> .) or use a full IRI in angle brackets. The candidate used "urn:nltl:generated-shape:StrengthCriteriaShape". That's a CURIE with prefix "urn". So we should define @prefix urn: <urn:nltl:generated-shape:> . Or change to <urn:nltl:generated-shape:StrengthCriteriaShape>. Probably easier to add prefix.
+
+Let's add:
+
+@prefix urn: <urn:nltl:generated-shape:> .
+
+Now shape line becomes "urn:StrengthCriteriaShape". Wait current shape uses "urn:nltl:generated-shape:StrengthCriteriaShape". With prefix urn mapping to "urn:nltl:generated-shape:", then CURIE "urn:StrengthCriteriaShape" resolves correctly. So modify shape IRI to "urn:StrengthCriteriaShape". Or we can keep full IRI with angle brackets, no prefix needed. Simpler: replace "urn:nltl:generated-shape:StrengthCriteriaShape" with <urn:nltl:generated-shape:StrengthCriteriaShape>.
+
+Let's do that.
+
+Additionally, check any other errors. The property shapes: The 'sh:property' list uses multiple property shapes separated by semicolons; syntax is okay: after each property shape closing bracket, semicolon is okay continuing list. Need ensure final period after shape.
+
+Check prefixes: It defines @prefix unit: <http://qudt.org/vocab/unit/> . Not used, but okay.
+
+Check that "sh:hasValue true" is allowed? In SHACL, sh:hasValue expects an RDF term; true is a boolean literal: "true"^^xsd:boolean or just true ? In Turtle, 'true' without datatype is a boolean literal (xsd:boolean). That's allowed.
+
+Make sure shape uses "sh:select \"\"\"\n ... \"\"\" ;". In Turtle, using triple quotes inside string is fine? Turtle string can be multiline using """ as per SPARQL constraint; should be okay inside sh:select with a literal. Ensure escapes: currently they used sh:select \"\"\"\n ... \"\"\" ; . The backslashes are part of the JSON, but we need final Turtle. The text inside <BEGIN_SHACL> already includes backslashes escaping quotes because it's embedded in JSON. In the final answer we must produce the corrected Turtle without JSON escapes. So we need to output proper triple-quoted string.
+
+Thus we need to write:
+
+sh:select """ 
+    PREFIX sh: <http://www.w3.org/ns/shacl#>
+    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+    PREFIX qudt: <http://qudt.org/schema/qudt/>
+    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+    SELECT $this WHERE {
+        $this nltl:designStress ?dQ .
+        ?dQ qudt:numericValue ?dVal .
+        $this nltl:permissibleStress ?pQ .
+        ?pQ qudt:numericValue ?pVal .
+        FILTER( ?dVal > ?pVal )
+    }
+""" ;
+
+That seems correct.
+
+Also ensure the final period after shape is there.
+
+Now produce final corrected candidate between markers.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+<urn:nltl:generated-shape:StrengthCriteriaShape>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # designStress must be present
+    sh:property [
+        sh:path nltl:designStress ;
+        sh:minCount 1 ;
+        sh:message "Design stress quantity must be present." ;
+    ] ;
+
+    # permissibleStress must be present
+    sh:property [
+        sh:path nltl:permissibleStress ;
+        sh:minCount 1 ;
+        sh:message "Permissible stress quantity must be present." ;
+    ] ;
+
+    # strengthCriterionStatus must be present and true
+    sh:property [
+        sh:path nltl:strengthCriterionStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:hasValue true ;
+        sh:message "Strength criterion status must be true." ;
+    ] ;
+
+    # numeric comparison: designStress must not exceed permissibleStress
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Design stress exceeds permissible stress." ;
+        sh:select """ 
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:designStress ?dQ .
+                ?dQ qudt:numericValue ?dVal .
+                $this nltl:permissibleStress ?pQ .
+                ?pQ qudt:numericValue ?pVal .
+                FILTER( ?dVal > ?pVal )
+            }
+        """ ;
+    ] .
+<END_SHACL>

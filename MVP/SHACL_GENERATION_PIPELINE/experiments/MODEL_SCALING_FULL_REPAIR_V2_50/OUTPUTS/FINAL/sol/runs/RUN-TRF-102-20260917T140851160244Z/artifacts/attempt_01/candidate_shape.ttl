@@ -1,0 +1,192 @@
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+gen:SpindleTorqueShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:or (
+        gen:ApprovedStressAnalysisBranch
+        gen:FormulaCalculationBranch
+    ) .
+
+gen:ApprovedStressAnalysisBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:approvedSpindleTorqueStressAnalysis ;
+        sh:class nltl:approvalRecord ;
+        sh:minCount 1 ;
+        sh:message "An approved spindle torque stress analysis is required for the stress-analysis alternative."
+    ] ;
+    sh:property [
+        sh:path nltl:maximumSpindleTorque ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TorqueQuantityShape ;
+        sh:message "The stress-analysis alternative must provide the directly determined maximum spindle torque."
+    ] .
+
+gen:FormulaCalculationBranch
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:bladeExpandedAreaRatio ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:propellerBladeCount ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 1 ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:leadingEdgeChordPortionAtZeroPointEightRadius ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:trailingEdgeChordPortionAtZeroPointEightRadius ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:LengthQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:extremeIceForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:ForceQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureSpindleTorqueFactor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:UnitlessQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureSpindleTorque ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TorqueQuantityShape
+    ] ;
+    sh:property [
+        sh:path nltl:maximumSpindleTorque ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node gen:TorqueQuantityShape
+    ] ;
+    sh:sparql [
+        sh:message "The spindle torque factor, blade-failure spindle torque, and maximum spindle torque must satisfy the prescribed formula within a relative tolerance of 1e-6 and an absolute fallback of 1e-12." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this
+            WHERE {
+                $this nltl:bladeExpandedAreaRatio/qudt:numericValue ?ear ;
+                      nltl:propellerBladeCount ?bladeCount ;
+                      nltl:leadingEdgeChordPortionAtZeroPointEightRadius/qudt:numericValue ?leading ;
+                      nltl:trailingEdgeChordPortionAtZeroPointEightRadius/qudt:numericValue ?trailing ;
+                      nltl:extremeIceForce/qudt:numericValue ?force ;
+                      nltl:bladeFailureSpindleTorqueFactor/qudt:numericValue ?reportedFactor ;
+                      nltl:bladeFailureSpindleTorque/qudt:numericValue ?reportedTorque ;
+                      nltl:maximumSpindleTorque/qudt:numericValue ?reportedMaximum .
+
+                BIND ((4.0 * ?ear) / ?bladeCount AS ?ratio)
+                BIND (0.7 * (1.0 - (?ratio * ?ratio * ?ratio)) AS ?rawFactor)
+                BIND (IF(?rawFactor < 0.3, 0.3, ?rawFactor) AS ?expectedFactor)
+                BIND (IF(?leading >= (0.8 * ?trailing), ?leading, (0.8 * ?trailing)) AS ?leverArm)
+                BIND (?leverArm * ?expectedFactor * ?force AS ?expectedTorque)
+
+                BIND (
+                    IF(
+                        ABS(?expectedFactor) * 0.000001 > 0.000000000001,
+                        ABS(?expectedFactor) * 0.000001,
+                        0.000000000001
+                    ) AS ?factorTolerance
+                )
+                BIND (
+                    IF(
+                        ABS(?expectedTorque) * 0.000001 > 0.000000000001,
+                        ABS(?expectedTorque) * 0.000001,
+                        0.000000000001
+                    ) AS ?torqueTolerance
+                )
+
+                FILTER (
+                    ABS(?reportedFactor - ?expectedFactor) > ?factorTolerance ||
+                    ABS(?reportedTorque - ?expectedTorque) > ?torqueTolerance ||
+                    ABS(?reportedMaximum - ?expectedTorque) > ?torqueTolerance
+                )
+            }
+        """
+    ] .
+
+gen:UnitlessQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:UNITLESS ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:LengthQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:ForceQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+gen:TorqueQuantityShape
+    a sh:NodeShape ;
+    sh:class qudt:QuantityValue ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:KiloN-M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

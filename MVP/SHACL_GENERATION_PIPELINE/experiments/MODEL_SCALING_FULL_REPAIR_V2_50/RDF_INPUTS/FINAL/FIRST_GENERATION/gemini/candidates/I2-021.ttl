@@ -1,0 +1,84 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+urn:nltl:generated-shape:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasPlating ;
+        sh:node urn:nltl:generated-shape:PlatingShape ;
+    ] ;
+    sh:sparql [
+        sh:message "The plating thickness must equal the sum of ice load required net plate thickness and corrosion abrasion allowance (t = tnet + ts)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ?plating
+            WHERE {
+                $this nltl:hasPlating ?plating .
+                ?plating nltl:thickness/qudt:numericValue ?t_val ;
+                         nltl:thickness/qudt:unit ?t_unit ;
+                         nltl:iceLoadRequiredNetPlateThickness/qudt:numericValue ?tnet_val ;
+                         nltl:iceLoadRequiredNetPlateThickness/qudt:unit ?tnet_unit ;
+                         nltl:corrosionAbrasionAllowance/qudt:numericValue ?ts_val ;
+                         nltl:corrosionAbrasionAllowance/qudt:unit ?ts_unit .
+                
+                BIND(IF(?t_unit = unit:M, ?t_val * 1000.0, ?t_val) AS ?t_mm)
+                BIND(IF(?tnet_unit = unit:M, ?tnet_val * 1000.0, ?tnet_val) AS ?tnet_mm)
+                BIND(IF(?ts_unit = unit:M, ?ts_val * 1000.0, ?ts_val) AS ?ts_mm)
+                
+                BIND(?tnet_mm + ?ts_mm AS ?expected)
+                BIND(abs(?t_mm - ?expected) AS ?diff)
+                BIND(IF(?expected > 0.0, ?diff / ?expected, ?diff) AS ?rel_err)
+                
+                FILTER (?diff > 1e-5 && ?rel_err > 1e-5)
+            }
+        """
+    ] .
+
+urn:nltl:generated-shape:PlatingShape a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+    sh:property [
+        sh:path nltl:thickness ;
+        sh:node urn:nltl:generated-shape:QuantityValueMetersShape ;
+    ] ;
+    sh:property [
+        sh:path nltl:iceLoadRequiredNetPlateThickness ;
+        sh:node urn:nltl:generated-shape:QuantityValueMillimetersShape ;
+    ] ;
+    sh:property [
+        sh:path nltl:corrosionAbrasionAllowance ;
+        sh:node urn:nltl:generated-shape:QuantityValueMillimetersShape ;
+    ] .
+
+urn:nltl:generated-shape:QuantityValueMetersShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:M ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .
+
+urn:nltl:generated-shape:QuantityValueMillimetersShape a sh:NodeShape ;
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue unit:MilliM ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] .

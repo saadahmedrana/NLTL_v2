@@ -1,0 +1,136 @@
+We need to fix syntax errors. The error says Prefix "urn:" not bound. In Turtle, you can't use a prefixed name with prefix "urn:" unless declared. But we used full URI "urn:nltl:generated-shape:TRF-042". That's an absolute IRI; Turtle syntax allows absolute IRI with angle brackets <...>, but without brackets, it's a prefixed name, requiring prefix definition. So we should wrap the node ID in angle brackets: <urn:nltl:generated-shape:TRF-042>. Also shapes need to be terminated with a period. Also there might be stray semicolons after last property before the SPARQL constraint; after sh:sparql we end with a period not semicolon. Make sure overall syntax correct.
+
+Also we used sh:sparql with sh:select = triple-quoted string; need to ensure proper quoting with three double quotes inside. In Turtle, multi-line string with triple quotes is allowed. Ensure no stray backticks. Use """ then content then """.
+
+Make sure the SPARQL string properly escaped; no triple quotes inside. Looks fine.
+
+Check prefixes: we have qudt: prefix defined. Use <http://qudt.org/vocab/unit/M> for unit values. Good.
+
+Check sh:hasValue require a literal or IRI; we used IRI as <...>. That's fine.
+
+Check sh:class nltl:evidenceState where evidenceState is a class defined in vocab. Good.
+
+Make sure each sh:property block ends with ] ; It's correct.
+
+Now modify shape IRI to angle brackets. Also ensure the shape ends with a period after sh:sparql block.
+
+Potential other syntax issues: In property shapes we used sh:node [ ... ] ; correct.
+
+In sh:sparql we used sh:select """ ... """. That's okay.
+
+Make sure there is a space before semicolon after sh:sparql? Actually sh:sparql [...] . (dot after closing bracket). Not semicolon.
+
+Thus final corrected candidate.
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+<urn:nltl:generated-shape:TRF-042>
+    a sh:NodeShape ;
+    sh:targetClass nltl:plating ;
+
+    # designIceLoadHeight – length, unit m
+    sh:property [
+        sh:path nltl:designIceLoadHeight ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # spacing – length, unit m
+    sh:property [
+        sh:path nltl:spacing ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M> ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # longitudinalPlatingFactorF2 – dimensionless
+    sh:property [
+        sh:path nltl:longitudinalPlatingFactorF2 ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ; sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+                sh:minCount 1 ; sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # materialApprovalStatus – must be an evidenceState individual
+    sh:property [
+        sh:path nltl:materialApprovalStatus ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class nltl:evidenceState
+    ] ;
+
+    # Calculated check for longitudinalPlatingFactorF2 (f2)
+    sh:sparql [
+        sh:message "longitudinalPlatingFactorF2 does not satisfy the prescribed formula within tolerance or h/s exceeds the allowed range (1.0–1.8)." ;
+        sh:select """ 
+            PREFIX sh:   <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:designIceLoadHeight ?hNode .
+                $this nltl:spacing ?sNode .
+                $this nltl:longitudinalPlatingFactorF2 ?fNode .
+
+                ?hNode qudt:numericValue ?hVal .
+                ?sNode qudt:numericValue ?sVal .
+                ?fNode qudt:numericValue ?fVal .
+
+                FILTER ( datatype(?hVal) = xsd:decimal &&
+                         datatype(?sVal) = xsd:decimal &&
+                         datatype(?fVal) = xsd:decimal )
+
+                BIND ( ?hVal / ?sVal AS ?ratio ) .
+
+                # Expected f2 based on piece‑wise definition
+                BIND ( IF ( ?ratio <= 1,
+                           (0.4 / ?ratio) + 0.6,
+                           IF ( ?ratio <= 1.8,
+                                1.4 - 0.4 * ?ratio,
+                                0 ) ) AS ?expected ) .
+
+                # Tolerance: max(1e-6*|expected|,1e-12)
+                BIND ( MAX( 1e-6 * ABS(?expected), 1e-12 ) AS ?tol ) .
+
+                # Violation if ratio out of allowed interval or f2 differs beyond tolerance
+                FILTER ( ( ?ratio > 1.8 ) ||
+                         ( ABS(?fVal - ?expected) > ?tol ) )
+            }
+        """ 
+    ] .
+<END_SHACL>

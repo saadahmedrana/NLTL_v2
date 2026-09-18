@@ -1,0 +1,130 @@
+We need to generate SHACL shape for this requirement.
+
+Requirement: applicability: ships whose construction stage date is on or after 1 Nov 1986 and before 1 Sep 2003. On owner's request, engine output regulation edition may be 2008. Else, applicable Ice Class regulation edition remains 1985 rule.
+
+We need to encode obligations: likely need to assert applicableIceClassRegulationEdition = iceClassRuleEdition1985 always (for ships in that cohort). Also, if ownerRequested2008EngineOutputRequirements is true, then engineOutputRegulationEdition = iceClassRegulationEdition2008; otherwise maybe not required? The requirement only says "may be applied" not must. So likely a conditional; we need to capture that the property engineOutputRegulationEdition may be present with that value if requested. Could be optional presence with specific value when true; otherwise no requirement.
+
+Also need to ensure constructionStageDate within interval for applicability.
+
+Thus shape must target ship class. Include property shapes for constructionStageDate datatype date with minInclusive 1986-11-01 and maxExclusive 2003-09-01? Since before 1 Sep 2003 inclusive? "before" means < 2003-09-01. Use maxExclusive.
+
+Implement with sh:property.
+
+For applicableIceClassRegulationEdition: must be present (minCount 1) and value must be iceClassRuleEdition1985. So a node shape with sh:in containing that IRI.
+
+engineOutputRegulationEdition: conditional. Could model using sh:or? Two shapes: (1) when ownerRequested2008EngineOutputRequirements true => engineOutputRegulationEdition must be iceClassRegulationEdition2008; (2) when false or absent => no constraint (could be omitted). Use sh:property with sh:path ... and sh:or with two alternatives using sh:property? Actually we can use sh:property with sh:or inside property? SHACL supports sh:or at shape level. Better create a node shape with sh:or having two node shapes: one with condition that ownerRequested2008EngineOutputRequirements = true and engineOutputRegulationEdition value = 2008; another where either not true, no constraint (maybe just accept any). But need to encode condition based on other property: we can use SHACL-SPARQL constraint.
+
+Simpler: Use SPARQL constraint that checks: IF ownerRequested2008EngineOutputRequirements = true THEN engineOutputRegulationEdition must be iceClassRegulationEdition2008. If property missing or false, okay.
+
+Write SPARQL query:
+
+PREFIX nltl: <...>
+PREFIX xsd: <...>
+ASK WHERE {
+  FILTER NOT EXISTS {
+    ?this nltl:ownerRequested2008EngineOutputRequirements true .
+    FILTER NOT EXISTS {
+      ?this nltl:engineOutputRegulationEdition nltl:iceClassRegulationEdition2008 .
+    }
+  }
+}
+
+But we cannot use boolean literal true directly in query; need xsd:boolean true^^xsd:boolean.
+
+Implementation: In SHACL SPARQL constraint shape, use sh:severity sh:Violation; sh:message.
+
+We also need property shapes for ownerRequested2008EngineOutputRequirements (boolean required? Not required; could be absent. selectorPolicy says absenceMeansFalse = false, meaning if missing it's not false? Actually absenceMeansFalse false implies missing does not mean false; but missing evidence is violation? The selectorPolicies indicate missingEvidence "VIOLATION". It applies to selectorTerms = ownerRequested2008EngineOutputRequirements. So if the property is missing, it's a violation. So we must require presence of this boolean property. Also must be datatype boolean. So property shape with minCount 1, maxCount 1.
+
+Thus shape includes:
+
+sh:property for constructionStageDate (date inclusive bounds).
+
+sh:property for ownerRequested2008EngineOutputRequirements (boolean, required).
+
+sh:property for applicableIceClassRegulationEdition (object property, value iceClassRuleEdition1985) required.
+
+sh:property for engineOutputRegulationEdition with SPARQL conditional.
+
+Could also provide property shape with sh:in maybe but only when requested. Better SPARQL.
+
+Implement generatedShapeNamespace: urn:nltl:generated-shape:.
+
+Define shape e.g., :TRF-006_Shape a sh:NodeShape; sh:targetClass nltl:ship; ...
+
+Include prefixes.
+
+Need to include qudt? not needed.
+
+Implement property for applicableIceClassRegulationEdition: use sh:in (IRI). Provide minCount1 maxCount1.
+
+Now write final Turtle.
+
+Check prefix declarations: sh, nltl, xsd.
+
+Also need to reference IRI of iceClassRuleEdition1985 and iceClassRegulationEdition2008.
+
+Now write.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:TRF-006_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Construction stage must be >= 1986-11-01 and < 2003-09-01
+    sh:property [
+        sh:path nltl:constructionStageDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "1986-11-01"^^xsd:date ;
+        sh:maxExclusive "2003-09-01"^^xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Owner request flag must be present and boolean
+    sh:property [
+        sh:path nltl:ownerRequested2008EngineOutputRequirements ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Applicable Ice‑Class Regulation Edition is fixed to 1985 rule edition
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:in ( nltl:iceClassRuleEdition1985 ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Conditional: when owner requests 2008 engine‑output requirements, the
+    # engineOutputRegulationEdition must be the 2008 edition.
+    sh:property [
+        sh:path nltl:engineOutputRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:sparql [
+            a sh:SPARQLConstraint ;
+            sh:message "When ownerRequested2008EngineOutputRequirements is true, engineOutputRegulationEdition must be iceClassRegulationEdition2008." ;
+            sh:select """
+                PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                SELECT $this (COUNT(*) AS ?violations) WHERE {
+                  FILTER EXISTS {
+                    $this nltl:ownerRequested2008EngineOutputRequirements true^^xsd:boolean .
+                  }
+                  FILTER NOT EXISTS {
+                    $this nltl:engineOutputRegulationEdition nltl:iceClassRegulationEdition2008 .
+                  }
+                }
+                HAVING (COUNT(*) > 0)
+            """ ;
+        ]
+    ] .
+<END_SHACL>

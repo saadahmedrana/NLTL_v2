@@ -1,0 +1,341 @@
+We need to generate SHACL shape for the requirement. Category is Complex, verificationMode COMPLEX_READINESS. According to rules for COMPLEX_READINESS (see rule 36), we must not reconstruct the full formula; we must enforce readiness: validate inputs exist, applicability condition (ice class IA Super and bulbousBowPresent false), require calculation case evidence? Actually we have no explicit calculationCase term defined in vocab. Not in allowedVocabulary. There's no calculationCase class or related terms. So we cannot refer to those. The requirement says need to compute C1 and C2 but verificationMode is COMPLEX_READINESS, so we just need to verify that the required inputs are present (operandTerms) and that result terms exist (brashIceResistanceCoefficientC1, C2) perhaps as numeric values, with tolerance? And also enforce applicability condition: iceClass must be IA Super and bulbousBowPresent false. Also enforce presence of result terms only if applicability satisfied? Possibly shape should target ship class, with property shapes for the operand terms presence, correct datatype/unit, plus conditional branch for applicability.
+
+We need to use only allowed vocabulary terms. List includes all those terms, including bulbousBowPresent (datatype boolean). iceClass (object property to iceClassValue). We have controlled values iceClassIaSuper etc. So we need to ensure that iceClass is exactly iceClassIaSuper when applicable.
+
+Result terms: brashIceResistanceCoefficientC1 and C2 are quantity properties, each with range qudt:QuantityValue recommended unit N. Should be present (maybe have numeric value). Also perhaps need tolerance check but not needed if just presence.
+
+We also need to enforce that shipLength, shipBreadth, iceClassDraught (quantities) are present and have numeric values.
+
+Also we may need to ensure that shipLength (L) and shipBreadth (B) and iceClassDraught (T) are positive ( >0). Could use SPARQL constraint.
+
+Implement shapes:
+
+- NodeShape targetClass nltl:ship
+- property for nltl:iceClass with sh:class nltl:iceClassValue, sh:minCount 1, sh:maxCount 1, plus sh:hasValue? Not allowed; we need to enforce specific value equality via sh:property with sh:hasValue? Since iceClass is object property, we can require that the value is iceClassIaSuper: using sh:hasValue nltl:iceClassIaSuper (that's allowed if we treat it as node shape value). SHACL core allows sh:hasValue for object property.
+
+- property for nltl:bulbousBowPresent, datatype boolean, must be false. Use sh:hasValue false.
+
+- Then property shapes for each operand term: ensure they are present with correct unit and numericValue.
+
+For quantity properties: shape pattern: property path nltl:shipBreadth; within that node shape need to check that there is a quantity node that has qudt:numericValue xsd:decimal and qudt:unit recommended unit (http://qudt.org/vocab/unit/M). Could also simplify: Ensure that the object is a QuantityValue with unit. Use sh:node with property shapes.
+
+Define a reusable node shape for quantity property with given unit.
+
+Given many operand terms, we can list each property shape similarly.
+
+Result terms: same but require presence.
+
+Conditional applicability: using sh:if? Not available; we can encode using sh:property with sh:condition? Instead use sh:or: two branches: either not applicable (iceClass not IA Super or bulbousBowPresent true) then no requirement on result terms? But requirement says apply only to IA Super without a bulb. So shape should only enforce C1/C2 presence when condition holds, otherwise no violation. We can implement sh:property with sh:path nltl:iceClass and sh:hasValue nltl:iceClassIaSuper and also bulbousBowPresent false, and then use sh:and with subshapes? However SHACL doesn't support conditional directly but we can use sh:property with sh:node that includes the result checks, and add sh:filter with expression? Actually we can use sh:sparql constraint that checks: if iceClass = iaSuper and bulbousBowPresent = false then C1 and C2 must be present and numeric positive.
+
+Simpler: Use a SPARQL-based constraint that asserts violation if applicable but missing result. Also we still need presence of operand terms regardless of applicability? The semantic obligations say "require exactly one controlled iceClass and one boolean bulbousBowPresent before branch selection." So we need to enforce they are present (regardless). Then use SPARQL to enforce result presence if condition met.
+
+We'll create core property shapes for iceClass (hasValue?) Should require exactly one value; using sh:hasValue cannot enforce existence? It ensures when present must equal. But we also need minCount 1. We'll set sh:minCount 1 and sh:hasValue nltl:iceClassIaSuper (meaning must be that value). That also ensures presence.
+
+For bulbousBowPresent: sh:minCount 1, sh:hasValue false.
+
+Now ingredient operand quantities: each must be present (minCount 1) and be QuantityValue with unit.
+
+Define shape for each: e.g., sh:property [sh:path nltl:shipBreadth; sh:node [sh:property [sh:path qudt:numericValue; sh:datatype xsd:decimal; sh:minInclusive "0"^^xsd:decimal]; sh:property [sh:path qudt:unit; sh:hasValue <http://qudt.org/vocab/unit/M> ] ] ].
+
+Similarly for shipLength (<http://qudt.org/vocab/unit/M>), iceClassDraught (<http://qudt.org/vocab/unit/M>), coefficientF1 (<http://qudt.org/vocab/unit/N-PER-M2>), etc.
+
+Result terms: same but unit N.
+
+Now SPARQL constraint:
+
+Add a sh:property with sh:sparql? Actually shape allows sh:sparql. We'll add a sh:property? No, in SHACL we can have sh:sparqlConstraintComponent on node shape directly.
+
+We'll write:
+
+sh:sparql [
+   a sh:SPARQLConstraint ;
+   sh:message "C1 and C2 must be provided for IA Super ships without a bulb.";
+   sh:select """
+      PREFIX nltl: <https://w3id.org/nltl/vocab#>
+      PREFIX qudt: <http://qudt.org/schema/qudt#>
+      PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+      SELECT $this ( ?c1 ?c2 )
+      WHERE {
+        $this nltl:iceClass nltl:iceClassIaSuper .
+        $this nltl:bulbousBowPresent false .
+        FILTER NOT EXISTS { $this nltl:brashIceResistanceCoefficientC1 ?c1Node .
+                         ?c1Node qudt:numericValue ?c1Val . }
+        FILTER NOT EXISTS { $this nltl:brashIceResistanceCoefficientC2 ?c2Node .
+                         ?c2Node qudt:numericValue ?c2Val . }
+      }
+   """
+]
+
+But the constraint should flag when missing. However we need to reference variables appropriately. Use MINUS is not allowed? They said avoid MINUS. Use FILTER NOT EXISTS is allowed.
+
+We need to bind $this to ship. The pattern might be okay.
+
+But we also need to produce variable ?c1 ?c2 maybe not needed. Just SELECT $this WHERE ... ensures violation for each $this violating. Provide message.
+
+Better:
+
+SELECT $this WHERE {
+  $this nltl:iceClass nltl:iceClassIaSuper .
+  $this nltl:bulbousBowPresent false .
+  FILTER NOT EXISTS { $this nltl:brashIceResistanceCoefficientC1 ?c1 . }
+  FILTER NOT EXISTS { $this nltl:brashIceResistanceCoefficientC2 ?c2 . }
+}
+
+The result terms are quantity nodes; we just check existence of relationship.
+
+Alright.
+
+Now include needed prefixes at top: nltl, sh, xsd, qudt, maybe rdf.
+
+Also need generatedShapeNamespace for shape IRI: urn:nltl:generated-shape:TRF-025-Shape.
+
+Let's craft Turtle.
+
+Make sure all IRI references are correct.
+
+Now produce final output between markers.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+urn:nltl:generated-shape:TRF-025-Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # --- Required ice class (must be IA Super) ---
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue nltl:iceClassIaSuper
+    ] ;
+
+    # --- Required bulbous bow presence (must be false) ---
+    sh:property [
+        sh:path nltl:bulbousBowPresent ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue false
+    ] ;
+
+    # --- Operand quantities ----------------------------------------------------
+    # Ship breadth (B)
+    sh:property [
+        sh:path nltl:shipBreadth ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minInclusive "0"^^xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M>
+            ]
+        ]
+    ] ;
+
+    # Ship length (L)
+    sh:property [
+        sh:path nltl:shipLength ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minInclusive "0"^^xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M>
+            ]
+        ]
+    ] ;
+
+    # Ice class draught (T)
+    sh:property [
+        sh:path nltl:iceClassDraught ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minInclusive "0"^^xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/M>
+            ]
+        ]
+    ] ;
+
+    # Coefficient f1
+    sh:property [
+        sh:path nltl:coefficientF1 ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/N-PER-M2>
+            ]
+        ]
+    ] ;
+
+    # Coefficient f2
+    sh:property [
+        sh:path nltl:coefficientF2 ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/N-PER-M>
+            ]
+        ]
+    ] ;
+
+    # Coefficient f3
+    sh:property [
+        sh:path nltl:coefficientF3 ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/N-PER-M>
+            ]
+        ]
+    ] ;
+
+    # Coefficient f4
+    sh:property [
+        sh:path nltl:coefficientF4 ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/N-PER-M2>
+            ]
+        ]
+    ] ;
+
+    # Coefficient g1
+    sh:property [
+        sh:path nltl:coefficientG1 ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/N>
+            ]
+        ]
+    ] ;
+
+    # Coefficient g2
+    sh:property [
+        sh:path nltl:coefficientG2 ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/N-PER-M>
+            ]
+        ]
+    ] ;
+
+    # Coefficient g3 (unit: N·m⁻¹·⁵)
+    sh:property [
+        sh:path nltl:coefficientG3 ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue nltl:newtonPerMetreToPowerOnePointFiveUnit
+            ]
+        ]
+    ] ;
+
+    # --- Result quantities (C1 and C2) -----------------------------------------
+    # C1
+    sh:property [
+        sh:path nltl:brashIceResistanceCoefficientC1 ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/N>
+            ]
+        ]
+    ] ;
+
+    # C2
+    sh:property [
+        sh:path nltl:brashIceResistanceCoefficientC2 ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/N>
+            ]
+        ]
+    ] ;
+
+    # --- Conditional applicability: enforce presence of C1/C2 only for IA Super without bulb ---
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For IA Super ships without a bulb, C1 and C2 must be provided." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:iceClass nltl:iceClassIaSuper .
+                $this nltl:bulbousBowPresent false .
+                FILTER NOT EXISTS { $this nltl:brashIceResistanceCoefficientC1 ?c1 . }
+                FILTER NOT EXISTS { $this nltl:brashIceResistanceCoefficientC2 ?c2 . }
+            }
+        """
+    ] .
+
+<END_SHACL>

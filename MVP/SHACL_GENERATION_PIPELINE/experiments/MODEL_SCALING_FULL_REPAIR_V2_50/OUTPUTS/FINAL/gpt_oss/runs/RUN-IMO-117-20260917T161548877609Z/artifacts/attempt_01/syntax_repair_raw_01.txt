@@ -1,0 +1,97 @@
+We need to repair syntax errors. The error says Prefix "urn:" not bound. In Turtle, we cannot use a full IRI without <> or declare a prefix. URIs with scheme other than http need to be enclosed in <>. So use <urn:nltl:generated-shape:IMO-117> as the subject.
+
+Also need to ensure prefixes declarations and lines end with proper punctuation. Let's review entire Turtle.
+
+Current candidate:
+
+```
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+urn:nltl:generated-shape:IMO-117
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # presence of the boolean flag
+    sh:property [
+        sh:path nltl:sewageDischargeUsesTreatmentPlant ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    # conditional constraints when the flag is true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When sewageDischargeUsesTreatmentPlant is true, required approvals, compliance flags and discharge‑distance records must be present." ;
+        sh:select """ ... """ ;
+        sh:severity sh:Violation
+    ] .
+```
+
+Issues: Need to enclose subject IRI in <>. Also comments (#) allowed. Ensure sh:select content triple quotes ok. The SHACL syntax for sh:select is a string literal; triple quotes allowed. The value includes newline and quotes. That is fine.
+
+Make sure closing dot after shape. That's there. Also ensure the IRI for unit: MI_N is <http://qudt.org/vocab/unit/MI_N>. In query we used unit:MI_N - okay.
+
+Check that we used sh:SPARQLConstraint; correct class is sh:SPARQLConstraint (though spec property sh:SPARQLConstraint is a subclass of sh:ConstraintComponent; usage is a sh:SPARQLConstraint component via sh:predicate? Actually shape uses property sh:sparql with type sh:SPARQLConstraint. That's fine.
+
+Now fix subject.
+
+Also ensure no stray spaces after prefixes.
+
+Let's produce corrected candidate.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+<urn:nltl:generated-shape:IMO-117>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # presence of the boolean flag
+    sh:property [
+        sh:path nltl:sewageDischargeUsesTreatmentPlant ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    # conditional constraints when the flag is true
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When sewageDischargeUsesTreatmentPlant is true, required approvals, compliance flags and discharge‑distance records must be present." ;
+        sh:select """ 
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            SELECT $this WHERE {
+                $this nltl:sewageDischargeUsesTreatmentPlant true .
+                FILTER (
+                    NOT EXISTS { $this nltl:sewageTreatmentPlantApprovalStatus nltl:evidenceStateApproved } ||
+                    NOT EXISTS { $this nltl:marpolAnnexIvRegulation11Point1Point2DischargeComplianceStatus true } ||
+                    NOT EXISTS { $this nltl:marpolAnnexIvRegulation9Point1Point1Or9Point2Point1CertificationStatus ?cert } ||
+                    NOT EXISTS {
+                        $this nltl:hasDischargeDistanceRecord ?rec .
+                        ?rec nltl:distanceToNearestLandIceShelfOrFastIce ?distLand .
+                        ?distLand qudt:numericValue ?valLand .
+                        FILTER(datatype(?valLand) = xsd:decimal) .
+                        ?distLand qudt:unit unit:MI_N .
+                    } ||
+                    NOT EXISTS {
+                        $this nltl:hasDischargeDistanceRecord ?rec2 .
+                        ?rec2 nltl:distanceToAreaWithIceConcentrationGreaterThanOneTenth ?distIce .
+                        ?distIce qudt:numericValue ?valIce .
+                        FILTER(datatype(?valIce) = xsd:decimal) .
+                        ?distIce qudt:unit unit:MI_N .
+                    }
+                )
+            }
+        """ ;
+        sh:severity sh:Violation
+    ] .
+<END_SHACL>

@@ -33,6 +33,12 @@ MODELS = {
     "gpt_oss": ("CONFIGS/gpt_oss.json", "gpt-oss-120b"),
 }
 
+VERIFIED_GATEWAY_IDENTITIES = {
+    "sol": frozenset({"gpt-5.6-sol-2026-07-09"}),
+    "gemini": frozenset({"gemini-3.5-flash", "google/gemini-3.5-flash"}),
+    "gpt_oss": frozenset({"gpt-oss-120b"}),
+}
+
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -55,6 +61,32 @@ def append_jsonl(path: Path, value: dict[str, Any]) -> None:
 
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def verify_gateway_model_identity(model_key: str, requested_model: str, gateway_returned_model: str) -> str:
+    locked_model = MODELS[model_key][1]
+    if requested_model != locked_model:
+        raise RuntimeError(f"Requested model {requested_model!r} differs from locked model {locked_model!r}")
+    allowed = VERIFIED_GATEWAY_IDENTITIES[model_key]
+    if gateway_returned_model not in allowed:
+        raise RuntimeError(
+            f"Gateway returned model {gateway_returned_model!r}; allowed identities for "
+            f"locked model {requested_model!r}: {sorted(allowed)}"
+        )
+    return requested_model
+
+
+def gateway_model_from_run(run_directory: Path) -> str:
+    events_path = run_directory / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    returned = sorted({
+        str(event["model"])
+        for event in events
+        if event.get("event_type") == "api_call_completed" and event.get("model")
+    })
+    if len(returned) != 1:
+        raise RuntimeError(f"Expected one gateway-returned model identity in {events_path}; found {returned}")
+    return returned[0]
 
 
 def verify_manifests(repo: Path) -> dict[str, Any]:
@@ -83,7 +115,7 @@ def verify_manifests(repo: Path) -> dict[str, Any]:
     return lock
 
 
-def load_model(model_key: str, *, scope: str) -> tuple[PipelineConfig, Path, str]:
+def load_model(model_key: str, *, scope: str, output_tag: str | None = None) -> tuple[PipelineConfig, Path, str]:
     config_rel, exact_model = MODELS[model_key]
     config_path = EXPERIMENT / config_rel
     config = PipelineConfig.load(config_path)
@@ -97,8 +129,15 @@ def load_model(model_key: str, *, scope: str) -> tuple[PipelineConfig, Path, str
         raise RuntimeError("FULL_REPAIR_V2 attempt limits changed")
     if scope == "smoke":
         raw = copy.deepcopy(config.raw)
-        raw["generation_run"] = str(raw["generation_run"]) + "_SMOKE"
-        raw["paths"]["outputs"] = f"experiments/MODEL_SCALING_FULL_REPAIR_V2_50/OUTPUTS/SMOKE/{model_key}"
+        if output_tag and (not output_tag.replace("-", "").replace("_", "").isalnum() or len(output_tag) > 64):
+            raise RuntimeError("Smoke output tag must contain only letters, digits, '-' or '_' and be at most 64 characters")
+        tag_suffix = f"_{output_tag.upper().replace('-', '_')}" if output_tag else ""
+        raw["generation_run"] = str(raw["generation_run"]) + "_SMOKE" + tag_suffix
+        raw["paths"]["outputs"] = (
+            f"experiments/MODEL_SCALING_FULL_REPAIR_V2_50/OUTPUTS/SMOKE_RERUNS/{output_tag}/{model_key}"
+            if output_tag else
+            f"experiments/MODEL_SCALING_FULL_REPAIR_V2_50/OUTPUTS/SMOKE/{model_key}"
+        )
         config = PipelineConfig(raw=raw, config_path=config_path)
     return config, config_path, exact_model
 
@@ -131,11 +170,14 @@ def connectivity(model_key: str) -> int:
         "Connectivity check only. Return exactly OK.",
         "Return exactly OK. Do not generate SHACL or analyze a requirement.",
     )
+    canonical_model = verify_gateway_model_identity(model_key, exact_model, result.model)
     output = EXPERIMENT / f"OUTPUTS/CONNECTIVITY/{model_key}/connectivity.json"
     payload = {
         "started_utc": started,
         "finished_utc": now(),
         "requested_model": exact_model,
+        "gateway_returned_model": result.model,
+        "verified_experimental_model": canonical_model,
         "returned_model": result.model,
         "endpoint_type": client.endpoint_type,
         "endpoint_url": client.base_url,
@@ -150,16 +192,16 @@ def connectivity(model_key: str) -> int:
         "api_key_retained": False,
     }
     atomic_json(output, payload)
-    if result.model and result.model != exact_model:
-        raise RuntimeError(f"Gateway returned model {result.model!r}; expected exact model {exact_model!r}")
     print(json.dumps({"status": "PASS", "model": exact_model, "output": str(output.relative_to(repo))}, indent=2))
     return 0
 
 
-def generation(model_key: str, scope: str) -> int:
+def generation(model_key: str, scope: str, output_tag: str | None = None) -> int:
     repo = find_repo_root()
     lock = verify_manifests(repo)
-    config, config_path, exact_model = load_model(model_key, scope=scope)
+    if output_tag and scope != "smoke":
+        raise RuntimeError("--output-tag is permitted only for smoke runs")
+    config, config_path, exact_model = load_model(model_key, scope=scope, output_tag=output_tag)
     manifest_name = "smoke" if scope == "smoke" else "sample"
     sample_path = repo / lock["files"][manifest_name]["path"]
     sample = load_json(sample_path)
@@ -187,9 +229,12 @@ def generation(model_key: str, scope: str) -> int:
     state = load_json(run_manifest_path) if run_manifest_path.exists() else {
         "experiment": "FULL_REPAIR_V2_MODEL_SCALING_50",
         "scope": scope,
+        "output_tag": output_tag,
         "session_id": session_id,
         "status": "IN_PROGRESS",
         "model_id": exact_model,
+        "requested_model": exact_model,
+        "gateway_returned_model": None,
         "endpoint_type": config.raw["api"]["endpoint_type"],
         "endpoint_env": config.raw["api"]["endpoint_env"],
         "api_key_env": config.raw["api"]["api_key_env"],
@@ -204,6 +249,7 @@ def generation(model_key: str, scope: str) -> int:
     }
     invariants = {
         "scope": scope,
+        "output_tag": output_tag,
         "session_id": session_id,
         "model_id": exact_model,
         "sample_manifest_sha256": sha256(sample_path),
@@ -223,12 +269,6 @@ def generation(model_key: str, scope: str) -> int:
             continue
         try:
             result = runner.run_requirement(requirement_id, client, session_id=session_id)
-            row = {
-                "requirement_id": requirement_id,
-                "recorded_utc": now(),
-                "result_kind": "PIPELINE_RESULT",
-                **result.to_dict(),
-            }
         except KeyboardInterrupt:
             state["status"] = "INTERRUPTED"
             state["completed_requirements"] = len(rows)
@@ -239,6 +279,9 @@ def generation(model_key: str, scope: str) -> int:
                 "requirement_id": requirement_id,
                 "recorded_utc": now(),
                 "result_kind": "RUNNER_EXCEPTION",
+                "requested_model": exact_model,
+                "gateway_returned_model": None,
+                "verified_experimental_model": None,
                 "status": "BATCH_ITEM_ERROR",
                 "accepted": False,
                 "attempts": None,
@@ -247,10 +290,47 @@ def generation(model_key: str, scope: str) -> int:
                 "final_shape": None,
                 "final_feedback": f"{type(exc).__name__}: {exc}",
             }
+        else:
+            gateway_returned_model = gateway_model_from_run(result.run_directory)
+            result_payload = result.to_dict()
+            try:
+                canonical_model = verify_gateway_model_identity(model_key, exact_model, gateway_returned_model)
+            except RuntimeError as exc:
+                row = {
+                    "requirement_id": requirement_id,
+                    "recorded_utc": now(),
+                    "result_kind": "MODEL_IDENTITY_ERROR",
+                    "requested_model": exact_model,
+                    "gateway_returned_model": gateway_returned_model,
+                    "verified_experimental_model": None,
+                    **result_payload,
+                    "pipeline_status_before_identity_check": result.status,
+                    "status": "MODEL_IDENTITY_ERROR",
+                    "accepted": False,
+                    "final_feedback": f"{type(exc).__name__}: {exc}",
+                }
+            else:
+                row = {
+                    "requirement_id": requirement_id,
+                    "recorded_utc": now(),
+                    "result_kind": "PIPELINE_RESULT",
+                    "requested_model": exact_model,
+                    "gateway_returned_model": gateway_returned_model,
+                    "verified_experimental_model": canonical_model,
+                    **result_payload,
+                }
         append_jsonl(ledger_path, row)
         rows.append(row)
         completed.add(requirement_id)
         state["completed_requirements"] = len(rows)
+        observed_gateway_models = sorted({
+            str(item["gateway_returned_model"])
+            for item in rows
+            if item.get("gateway_returned_model")
+        })
+        state["requested_model"] = exact_model
+        state["gateway_returned_model"] = observed_gateway_models[0] if len(observed_gateway_models) == 1 else None
+        state["gateway_returned_models"] = observed_gateway_models
         state["status_counts"] = {
             status: sum(item.get("status") == status for item in rows)
             for status in sorted({str(item.get("status")) for item in rows})
@@ -273,8 +353,11 @@ def main() -> int:
     generate = sub.add_parser("generate")
     generate.add_argument("--model", choices=MODELS, required=True)
     generate.add_argument("--scope", choices=("smoke", "final"), required=True)
+    generate.add_argument("--output-tag")
     args = parser.parse_args()
-    return connectivity(args.model) if args.command == "connectivity" else generation(args.model, args.scope)
+    return connectivity(args.model) if args.command == "connectivity" else generation(
+        args.model, args.scope, args.output_tag
+    )
 
 
 if __name__ == "__main__":

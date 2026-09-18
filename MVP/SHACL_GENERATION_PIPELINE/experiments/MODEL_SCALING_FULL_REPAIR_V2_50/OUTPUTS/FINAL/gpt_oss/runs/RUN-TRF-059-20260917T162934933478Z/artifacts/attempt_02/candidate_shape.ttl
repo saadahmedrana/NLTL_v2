@@ -1,0 +1,176 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix math: <http://www.w3.org/2005/xpath-functions/math#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-059Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:webFrame ;
+
+    # operand: maximumCalculatedShearForce (kN)
+    sh:property [
+        sh:path nltl:maximumCalculatedShearForce ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:KiloN ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # operand: webFrameShearFactorAlpha (unitless)
+    sh:property [
+        sh:path nltl:webFrameShearFactorAlpha ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # operand: yieldStrength (MPa)
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # operand (optional for completeness, not used in formula but listed in contract)
+    sh:property [
+        sh:path nltl:freeFlangeToWebAreaRatio ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:UNITLESS ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # mandatory input: sectionModulusZ (cm³)
+    sh:property [
+        sh:path nltl:sectionModulusZ ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:CubicCentimeter ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # result: requiredShearArea (cm^2)
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:CentiM2 ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ]
+    ] ;
+
+    # calculation check
+    sh:sparql [
+        sh:message "requiredShearArea does not match the formula A = sqrt(3) * alpha * 1.1 * Q / sigma_y * 10^4 within tolerance." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:maximumCalculatedShearForce ?qNode .
+                $this nltl:webFrameShearFactorAlpha ?alphaNode .
+                $this nltl:yieldStrength ?sigmaNode .
+                $this nltl:requiredShearArea ?reqNode .
+
+                ?qNode qudt:numericValue ?Q .
+                ?alphaNode qudt:numericValue ?alpha .
+                ?sigmaNode qudt:numericValue ?sigma .
+                ?reqNode qudt:numericValue ?Req .
+
+                BIND( math:sqrt(3) AS ?sqrt3 ) .
+                BIND( (?sqrt3 * ?alpha * 1.1 * ?Q * 10000) / ?sigma AS ?Calc ) .
+
+                # tolerance: relative 1e-6, absolute fallback 1e-9
+                BIND( IF( ?Calc = 0, 1e-9, ABS(?Calc) * 1e-6 ) AS ?tol ) .
+                FILTER( ABS(?Req - ?Calc) > ?tol )
+            }
+        """ ;
+        sh:where """# empty (shape uses SELECT)""" 
+    ] .

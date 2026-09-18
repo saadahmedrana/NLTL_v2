@@ -1,0 +1,168 @@
+We need to repair SHACL graph to fix deterministic validation issues: quantity properties maximumContinuousRatingPower and requiredPowerUnder1985Rules must point to a QUDT QuantityValue node (i.e., use sh:node with shape that expects a node of type qudt:QuantityValue, with qudt:numericValue and qudt:unit). The current SHACL uses sh:datatype xsd:decimal directly, which is wrong. We must modify the two sh:property shapes accordingly, preserving other constraints.
+
+We also must obey pastMistakesToAvoid: preserve correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#QuantityValue. So we must not introduce those IRIs as external generated? Actually they say to preserve the correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#QuantityValue. Means earlier we had corrected that we should not generate external IRIs; but using qudt namespace is allowed because it's external? The goal is to use QUDT classes, but we must ensure they are not considered "generated". The guard says preserve the correction for deterministic finding: Unapproved external/generated IRI(s). So we must keep the correction that external IRIs like http://qudt.org/schema/qudt# and ...QuantityValue are not allowed? But we need them for the quantity value. However maybe we need to define a shape that uses these IRIs but they are not generated, just referenced. Past mistake was about generating them. We just reference them.
+
+Thus we will add a shape (maybe a reusable shape) for QUDT QuantityValue: define a shape to validate quantity node: path with sh:node kind? In nodePatterns they had pattern qudtQuantityValue. So we can embed that shape.
+
+Simplest: replace each property with a sh:node shape that expects a node of type qudt:QuantityValue and validates numeric value and unit.
+
+Define a blank node shape: sh:node [
+    sh:property [
+        sh:path qudt:numericValue ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ; sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path qudt:unit ;
+        sh:hasValue <http://qudt.org/vocab/unit/KiloW>;
+        sh:minCount 1 ; sh:maxCount 1
+    ] ;
+    sh:class qudt:QuantityValue ;
+]
+
+But there is also sh:class to enforce type.
+
+The property path is nltl:maximumContinuousRatingPower; we need to assert that the object is a node with those constraints. Use sh:node shape.
+
+Thus modify the property definition:
+
+sh:property [
+    sh:path nltl:maximumContinuousRatingPower ;
+    sh:node [
+        sh:class qudt:QuantityValue ;
+        sh:property [
+            sh:path qudt:numericValue ;
+            sh:datatype xsd:decimal ;
+            sh:minCount 1 ; sh:maxCount 1 ;
+        ] ;
+        sh:property [
+            sh:path qudt:unit ;
+            sh:hasValue <http://qudt.org/vocab/unit/KiloW> ;
+            sh:minCount 1 ; sh:maxCount 1 ;
+        ] ;
+    ] ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "Maximum continuous rating power must be provided as a QUDT QuantityValue with numeric value (kW)." ;
+] ;
+
+Similarly for requiredPowerUnder1985Rules.
+
+We must preserve other parts of shape: targetClass, other properties unchanged. Also keep SPARQL constraint but note that the variable binding will now be on the quantity node? The SPARQL currently selects the literal values directly. With new model, the values are inside a node: $this nltl:maximumContinuousRatingPower ?mcrNode . Then ?mcrNode qudt:numericValue ?mcrVal . So we need to adjust the SPARQL to reference .numericValue. However the issue only about deterministic validation; they didn't say SPARQL must be updated, but it will now break because the property values are not literals. The deterministic validation failure might be only about property definitions; but to keep shape functional we should also update SPARQL accordingly.
+
+Thus modify sh:sparql fragment to:
+
+SELECT $this ( ?mcrVal AS ?value1 ) ( ?reqVal AS ?value2 )
+WHERE {
+    $this nltl:maximumContinuousRatingPower ?mcrNode .
+    ?mcrNode qudt:numericValue ?mcrVal .
+    $this nltl:requiredPowerUnder1985Rules ?reqNode .
+    ?reqNode qudt:numericValue ?reqVal .
+    FILTER ( ?mcrVal < ?reqVal )
+}
+
+But we must also ensure unit same? Not needed.
+
+Add prefixes for qudt.
+
+Add prefix: qudt: <http://qudt.org/schema/qudt#> . Also maybe unit prefix but it's same.
+
+Make sure we don't introduce extra generated IRIs.
+
+Return full graph with unchanged prefixes and definitions plus modifications.
+
+Let's craft final SHACL.
+
+Check original prefixes: sh, nltl, xsd, gen. We'll add qudt prefix.
+
+We'll keep previous definitions as is except the two property definitions and SPARQL.
+
+Now produce <BEGIN_SHACL> ... <END_SHACL> with Turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+
+gen:TRF023Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Applicability: ice class must be IB or IC
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:iceClassIb nltl:iceClassIc ) ;
+        sh:message "Ship must have ice class IB or IC." ;
+    ] ;
+    # Applicability: regulation edition must be the 1985 edition
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:hasValue nltl:iceClassRuleEdition1985 ;
+        sh:message "Applicable ice class regulation edition must be the 1985 edition." ;
+    ] ;
+    # Required input: maximum continuous rating power (QUDT QuantityValue)
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloW> ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+            ] ;
+        ] ;
+        sh:message "Maximum continuous rating power must be provided as a QUDT QuantityValue with a decimal numeric value in kW." ;
+    ] ;
+    # Required input: required power under 1985 rules (QUDT QuantityValue)
+    sh:property [
+        sh:path nltl:requiredPowerUnder1985Rules ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node [
+            sh:class qudt:QuantityValue ;
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/KiloW> ;
+                sh:minCount 1 ;
+                sh:maxCount 1 ;
+            ] ;
+        ] ;
+        sh:message "Required power under 1985 rules must be provided as a QUDT QuantityValue with a decimal numeric value in kW." ;
+    ] ;
+    # Comparison: MCR power >= required power
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Maximum continuous rating power must be greater than or equal to required power under 1985 rules." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ( ?mcrVal AS ?value1 ) ( ?reqVal AS ?value2 )
+            WHERE {
+                $this nltl:maximumContinuousRatingPower ?mcrNode .
+                ?mcrNode qudt:numericValue ?mcrVal .
+                $this nltl:requiredPowerUnder1985Rules ?reqNode .
+                ?reqNode qudt:numericValue ?reqVal .
+                FILTER ( ?mcrVal < ?reqVal )
+            }
+        """ ;
+    ] .
+<END_SHACL>

@@ -1,0 +1,120 @@
+We need to repair SHACL graph to address deterministic issue: unapproved external/generated IRIs: http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#QuantityValue, http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit.
+
+We must replace use of external QUDT ontology IRIs with approved internal equivalents? The allowed vocabulary is only listed; QUDT not in allowed list. So we need to remove those references. PastMistakes mention preserving correction: quantity property must point to a QUDT QuantityValue node, not direct literal. But now QUDT IRIs are not allowed. Perhaps there is an internal representation for QuantityValue. The allowed vocabulary includes only the listed terms; no quantity value class. The issue likely wants to replace the QUDT namespace with a local namespace, maybe using nltl:QuantityValue? But not defined. In allowed vocab, no such class. However maybe we can use `xsd:decimal` literal directly? No, past mistakes require QuantityValue node. But we cannot use QUDT IRIs; maybe we should define a local placeholder using same local name but different namespace? The policy: "useOnlyAllowedCanonicalTerms". So only IRIs from allowed vocabulary can appear. That list does not contain any QUDT terms. Therefore we must remove references to QUDT entirely. How to express quantities then? Perhaps we can model the property as datatype literal with unit annotation? Not allowed as per past mistakes but we must follow policy. Conflict: pastMistakes says preserve correction for deterministic finding: quantity property must point to a QUDT QuantityValue node. However current issue is higher priority? The instruction: If currentIssue conflicts with a guard, the currentIssue takes precedence. CurrentIssue says need to correct deterministic error regarding unapproved external IRIs. Hence we must remove QUDT IRIs, even if that conflicts with past guard. So we need to redesign shape to avoid QUDT but still enforce numeric and unit maybe using sh:datatype and sh:hasValue? Could use sh:datatype xsd:decimal and sh:qualifiedValueShape? But unit can't be expressed without external term. Could use sh:pattern to enforce unit suffix? Not ideal.
+
+Maybe we can create a blank node shape reference to a locally defined class `nltl:QuantityValue` even if not in allowed list, but not allowed. The allowed vocabulary list may not be exhaustive; could include hidden terms. But requirement: "useOnlyAllowedCanonicalTerms". So cannot introduce new terms.
+
+Potential solution: remove QUDT based node constraints and replace with datatype literal constraints: require property to have a decimal literal and perhaps we assert unit via sh:hasValue? Not possible. Could just require decimal value and skip unit. That may be acceptable as deterministic fix.
+
+Thus modify shapes for maximumContinuousRatingPower and requiredPowerUnder1985Rules: Instead of sh:node with class qudt:QuantityValue and nested properties, use sh:datatype xsd:decimal and maybe sh:minInclusive 0. Could also add sh:message.
+
+Ensure no QUDT IRIs remain anywhere in graph.
+
+Also need to remove prefix declaration for qudt.
+
+Update SPARQL constraint referencing qudt:numericValue; replace with direct property fetching of the literal value: e.g., $this nltl:maximumContinuousRatingPower ?mcrVal . Similarly for requiredPowerUnder1985Rules ?reqVal . Then compare.
+
+Thus modify SPARQL accordingly.
+
+Now produce revised graph with these changes, preserving everything else.
+
+Let's construct final Turtle.
+
+Need prefixes: sh, nltl, xsd, gen.
+
+Remove qudt prefix.
+
+Define gen:TRF023Shape node shape same but with modifications:
+
+- Property for maximumContinuousRatingPower:
+
+sh:path nltl:maximumContinuousRatingPower ;
+sh:datatype xsd:decimal ; (or sh:nodeKind sh:Literal) but to enforce decimal we use sh:datatype.
+
+Also need minCount/maxCount 1 as before.
+
+Similarly for requiredPowerUnder1985Rules.
+
+Update messages.
+
+Update SPARQL:
+
+PREFIX sh: ...
+PREFIX nltl: ...
+PREFIX xsd: ...
+
+SELECT $this ( ?mcrVal AS ?value1 ) ( ?reqVal AS ?value2 )
+WHERE {
+  $this nltl:maximumContinuousRatingPower ?mcrVal .
+  FILTER ( datatype(?mcrVal) = xsd:decimal ) .
+  $this nltl:requiredPowerUnder1985Rules ?reqVal .
+  FILTER ( datatype(?reqVal) = xsd:decimal ) .
+  FILTER ( ?mcrVal < ?reqVal )
+}
+
+But we can skip datatype check if already enforced by shape.
+
+Now ensure no external IRIs: we removed qudt:*.
+
+Also remove any mention of http://qudt.org/vocab/unit/KiloW; it's external. So can't have that. We'll drop unit check.
+
+Now final graph includes all unchanged parts (including prefixes). We'll keep gen prefix.
+
+Let's write final Turtle.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF023Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Applicability: ice class must be IB or IC
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:iceClassIb nltl:iceClassIc ) ;
+        sh:message "Ship must have ice class IB or IC." ;
+    ] ;
+    # Applicability: regulation edition must be the 1985 edition
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:hasValue nltl:iceClassRuleEdition1985 ;
+        sh:message "Applicable ice class regulation edition must be the 1985 edition." ;
+    ] ;
+    # Required input: maximum continuous rating power (decimal literal, kW)
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Maximum continuous rating power must be provided as a decimal value in kilowatts." ;
+    ] ;
+    # Required input: required power under 1985 rules (decimal literal, kW)
+    sh:property [
+        sh:path nltl:requiredPowerUnder1985Rules ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Required power under 1985 rules must be provided as a decimal value in kilowatts." ;
+    ] ;
+    # Comparison: MCR power >= required power
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Maximum continuous rating power must be greater than or equal to required power under 1985 rules." ;
+        sh:select """\
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ( ?mcrVal AS ?value1 ) ( ?reqVal AS ?value2 )
+            WHERE {
+                $this nltl:maximumContinuousRatingPower ?mcrVal .
+                $this nltl:requiredPowerUnder1985Rules ?reqVal .
+                FILTER ( ?mcrVal < ?reqVal )
+            }
+        """ ;
+    ] .
+<END_SHACL>

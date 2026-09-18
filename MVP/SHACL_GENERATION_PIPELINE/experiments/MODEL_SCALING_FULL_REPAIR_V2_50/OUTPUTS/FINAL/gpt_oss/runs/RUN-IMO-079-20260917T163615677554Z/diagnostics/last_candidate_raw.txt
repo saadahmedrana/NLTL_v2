@@ -1,0 +1,195 @@
+We need to generate a SHACL graph for the requirement: available_emergency_ration_person_days >= persons_on_board * maximum_expected_rescue_time_days.
+
+We have canonical vocabulary terms: availableEmergencyRationPerson (property), maximumExpectedRescueTime, personsOnBoard. All have requiredOwner "ship". Also benchmarkEntity class, ship class.
+
+The requirement's verificationMode is DIRECT_CALCULATION, so we can calculate. Need to produce shapes targeting ship class.
+
+We need property shapes for each property: ensure presence, correct datatype/unit. For quantity properties (availableEmergencyRationPerson and maximumExpectedRescueTime) they are QuantityProperty with range qudt:QuantityValue, recommendedUnit DAY. So we need property shapes ensuring path to those properties, with node constraints for quantity node: numericValue decimal and unit DAY.
+
+For personsOnBoard: datatype integer.
+
+Then a SPARQL constraint to enforce comparison: availableEmergencyRationPerson >= personsOnBoard * maximumExpectedRescueTime.
+
+We must use prefixes: sh, nltl, xsd, qudt, unit (maybe unit:DAY?). The recommended unit is http://qudt.org/vocab/unit/DAY. So we can use that IRI.
+
+In SPARQL we need to get numeric values. Since those properties are Quantity (with a blank node quantity) we need to navigate to numericValue and unit. Typically pattern:
+
+$this nltl:availableEmergencyRationPerson ?avQty .
+?avQty qudt:numericValue ?avNum .
+?avQty qudt:unit ?avUnit .
+Similarly for maximumExpectedRescueTime.
+
+Ensuring unit is correct perhaps via earlier property shape that enforces unit.
+
+For SPARQL, need to compute ?persons (xsd:integer) and ?maxRescueDays (decimal) and ?available (decimal). Compute product as ?required = ?persons * ?maxRescueDays. Compare with >= condition: ?available >= ?required.
+
+But note personsOnBoard integer; we may need to cast to decimal for multiplication. In SPARQL, using arithmetic works with numeric types. So okay.
+
+We need tolerance? Not needed; the comparison is exact >= of numeric values.
+
+Include sh:message.
+
+Make shape: urn:nltl:generated-shape:IMO-079Shape or similar.
+
+Add sh:targetClass nltl:ship.
+
+Now about unit enforcement: In property shape for quantity property we can enforce unit via sh:hasValue on downstream node? The example in few-shot uses nested node shapes for quantity. Use sh:node constraint with property shapes for numericValue and unit.
+
+Implement for availableEmergencyRationPerson:
+
+sh:property [
+  sh:path nltl:availableEmergencyRationPerson ;
+  sh:node [
+    sh:property [
+      sh:path qudt:numericValue ;
+      sh:datatype xsd:decimal ;
+      sh:minCount 1 ; sh:maxCount 1
+    ] ;
+    sh:property [
+      sh:path qudt:unit ;
+      sh:hasValue <http://qudt.org/vocab/unit/DAY> ;
+      sh:minCount 1 ; sh:maxCount 1
+    ]
+  ]
+] .
+
+Similarly for maximumExpectedRescueTime.
+
+personsOnBoard shape:
+
+sh:property [
+  sh:path nltl:personsOnBoard ;
+  sh:datatype xsd:integer ;
+  sh:minCount 1 ; sh:maxCount 1
+] .
+
+Now SPARQL constraint:
+
+sh:sparql [
+  sh:message "availableEmergencyRationPerson must be at least personsOnBoard * maximumExpectedRescueTime" ;
+  sh:select """
+    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+    PREFIX qudt: <http://qudt.org/schema/qudt/>
+    SELECT $this
+    WHERE {
+      $this nltl:availableEmergencyRationPerson ?avQty .
+      ?avQty qudt:numericValue ?avNum .
+      $this nltl:maximumExpectedRescueTime ?maxQty .
+      ?maxQty qudt:numericValue ?maxNum .
+      $this nltl:personsOnBoard ?persons .
+      FILTER (?avNum < (?persons * ?maxNum))
+    }
+  """ ;
+] .
+
+Note we need to include the unit check maybe not needed because property shape ensures unit.
+
+Make sure prefixes inside query: include nltl, xsd, qudt.
+
+Now generate Turtle.
+
+Define prefixes at top for readability. Use generatedShapeNamespace: urn:nltl:generated-shape:.
+
+Define shape IRI: urn:nltl:generated-shape:IMO-079.
+
+Will need to include sh:NodeShape.
+
+Let's craft.
+
+Check for any missing requirement: The dependency contract includes requiredModelFields: comparisonModel, operandTerms, resultTerms – we have those.
+
+Make sure not to add extra obligations.
+
+No repairFeedback.
+
+Thus final output inside markers.
+
+Check syntax: Turtle with prefixes lines.
+
+Make sure we close brackets properly.
+
+Now produce final answer.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gs: <urn:nltl:generated-shape:> .
+
+gs:IMO-079
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # personsOnBoard – integer count
+    sh:property [
+        sh:path nltl:personsOnBoard ;
+        sh:datatype xsd:integer ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # maximumExpectedRescueTime – quantity in days
+    sh:property [
+        sh:path nltl:maximumExpectedRescueTime ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DAY ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # availableEmergencyRationPerson – quantity in days
+    sh:property [
+        sh:path nltl:availableEmergencyRationPerson ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:DAY ;
+                sh:minCount 1 ;
+                sh:maxCount 1
+            ]
+        ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # Comparison: available >= persons * maximum rescue time
+    sh:sparql [
+        sh:message "availableEmergencyRationPerson must be at least personsOnBoard multiplied by maximumExpectedRescueTime." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+            SELECT $this
+            WHERE {
+                $this nltl:availableEmergencyRationPerson ?avQty .
+                ?avQty qudt:numericValue ?avNum .
+                $this nltl:maximumExpectedRescueTime ?maxQty .
+                ?maxQty qudt:numericValue ?maxNum .
+                $this nltl:personsOnBoard ?persons .
+
+                FILTER (?avNum < (?persons * ?maxNum))
+            }
+        """ ;
+    ] .
+<END_SHACL>

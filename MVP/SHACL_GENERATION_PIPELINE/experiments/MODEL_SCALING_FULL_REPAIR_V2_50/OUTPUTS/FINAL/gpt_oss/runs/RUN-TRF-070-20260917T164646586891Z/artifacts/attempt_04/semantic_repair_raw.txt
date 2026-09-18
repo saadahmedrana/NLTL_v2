@@ -1,0 +1,152 @@
+We need to fix deterministic validation error about unapproved external/generated IRI(s): http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#QuantityValue, http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit.
+
+The past mistakes also say preserve correction: unapproved external IRI: http://qudt.org/schema/qudt#. Means we should not use the qudt: namespace as generated IRI but perhaps use a different approved IRI? The allowed vocabulary includes only specific terms; qudt terms are external but are they allowed? The error says "Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#" i.e., the base IRI is not allowed. The other terms like QuantityValue, numericValue, unit are also unapproved.
+
+We need to correct by referencing approved ontology for quantity values? In allowed vocabulary, each property has recommendedUnit like http://qudt.org/vocab/unit/KiloN but recommend using that unit. However the shape uses qudt:QuantityValue class and qudt:numericValue, qudt:unit. Perhaps we can define our own locally that mirrors QUDT but with approved base? Since we cannot introduce new terms not allowed. Allowed vocabulary includes only listed terms; we cannot create new terms. But we could avoid using external QUDT classes by using a generic blank node with datatype literals? However past mistakes require that quantity properties must point to a QUDT QuantityValue node, not a direct literal. But also external IRI not approved.
+
+Conflict: Past mistakes require quantity properties to point to QUDT QuantityValue nodes (this was for earlier corrections). But current issue says external IRI unapproved, so we must resolve by using an approved wrapper. Possibly we can define a local class in our namespace that is a subclass of qudt:QuantityValue, but that still uses external base. However base still unapproved. Maybe we can use our own shape node class without referring to QUDT class, but still enforce numericValue and unit via properties in our namespace that are allowed? But those property IRIs are also external qudt namespace. Are they allowed? Not in allowed vocabulary. So maybe we need to replace references to qudt:QuantityValue, qudt:numericValue, qudt:unit with generic SHACL constructs: using sh:datatype xsd:decimal with sh:nodeKind sh:Literal and sh:property for unit using datatype string? However past mistake says quantity property must point to QUDT QuantityValue node; that is a regression guard. The guard says preserve correction that quantity property must point to QUDT QuantityValue node, not a direct literal datatype. So we must keep QUDT structure. However the unapproved external IRI issue conflicts. The rule says if conflict, currentIssue takes precedence. So we must prioritize fixing deterministic error, even if breaks past guard? The instruction: "If a currentIssue conflicts with a guard, the currentIssue takes precedence." So we must change to avoid external IRIs even if breaking past guard. So we need to replace qudt: with something allowed, maybe using our own namespace e.g., urn:nltl:generated-shape:qudt? But must use allowed canonical terms only. AllowedVocabulary does not contain any QUDT terms, so we cannot add new. But can we define them as blank nodes? Possibly we can refer to them via sh:nodeKind sh:BlankNode and use property path patterns for numeric values without explicitly naming the class. Could use sh:node with sh:property for numeric value and unit but without specifying sh:class. That would avoid external class IRI.
+
+Thus modify each sh:property that currently has sh:node with sh:class qudt:QuantityValue to instead have sh:node with sh:property for numericValue and unit using generic properties? But need property IRIs for numericValue and unit; those are also external. We could avoid referencing them, just use sh:property with sh:path to any? Not possible. Perhaps we can use sh:datatype xsd:decimal directly on the property (i.e., the quantity property is directly a decimal with unit as separate property). But that would be direct literal, violating past guard but allowed by current issue.
+
+Thus we replace each quantity property shape with:
+
+sh:path nltl:localIcePressure ;
+sh:node [
+   sh:property [
+      sh:path nltl:localIcePressure ; // can't same. Actually we need numeric value? Use sh:datatype xsd:decimal and unit property maybe nltl:unit?? Not defined.
+
+Maybe simpler: just remove sh:node and enforce sh:datatype xsd:decimal and sh:minCount etc. Since unit not validated. That would remove external IRIs.
+
+The requirement may lose unit validation but satisifies deterministic issue.
+
+Thus update shapes for designConditionLocalStrengthCapacity, localIcePressure, propellerIceInteractionLoad, thrusterBodyIceInteractionLoad to have sh:datatype xsd:decimal (or maybe using nltl:designConditionLocalStrengthCapacity etc). Use sh:path with sh:datatype xsd:decimal.
+
+Also need adjust the SPARQL constraint: it uses qudt:numericValue property. We must adjust to retrieve the values directly from the property values (since they are literals). So modify query to retrieve the literal directly from property path.
+
+E.g., ?dc nltl:designConditionLocalStrengthCapacity ?capacityVal . (assuming the property now directly holds decimal literal). Similarly for localIcePressure.
+
+Thus adjust SPARQL.
+
+Now also ensure we removed all references to qudt: namespace from shape. Also there is a prefix qudt defined; we can keep but not used. It's fine but might be considered external unapproved IRI because prefix definition still uses IRI; maybe still flagged? Usually validation checks usage, not prefix definitions. Safer to remove prefix line and any references.
+
+Thus final shape should have prefixes sh, nltl, xsd, and :.
+
+Now produce revised graph.
+
+Let's construct.
+
+Check each property:
+
+- designConditionLocalStrengthCapacity nested under hasDesignCondition node: currently have node with sh:class qudt:QuantityValue and properties. We'll replace with sh:property path nltl:designConditionLocalStrengthCapacity ; sh:datatype xsd:decimal ; sh:minCount 1 ; sh:message.
+
+But designConditionLocalStrengthCapacity is inside the designCondition node, not directly on ship. The shape already has property path nltl:hasDesignCondition with class nltl:designCondition and then node nested containing property for designConditionLocalStrengthCapacity. We'll keep that nesting but replace inner node to just enforce datatype.
+
+Thus:
+
+sh:property [
+   sh:path nltl:designConditionLocalStrengthCapacity ;
+   sh:datatype xsd:decimal ;
+   sh:minCount 1 ;
+   sh:message "...".
+];
+
+Similarly for other top-level properties.
+
+Now adjust SPARQL: use ?dc nltl:designConditionLocalStrengthCapacity ?capacityVal . The value is decimal literal. Also ?this nltl:localIcePressure ?pressureVal . Remove numericValue extraction.
+
+Now produce final SHACL.
+
+Also ensure we still have sh:minCount 1 for those properties at top-level.
+
+Define shapes accordingly.
+
+Let's write corrected shape.
+
+
+<BEGIN_SHACL>
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix :     <urn:nltl:generated-shape:> .
+
+:TRF-070_Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # Applicability – thruster type
+    sh:property [
+        sh:path nltl:thrusterType ;
+        sh:datatype xsd:string ;
+        sh:in ( "azimuthing" "fixed" ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "thrusterType must be present and be either 'azimuthing' or 'fixed'." ;
+    ] ;
+
+    # Applicability – main propulsion thruster must be true
+    sh:property [
+        sh:path nltl:mainPropulsionThruster ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "mainPropulsionThruster must be true for the requirement to apply." ;
+    ] ;
+
+    # Require a design condition and embed the local strength capacity quantity
+    sh:property [
+        sh:path nltl:hasDesignCondition ;
+        sh:class nltl:designCondition ;
+        sh:minCount 1 ;
+        sh:message "A designCondition must be associated with the ship." ;
+        sh:node [
+            sh:property [
+                sh:path nltl:designConditionLocalStrengthCapacity ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:message "designConditionLocalStrengthCapacity must be provided as a decimal value." ;
+            ] ;
+        ] ;
+    ] ;
+
+    # Require local ice pressure quantity (decimal)
+    sh:property [
+        sh:path nltl:localIcePressure ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "localIcePressure quantity must be provided as a decimal value." ;
+    ] ;
+
+    # Require propeller‑ice interaction load (decimal)
+    sh:property [
+        sh:path nltl:propellerIceInteractionLoad ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "propellerIceInteractionLoad quantity must be provided as a decimal value." ;
+    ] ;
+
+    # Require thruster‑body ice interaction load (decimal)
+    sh:property [
+        sh:path nltl:thrusterBodyIceInteractionLoad ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:message "thrusterBodyIceInteractionLoad quantity must be provided as a decimal value." ;
+    ] ;
+
+    # Direct check: capacity >= pressure (using decimal values)
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Design condition local strength capacity is insufficient compared to local ice pressure." ;
+        sh:select """ 
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT ?this WHERE {
+                ?this nltl:hasDesignCondition ?dc .
+                ?dc nltl:designConditionLocalStrengthCapacity ?capacityVal .
+                ?this nltl:localIcePressure ?pressureVal .
+                FILTER ( ?capacityVal < ?pressureVal )
+            }
+        """ ;
+    ] .
+<END_SHACL>

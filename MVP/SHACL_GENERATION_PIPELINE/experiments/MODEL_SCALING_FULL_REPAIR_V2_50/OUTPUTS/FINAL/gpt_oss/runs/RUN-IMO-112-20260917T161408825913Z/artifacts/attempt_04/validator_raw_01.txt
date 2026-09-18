@@ -1,0 +1,80 @@
+We need to evaluate candidateShacl for concrete blocking defects. The deterministicValidation.valid is true, and no errors. We must check for defects categories: WRONG_TARGET, APPLICABILITY, OWNERSHIP/PATH, AND/OR/NOT/XONE, CARDINALITY, MANDATORY condition, LOGIC, THRESHOLD/BORDER, FORMULA/TABLE, UNIT/CONVERSION, DATATYPE/QUANTITY, MISSING-VALUE behavior, CANONICAL TERM scope, etc.
+
+Goal: enforce requirement: IF operating_area = Arctic_waters THEN NLS_or_NLS_mixture_discharge_to_sea = false.
+
+Candidate shape:
+
+- targetClass nltl:ship => correct target owner per requirement requiredTargetOwner: "ship". Good.
+
+- property path nltl:operatingArea with datatype xsd:string, minCount 1, maxCount 1. Requirement: operatingArea must be present? The requirement only needs operating_area as input; but does not require presence? It states "IF operating_area = Arctic_waters". Typically need value to evaluate condition: could be optional; but shape forces it mandatory (minCount 1). Might be okay, but not necessarily blocking. Not required but maybe okay.
+
+But missing property for NLS discharge: They use SPARQL constraint requiring that if operatingArea is arcticWaters, then discharge must be false. However they also require that discharge property exists and is true (they filter bound && = true) and then they select $this causing violation. That's correct: they assert violation when discharge is true. However they do not check that discharge property exists when operatingArea is not arcticWaters? Not needed.
+
+Potential issues:
+
+- The SPARQL constraint uses variable ?operatingArea bound to literal compare with IRI nltl:arcticWaters. operatingArea datatype is xsd:string, but they compare with IRI? In vocabulary, arcticWaters is a DatatypeProperty with range string, but the term arcticWaters IRI is a property, not a literal value. The actual value for operatingArea should be a string literal "Arctic waters"? The requirement normalized variable uses value Arctic_waters (maybe a coded enumeration). The canonical term arcticWaters is a property; not a controlled value. So comparing ?operatingArea = nltl:arcticWaters is likely type mismatch: comparing string literal to IRI, which may never be true, causing constraint never triggered. This is a logical defect: wrong logical expression (value vs code). The requirement expects operating_area = Arctic_waters (a value). The vocabulary provides arcticWaters as a property, perhaps intended to be a controlled value literal like "Arctic waters". But the canonical vocabulary has no explicit allowed literal constant; maybe they'd represent enumeration via individuals? Not provided. So the SPARQL filter is likely incorrect.
+
+Thus category could be WRONG_LOGIC or WRONG_VALUE. The categories list includes "logic" as defect. So we need to create issue.
+
+Also need to see if needs_vocabulary_resolution: they are using term nltl:arcticWaters that is a property, not a literal value; maybe need to resolve to a canonical term (value) -> need vocabulary matcher. The guard indicates we should set activate_variable_matcher only when a current issue has needs_vocabulary_resolution=true and locating a locked canonical term is necessary. Since we have an issue with logic involving a term but may need to locate correct literal constant, it could be considered needs_vocabulary_resolution true. The issue: they used property IRI where a controlled value literal needed. So we might set needs_vocabulary_resolution=true.
+
+But we need to decide if the issue qualifies as WRONG_TARGET? No. Category options: must be one of list: "WRONG_TARGET","APPLICABILITY","OWNERSHIP","CARDINALITY","THRESHOLD","LOGIC","UNIT","DATATYPE","MISSING_VALUE","CANONICAL_TERM","... (the list in spec). Provide category "LOGIC". Provide location "MainShape" maybe shape identifier? The shape is :IMO-112. Use location maybe ":IMO-112". Provide concrete problem description.
+
+Now check other possible defects: The shape includes sh:property for operatingArea with datatype string minCount 1 maxCount 1; the requirement may not require minCount 1. Could be considered overly restrictive (mandatory condition). If the regulation does not require the presence of operatingArea property, forcing it could be a defect (MISSING_VALUE behavior). However requirement expects operatingArea as input; but not necessarily required for all ships. The shape is about prohibition only when area is Arctic waters; not required to have property if not Arctic. So enforce minCount 1 is a restriction not mentioned. Might be considered a blocking defect because it adds a constraint not in requirement. But the instruction: reject only for concrete blocking defects capable of changing regulatory semantics. Adding mandatory presence could affect compliance checking: Ships lacking operatingArea would fail shape even if they are not operating in Arctic waters and maybe the requirement doesn't require property. This adds semantics not in requirement, could be considered blocking. However more severe is the logic error. We'll include both.
+
+Check also the property for .sh:datatype xsd:string matches the range; ok.
+
+Now produce JSON with accept:false and list issues. Should we include both issues? Must list all concrete blocking issues. Provide both with required fields.
+
+Each issue must have keys: category, location, problem, required_change, regression_guard, blocking, needs_vocabulary_resolution.
+
+We need to set location maybe ":IMO-112". Provide regression_guard: something to preserve corrected target, etc. For logic issue guard: "Preserve the constraint's focus on Arctic operatingArea while correcting the logical expression." That's from pastMistakes. We'll include that.
+
+For mandatory presence issue, guard: "Maintain the same target and scope while enforcing the presence of the discharge property." Actually that's about discharge property; but we are modifying cardinality of operatingArea. Could use a generic guard.
+
+But we must ensure each issue includes required_change description.
+
+Now decide needs_vocabulary_resolution: for logic issue yes true, because need to locate correct literal value (maybe "Arctic waters") This qualifies. For cardinality issue, false.
+
+Now construct JSON line. Must be single line JSON containing accept false etc.
+
+We must include activate_variable_matcher false? The instruction: set activate_variable_matcher only when a current issue has needs_vocabulary_resolution=true and locating a locked canonical term is necessary. Since we have issue with needs_vocabulary_resolution true, we should set activate_variable_matcher true. Wait: "Set activate_variable_matcher only when a current issue has needs_vocabulary_resolution=true and locating a locked canonical term is necessary. An accepted response cannot activate it." Since we have such issue, we must set activate_variable_matcher true. Good.
+
+Now list issues array with two objects.
+
+Let's craft.
+
+Issue 1: LOGIC
+
+location ":IMO-112"
+
+problem: "The SPARQL filter compares the string-valued operatingArea to the IRI nltl:arcticWaters, which will never be true, so the prohibition is never enforced."
+
+required_change: "Replace the IRI with the canonical literal value representing Arctic waters (e.g., \"Arctic waters\"^^xsd:string) or adjust the comparison to a controlled enum."
+
+regression_guard: "Preserve the constraint's focus on Arctic operatingArea while correcting the logical expression."
+
+blocking: true
+
+needs_vocabulary_resolution: true
+
+Issue 2: CARDINALITY (or MANDATORY)
+
+category choose "CARDINALITY". location same.
+
+problem: "sh:minCount 1 on nltl:operatingArea forces every ship to declare an operating area even when the requirement does not mandate it, altering the regulatory semantics."
+
+required_change: "Remove the sh:minCount 1 (or set minCount 0) so the property is optional."
+
+regression_guard: "Maintain the same target and scope while enforcing the presence of the discharge property." Not perfect but okay.
+
+blocking true, needs_vocabulary_resolution false.
+
+Now assemble JSON.
+
+Check keys order? Not required. Provide boolean values.
+
+Return single line JSON.
+
+
+{"accept":false,"activate_variable_matcher":true,"currentIssues":[{"category":"LOGIC","location":":IMO-112","problem":"The SPARQL filter compares the string‑valued operatingArea to the IRI nltl:arcticWaters, which will never be true, so the prohibition is never enforced.","required_change":"Replace the IRI with the canonical literal value representing Arctic waters (e.g., \"Arctic waters\"^^xsd:string) or adjust the comparison to a controlled enumeration value.","regression_guard":"Preserve the constraint's focus on Arctic operatingArea while correcting the logical expression.","blocking":true,"needs_vocabulary_resolution":true},{"category":"CARDINALITY","location":":IMO-112","problem":"sh:minCount 1 on nltl:operatingArea forces every ship to declare an operating area even when the requirement does not mandate it, altering the regulatory semantics.","required_change":"Remove the sh:minCount 1 (or set minCount 0) so the property is optional.","regression_guard":"Maintain the same target and scope while enforcing the presence of the discharge property.","blocking":true,"needs_vocabulary_resolution":false}]}

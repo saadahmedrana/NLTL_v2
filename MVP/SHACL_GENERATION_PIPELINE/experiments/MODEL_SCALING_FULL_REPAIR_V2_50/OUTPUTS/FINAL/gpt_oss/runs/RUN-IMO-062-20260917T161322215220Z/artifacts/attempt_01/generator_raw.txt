@@ -1,0 +1,120 @@
+We need to generate a SHACL shape for the requirement:
+
+"Every exposed escape route shall have accessible_status = true, safe_status = true, and documented ice/snow mitigation coverage."
+
+We have canonical terms:
+
+- nltl:exposedEscapeRoute (Class)
+- nltl:hasExposedEscapeRoute (ObjectProperty) domain ship, range exposedEscapeRoute.
+- nltl:escapeRouteAccessibleStatus (DatatypeProperty, domain exposedEscapeRoute, boolean)
+- nltl:escapeRouteSafeStatus (DatatypeProperty, domain exposedEscapeRoute, boolean)
+- nltl:hasEscapeRouteIceSnowMitigationEvidence (ObjectProperty) domain exposedEscapeRoute, range evidenceArtifact.
+- nltl:iceSnowMitigationCoverage (DatatypeProperty, domain benchmarkEntity, boolean) but the requirement says documented ice/snow mitigation coverage. The evidence term is evidenceArtifact; but iceSnowMitigationCoverage is a datatype property on benchmarkEntity (maybe the ship). However the contract modelPath says from exposedEscapeRoute via hasEscapeRouteIceSnowMitigationEvidence to evidenceArtifact. So we need property on evidenceArtifact maybe indicating coverage? But there is no property defined for coverage on evidenceArtifact; however there is iceSnowMitigationCoverage which is requiredOwner ship (maybe should be on ship?), but we could require that evidenceArtifact instance has some relation? Not defined. The requirement states documented coverage; maybe just require existence of that evidence link, not a boolean property.
+
+Thus shape should target nltl:ship? Typically we target ship class, then ensure each exposed escape route (via hasExposedEscapeRoute) has those boolean properties true and has evidence.
+
+We must follow rules: Use core property shapes for presence, cardinality, datatype, unit checks. For booleans we need minCount 1 and sh:hasValue true? In examples they used sh:hasValue true with datatype boolean.
+
+So shape: NodeShape targeting nltl:ship.
+
+Within shape, we need a sh:property for hasExposedEscapeRoute? Not required per requirement, but to traverse we use a SPARQL constraint to check each exposedEscapeRoute linked to ship.
+
+Better: Use sh:property with path nltl:hasExposedEscapeRoute, and a sh:node shape that validates the route. That is typical.
+
+Define a node shape for exposedEscapeRoute that checks the three conditions.
+
+Thus we need two shapes: ShipShape with property pointing to node shape.
+
+Define generated shape IRIs under generatedShapeNamespace: urn:nltl:generated-shape:.
+
+Let's create:
+
+urn:nltl:generated-shape:ShipShape a sh:NodeShape; sh:targetClass nltl:ship; sh:property [ sh:path nltl:hasExposedEscapeRoute; sh:node urn:nltl:generated-shape:ExposedEscapeRouteShape ].
+
+Then ExposedEscapeRouteShape a sh:NodeShape; sh:property for escapeRouteAccessibleStatus with datatype xsd:boolean, minCount 1, maxCount 1, sh:hasValue true. same for escapeRouteSafeStatus. For iceSnowMitigationCoverage, it's not directly property of exposedEscapeRoute but evidence artifact required; but we could require that there exists a hasEscapeRouteIceSnowMitigationEvidence linking to an evidenceArtifact that has some property? Since no property, maybe just require the existence of the relationship. Use sh:property with path nltl:hasEscapeRouteIceSnowMitigationEvidence, sh:minCount 1, sh:maxCount 1. The requirement also says documented coverage, we could also require that iceSnowMitigationCoverage property on ship (or benchmarkEntity) is true. However contract's operandTerms include iceSnowMitigationCoverage, so maybe need ship-level property? If it's requiredOwner ship, then we could also require ship has iceSnowMitigationCoverage = true. But requirement says "documented ice/snow mitigation coverage." That could be a boolean indicator maybe on ship. Let's include a property on ship shape: path nltl:iceSnowMitigationCoverage, datatype boolean, hasValue true.
+
+Thus ship shape will have three property checks: hasExposedEscapeRoute with node shape, iceSnowMitigationCoverage = true.
+
+Make sure booleans values.
+
+Now ensure prefixes: sh, xsd, nltl.
+
+Return within <BEGIN_SHACL> ... <END_SHACL>.
+
+We should not use sh:hasValue together with datatype; but example does. Use minCount 1 maxCount 1 and sh:hasValue true.
+
+Also ensure when using sh:property with sh:node, we don't also need min/max.
+
+Now generate Turtle.
+
+Potential conflict: nltl:iceSnowMitigationCoverage domain benchmarkEntity, but requiredOwner ship, and ship is subclass of benchmarkEntity? Not explicit but ship requiredOwner ship. However domain requirement says requiredOwner ship. We can still use on ship. It matches allowed: property may be used on ship if domain is benchmarkEntity; but domain list includes benchmarkEntity only, not ship; but ship is subclass of benchmarkEntity? Not defined. But rule 13 says respect domain. Since property domain is benchmarkEntity, applying to ship may not be strictly correct; but we could still assert that ship instance is also a benchmarkEntity (maybe by rdf:type). Not defined. Safer to not put iceSnowMitigationCoverage on ship; instead we might assert its presence on evidenceArtifact? But domain mismatch.
+
+Better: Use SPARQL constraint to check that there exists a triple ?evidence nltl:iceSnowMitigationCoverage true? Not defined.
+
+Maybe we ignore iceSnowMitigationCoverage boolean property and only require evidence link; but operandTerms include iceSnowMitigationCoverage, meaning it's part of compliance check, but the contract may consider evidence as documentation that coverage is provided. Since there's no property on evidence, we can require existence of evidence (hasEscapeRouteIceSnowMitigationEvidence). That satisfies documentation.
+
+Thus ship shape does not need iceSnowMitigationCoverage property.
+
+So final shapes:
+
+ShipShape:
+- targetClass nltl:ship
+- property: hasExposedEscapeRoute -> node ExposedEscapeRouteShape
+- property: maybe ensure at least one exposedEscapeRoute? Not required.
+
+ExposedEscapeRouteShape:
+- property escapeRouteAccessibleStatus boolean true
+- property escapeRouteSafeStatus boolean true
+- property hasEscapeRouteIceSnowMitigationEvidence with minCount 1 (evidence exists), maybe also maxCount 1? Not required.
+
+Include sh:node for evidence? not needed.
+
+Thus the constraint covers all.
+
+Now ensure each sh:property includes sh:datatype xsd:boolean for the booleans. Also include sh:minCount 1 sh:maxCount 1.
+
+Now generate.
+
+Check that prefixes are declared at top: @prefix sh: <http://www.w3.org/2002/07/owl#>? No, SHACL namespace is <http://www.w3.org/ns/shacl#>. xsd is <http://www.w3.org/2001/XMLSchema#>. nltl is canonical.
+
+Define shape IRIs: urn:nltl:generated-shape:ShipShape and ...:ExposedEscapeRouteShape.
+
+Now produce.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gs: <urn:nltl:generated-shape:> .
+
+gs:ShipShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasExposedEscapeRoute ;
+        sh:node gs:ExposedEscapeRouteShape
+    ] .
+
+gs:ExposedEscapeRouteShape
+    a sh:NodeShape ;
+    sh:property [
+        sh:path nltl:escapeRouteAccessibleStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "Exposed escape route must be accessible (true)." 
+    ] ;
+    sh:property [
+        sh:path nltl:escapeRouteSafeStatus ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true ;
+        sh:message "Exposed escape route must be safe (true)." 
+    ] ;
+    sh:property [
+        sh:path nltl:hasEscapeRouteIceSnowMitigationEvidence ;
+        sh:minCount 1 ;
+        sh:message "Exposed escape route must have documented ice/snow mitigation evidence." 
+    ] .
+<END_SHACL>

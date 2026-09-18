@@ -1,0 +1,134 @@
+We need to generate a SHACL shape for this requirement. Category: Complex, verificationMode: COMPLEX_READINESS. According to rule 36 and 37, for COMPLEX_READINESS we should not reconstruct the formula; we just need to verify applicability, required inputs, their owners/paths/datatypes/units, the declared calculation or analysis structures, evidence etc. Here dependencyContract says formulaExecutionRequired false, no evidence terms. directCheckSubconstraints empty. So we need to create shape that verifies readiness: ensure that for each structural member (linked via ship hasStructuralMember) we have the required operand values present (netAttachedShellPlateThickness and yieldStrength) each with proper datatype/unit, and that there is a result term netWebThickness present (but not checking formula). Also possibly verify that requiredOwner matches: netAttachedShellPlateThickness and netWebThickness requiredOwner structuralMember, yieldStrength requiredOwner structuralMember. But the model path is from ship to structuralMember via hasStructuralMember. So target could be ship, then property shape for hasStructuralMember linking to structuralMember shapes.
+
+Simplify: NodeShape targeting ship; require at least one hasStructuralMember; then for each structuralMember node, we need a shape that requires presence of netAttachedShellPlateThickness, netWebThickness, yieldStrength, with proper datatype (QuantityValue) and unit.
+
+Use SHACL property shapes on structuralMember class.
+
+We also need evidence? Not present.
+
+Thus shape will consist of two NodeShapes: ship-level shape ensuring hasStructuralMember exists (maybe minCount 1); structuralMember shape ensuring the three quantity properties present with correct unit and datatype. Use sh:node on property shape.
+
+Implement unit check: the quantity property points to a node of type qudt:QuantityValue, and we can have property shape on that node checking qudt:numericValue datatype decimal, qudt:unit equal to recommendedUnit.
+
+We need prefixes: sh, nltl, xsd, qudt, math maybe not needed.
+
+Construct shape:
+
+@prefix sh: <...>.
+@prefix nltl: <...>.
+@prefix xsd: <...>.
+@prefix qudt: <http://qudt.org/schema/qudt#>.
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:ShipShape a sh:NodeShape; sh:targetClass nltl:ship; sh:property [ sh:path nltl:hasStructuralMember; sh:minCount 1; sh:node gen:StructuralMemberShape ] .
+
+gen:StructuralMemberShape a sh:NodeShape; sh:targetClass nltl:structuralMember; then include three property shapes.
+
+For each property, like nltl:netAttachedShellPlateThickness: we require that the object is a qudt:QuantityValue, with minCount 1, then nested node for quantity.
+
+We can use sh:node to point to a shape for quantity: gen:QuantityValueShape (generic) but better inlined.
+
+Define gen:QuantityValueShape a sh:NodeShape; sh:property [ sh:path qudt:numericValue; sh:datatype xsd:decimal; sh:minCount 1 ]; sh:property [ sh:path qudt:unit; sh:hasValue unit:MilliM ; sh:datatype xsd:anyURI? Actually unit IRI is a resource. Use sh:hasValue unit:MilliM (a IRI). Use sh:nodeKind sh:IRI. But we can use sh:hasValue.
+
+Do that for both netAttachedShellPlateThickness (unit mm) and netWebThickness (unit mm). yieldStrength unit is MegaPA.
+
+Ok.
+
+Add messages.
+
+We must ensure we use only allowed vocabulary terms: nltl:hasStructuralMember, nltl:netAttachedShellPlateThickness, nltl:netWebThickness, nltl:yieldStrength. Also nltl:ship, nltl:structuralMember.
+
+No invented terms.
+
+Thus final Turtle.
+
+Check prefixes: add qudt, unit.
+
+Make sure unit prefixes defined correctly.
+
+I think ok.
+
+Now output between markers.
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+# Ship level shape – requires at least one structural member
+gen:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:minCount 1 ;
+        sh:node gen:StructuralMemberShape ;
+        sh:message "A ship must be linked to at least one structural member via nltl:hasStructuralMember." ;
+    ] .
+
+# Structural member shape – required quantities
+gen:StructuralMemberShape a sh:NodeShape ;
+    sh:targetClass nltl:structuralMember ;
+    
+    # net attached shell plate thickness (t_pn)
+    sh:property [
+        sh:path nltl:netAttachedShellPlateThickness ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:message "netAttachedShellPlateThickness must have a numeric value." ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MilliM ;
+                sh:message "netAttachedShellPlateThickness must use unit millimetre (unit:MilliM)." ;
+            ] ;
+        ] ;
+        sh:message "netAttachedShellPlateThickness (t_pn) is required for each structural member." ;
+    ] ;
+    
+    # yield strength (sigma_y)
+    sh:property [
+        sh:path nltl:yieldStrength ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:message "yieldStrength must have a numeric value." ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MegaPA ;
+                sh:message "yieldStrength must use unit megapascal (unit:MegaPA)." ;
+            ] ;
+        ] ;
+        sh:message "yieldStrength is required for each structural member." ;
+    ] ;
+    
+    # net web thickness (t_wn) – result term
+    sh:property [
+        sh:path nltl:netWebThickness ;
+        sh:minCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal ;
+                sh:minCount 1 ;
+                sh:message "netWebThickness must have a numeric value." ;
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue unit:MilliM ;
+                sh:message "netWebThickness must use unit millimetre (unit:MilliM)." ;
+            ] ;
+        ] ;
+        sh:message "netWebThickness (t_wn) is required for each structural member." ;
+    ] .
+<END_SHACL>

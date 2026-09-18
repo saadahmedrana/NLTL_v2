@@ -1,0 +1,107 @@
+We need to repair SHACL graph to address deterministic validation issue: unapproved external/generated IRI(s): http://qudt.org/schema/qudt#QuantityValue, http://qudt.org/schema/qudt#numericValue, http://qudt.org/schema/qudt#unit.
+
+We have to use only allowed canonical terms. Allowed vocabulary list includes only terms in that list: includes nltl terms and maybe some xsd, but not qudt. The issue indicates that using qudt:QuantityValue etc is not approved. Need to replace with something allowed: Since residualStabilityFactorSI is defined as a QuantityProperty with range http://qudt.org/schema/qudt/QuantityValue. That's part of vocabulary but maybe not approved. The allowedVocabulary list does not include qudt terms. So we need to adjust shape to not reference external IRIs.
+
+Maybe we can represent residualStabilityFactorSI as datatype literal (xsd:decimal) directly, rather than QUDT QuantityValue. But the property definition says its range is QUDT QuantityValue. However SHACL shape can still enforce that the object is a literal decimal, perhaps using datatype constraint. That would avoid external IRIs. But would that be consistent? In previous past mistakes they said preserve correction for deterministic finding: Unapproved external/generated IRI(s): http://qudt.org/schema/qudt#. So they already corrected before; we need to keep that correction. So maybe they previously changed shape to not use qudt. Let's see current candidate: It still uses qudt:QuantityValue and qudt:unit, qudt:numericValue. So we need to replace those with allowed constructs.
+
+Potential solution: Use sh:nodeKind sh:Literal and sh:datatype xsd:decimal, and maybe sh:equals <http://qudt.org/vocab/unit/UNITLESS>? But that unit IRI also not allowed. Could instead assert that value must be 1 (or close) in SPARQL, already there. So we could drop the whole property node that references qudt. Simplify to require datatype decimal and maybe min/max? But must preserve semantics: ResidualStabilityFactorSI must be a QUDT QuantityValue with unit UNITLESS. Since we cannot reference qudt IRIs, maybe we can still accept literal decimal but ensure numeric only. This satisfies deterministic validation.
+
+Thus modify LoadingConditionCaseShape: Change property for residualStabilityFactorSI to enforce datatype decimal and maybe sh:in (1) - but SPARQL already checks value close to 1.
+
+So we replace the sh:property block that uses sh:node with class qudt:QuantityValue etc, with a simpler block:
+
+sh:property [
+    sh:path nltl:residualStabilityFactorSI ;
+    sh:datatype xsd:decimal ;
+    sh:message "residualStabilityFactorSI must be a decimal number." ;
+] .
+
+We must also remove references to qudt: namespace declarations (prefix). Keep prefix but not used. That's fine.
+
+Additionally, need to remove unapproved IRIs from any other shapes. Check ShipShape uses none.
+
+Also ensure that the SPARQL still works referencing residualStabilityFactorSI without needing qudt.
+
+Thus final graph: keep everything else same, modify LoadingConditionCaseShape property.
+
+Make sure to keep prefixes as before, though qudt prefix is declared but not used; that's okay but still external IRI in prefix? Validator may still consider usage of prefix lines okay; only actual IRIs used cause issue. If prefix declared but not used, it's okay. We'll keep declaration but not refer to qudt IRIs.
+
+Return revised graph between markers.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # shipCategory must be A or B
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:in (nltl:polarShipCategoryA nltl:polarShipCategoryB) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ship category must be A or B." ;
+    ] ;
+    # constructionDate must be on or after 2017‑01‑01
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "2017-01-01"^^xsd:date ;
+        sh:message "Construction date must be on or after 2017‑01‑01." ;
+    ] ;
+    # at least one loading condition case (the detailed check is performed by SPARQL)
+    sh:property [
+        sh:path nltl:hasLoadingConditionCase ;
+        sh:minCount 1 ;
+        sh:message "At least one loading condition case must be provided." ;
+    ] ;
+    # Direct‑check SPARQL: each loading condition case satisfies SI=1 or allowed alternative
+    sh:sparql [
+        sh:message "Each loading condition case must have residualStabilityFactorSI = 1, or (alternativeInstrumentApplicable = true and alternativeInstrumentResidualStabilityStatus = true)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:shipCategory ?cat .
+                FILTER(?cat = nltl:polarShipCategoryA || ?cat = nltl:polarShipCategoryB) .
+                $this nltl:constructionDate ?cdate .
+                FILTER(?cdate >= "2017-01-01"^^xsd:date) .
+                $this nltl:hasLoadingConditionCase ?lc .
+
+                OPTIONAL { ?lc nltl:residualStabilityFactorSI ?val . }
+                OPTIONAL { ?lc nltl:alternativeInstrumentApplicable ?altApp . }
+                OPTIONAL { ?lc nltl:alternativeInstrumentResidualStabilityStatus ?altStat . }
+
+                FILTER( !( (BOUND(?val) && ABS(?val - 1) <= 1e-6) ||
+                          (BOUND(?altApp) && ?altApp = true && BOUND(?altStat) && ?altStat = true) ) )
+            }
+        """ ;
+    ] .
+
+:LoadingConditionCaseShape a sh:NodeShape ;
+    sh:targetClass nltl:loadingConditionCase ;
+    # evidence artifact for each loading condition result
+    sh:property [
+        sh:path nltl:hasLoadingConditionResultEvidence ;
+        sh:class nltl:evidenceArtifact ;
+        sh:minCount 1 ;
+        sh:message "Loading condition case must cite a result evidence artifact." ;
+    ] ;
+    # loadingConditionIdentifier is required for COMPLEX_READINESS
+    sh:property [
+        sh:path nltl:loadingConditionIdentifier ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:message "Each loading condition case must have a loadingConditionIdentifier." ;
+    ] ;
+    # residualStabilityFactorSI must be a decimal literal (unit is implicitly UNITLESS)
+    sh:property [
+        sh:path nltl:residualStabilityFactorSI ;
+        sh:datatype xsd:decimal ;
+        sh:message "residualStabilityFactorSI must be a decimal number (unit UNITLESS)." ;
+    ] .
+<END_SHACL>

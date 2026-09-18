@@ -1,0 +1,468 @@
+We need to generate SHACL shape for this requirement. Requirement is static calculation, with verificationMode DIRECT_CALCULATION. The dependency contract includes conditional rule: If frameBoundaryConditionType = continuousBeamWithBracketsFrameCondition AND significantlyDifferentBoundaryConditions = false THEN frameMomentFactorM = 13.3.
+
+Thus we need to encode:
+
+- Target is longitudinalFrame (class nltl:longitudinalFrame)
+
+- Need property shapes for frameBoundaryConditionType (object property), significantlyDifferentBoundaryConditions (datatype boolean), and frameMomentFactorM (quantity property) to have correct value when condition holds.
+
+Also we need result terms: longitudinalFrameLoadDistributionFactorF4, sectionModulus, requiredShearArea. But those involve formulas using other inputs; however verificationMode is DIRECT_CALCULATION, we could produce SPARQL constraints to check the formulas. But the contract only directly requires conditional rule for frameMomentFactorM = 13.3 when condition holds. And result terms likely expected to be computed; but they are part of required result terms - we should also validate that they have appropriate computed values? The contract defines comparisonModel covering three formulas: Z, A, and f4. But the comparisonModel appears as textual description; there is no explicit result terms. However resultTerms listed include longitudinalFrameLoadDistributionFactorF4, sectionModulus, requiredShearArea. So we need constraints to ensure these computed values match the formulas given the operands (icePressure p, designIceLoadHeight h, spacing s, span l, yieldStrength sigma_y). Also f4 = 1 - 0.2*h/s, m = either 13.3 or something else (but condition enforce 13.3). Also f5 = 2.16 (maybe not needed as operand). The requiredShearArea formula uses sqrt(3)*f4*f5*p*h*l/(2*sigma_y)*10^4. Since f5 is a constant 2.16; we can embed that.
+
+But specification: "Use m = 13.3 for a continuous beam with brackets unless the actual end field requires a smaller factor." So conditional rule for m (frameMomentFactorM) as above.
+
+Thus we need property shapes for:
+
+- nltl:frameBoundaryConditionType: object property linking to controlled individual (frameBoundaryConditionTypeValue). Need maybe shape to ensure value is the specific individual? The conditional rule depends on equality to continuousBeamWithBracketsFrameCondition. We'll need a SPARQL constraint that checks condition.
+
+- nltl:significantlyDifferentBoundaryConditions: datatype boolean.
+
+- nltl:frameMomentFactorM: quantity property; value must be 13.3 (with unit UNITLESS) when condition holds.
+
+Also need to validate the calculations of f4, Z, shear area. Those involve numeric calculations, use quantity values with QUDT. The pattern for qudt quantity value defined: subject property quantityNode ; quantityNode qudt:numericValue decimal ; qudt:unit unitIri.
+
+Thus for each property e.g., nltl:longitudinalFrameLoadDistributionFactorF4 we need to enforce numeric value equals 1 - 0.2*h/s where h is designIceLoadHeight numeric value (in meters), s is spacing numeric value (meters). So need to fetch those quantity values.
+
+Similarly for sectionModulus (Z) as cm^3; expression: f4 * p_MPa * h_m * l_m^2 / (4*m*sigma_y) * 10^6. Units: p from icePressure (MPa), h (m), l (m), sigma_y (MPa). numericValue conversions. Use constants.
+
+We'll need to embed these calculations inside SPARQL SELECT constraint to report violations.
+
+Remember to declare prefixes inside each sh:sparql block: nltl, xsd, sh, qudt, math (for sqrt), maybe.
+
+Need tolerance: Use relative tolerance 1e-6. So condition for computed vs stored value: ABS(?actual - ?expected) > tolerance * ABS(?expected) + 1e-12 maybe.
+
+Implementation approach: For each result term, we need shapes with property path and datatype but the property is a QuantityProperty, not a literal directly. Usually you would have a property linking to a QuantityValue node; we need to enforce numericValue within that node. Could define a SHACL node shape for the quantity value node via sh:property.
+
+Simplify: Use a SPARQL constraint at the longitudinalFrame node that checks all three results together; no separate core property shapes needed (but can still enforce presence). We'll also include core property shapes to ensure each result term is present (minCount 1). Then SPARQL constraint verifies formulas.
+
+Construct shape:
+
+urn:nltl:generated-shape:TRF-048-Shape a sh:NodeShape ;
+    sh:targetClass nltl:longitudinalFrame ;
+    sh:property [ sh:path nltl:frameBoundaryConditionType ; sh:minCount 1 ; sh:maxCount 1 ];  // maybe also object constraint? not needed.
+    sh:property [ sh:path nltl:significantlyDifferentBoundaryConditions ; sh:datatype xsd:boolean ; sh:minCount 1 ; sh:maxCount 1 ];
+    sh:property [ sh:path nltl:frameMomentFactorM ; ... ; ]   // we need ensure presence; also ensure unit UNITLESS.
+
+For quantity properties, we have to navigate to value node:
+
+We could say sh:property [ sh:path nltl:frameMomentFactorM ; sh:node [ sh:property [ sh:path qudt:numericValue ; sh:datatype xsd:decimal ; ]; sh:property [ sh:path qudt:unit ; sh:hasValue <UNITLESS> ] ] ; sh:minCount 1 ].
+
+But we need to reference recommendedUnit from vocab: UNITLESS IRI: http://qudt.org/vocab/unit/UNITLESS.
+
+Similarly for other quantity properties.
+
+Define prefix qudt.
+
+Now SPARQL constraint.
+
+We need to get:
+
+?frame a nltl:longitudinalFrame .
+
+?frame nltl:frameBoundaryConditionType ?cond .
+?cond = nltl:continuousBeamWithBracketsFrameCondition maybe IRI.
+
+But the controlled individual continuousBeamWithBracketsFrameCondition is a NamedIndividual in vocab. So condition: ?cond = nltl:continuousBeamWithBracketsFrameCondition .
+
+And ?frame nltl:significantlyDifferentBoundaryConditions ?sdiff (boolean) . Want false.
+
+Then fetch frameMomentFactorM node:
+
+?frame nltl:frameMomentFactorM ?mNode .
+?mNode qudt:numericValue ?mVal .
+?mNode qudt:unit <UNITLESS> .
+
+Now check if condition holds, then ensure ?mVal = 13.3 (within tolerance). Use FILTER ( ?sdiff = false && ?cond = nltl:continuousBeamWithBracketsFrameCondition && ABS(?mVal - 13.3) > tolerance ).
+
+Define tolerance variable: maybe 1e-6.
+
+Now other formulas:
+
+Need to fetch numeric values:
+
+?frame nltl:designIceLoadHeight ?hNode .
+?hNode qudt:numericValue ?hVal .
+?hNode qudt:unit <http://qudt.org/vocab/unit/M> .
+
+Similarly spacing ?sNode -> ?sVal.
+
+Span ?lNode -> ?lVal.
+
+Ice pressure (p): nltl:icePressure ?pNode . unit MPa.
+
+YieldStrength (sigma_y): nltl:yieldStrength ?sigNode . unit MPa.
+
+LongitudinalFrameLoadDistributionFactorF4 node ?f4Node . numericValue ?f4Val . unit UNITLESS.
+
+SectionModulus node ?ZNode . numericValue ?ZVal . unit <http://qudt.org/vocab/unit/CentiM3>.
+
+RequiredShearArea node ?ANode . numericValue ?AVal . unit <http://qudt.org/vocab/unit/CentiM2>.
+
+Now compute expected f4: 1 - 0.2 * (?hVal) / (?sVal). Since units: h and s are meters, okay.
+
+expectedF4 = 1 - 0.2 * ?hVal / ?sVal.
+
+Check tolerance.
+
+Then compute expected Z: f4 * ?pVal * ?hVal * (?lVal * ?lVal) / (4 * ?mVal * ?sigVal) * 10^6.
+
+We can compute using SPARQL arithmetic.
+
+Note: need exponent 10^6; use multiplication by 1000000.
+
+expectedZ = (?f4Val * ?pVal * ?hVal * (?lVal * ?lVal)) / (4 * ?mVal * ?sigVal) * 1000000.
+
+Check tolerance with ?ZVal.
+
+Finally compute expected A: sqrt(3) * ?f4Val * 2.16 * ?pVal * ?hVal * ?lVal / (2 * ?sigVal) * 10000.
+
+Use math:sqrt function for sqrt(3). numeric constant sqrt(3) = math:sqrt(3) expression? In SPARQL, need math: sqrt from math prefix. Use PREFIX math: <http://www.w3.org/2005/xpath-functions/math#> . Then sqrt(3) = math:sqrt(3).
+
+expectedA = math:sqrt(3) * ?f4Val * 2.16 * ?pVal * ?hVal * ?lVal / (2 * ?sigVal) * 10000.
+
+Check tolerance.
+
+We also need to ensure that the quantity unit matches recommendation: For f4, unit UNITLESS; for Z, unit CentiM3; for A, unit CentiM2.
+
+Thus property core shapes also check unit.
+
+Now produce the SHACL Turtle.
+
+Be careful with prefixes: nltl, sh, xsd, qudt, math, rdf perhaps.
+
+Now construct shape. Use generated namespace: urn:nltl:generated-shape:.
+
+Define shape IRI: urn:nltl:generated-shape:TRF-048.
+
+We'll include multiple sh:sparql constraints: one for conditional m value, another for formulas; could be combined but separate easier.
+
+Each sh:sparql should include sh:message.
+
+Now implement.
+
+Let's craft Turtle.
+
+Will need to encode property paths for quantity properties as node shapes.
+
+Example for frameMomentFactorM:
+
+sh:property [
+   sh:path nltl:frameMomentFactorM ;
+   sh:node [
+       sh:property [
+           sh:path qudt:numericValue ;
+           sh:datatype xsd:decimal ;
+       ] ;
+       sh:property [
+           sh:path qudt:unit ;
+           sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+       ] ;
+   ] ;
+   sh:minCount 1 ; sh:maxCount 1
+] ;
+
+Similarly for other quantities.
+
+For boolean property: sh:property with datatype boolean.
+
+For object property: just presence.
+
+Now the SPARQL constraints.
+
+First constraint for m value conditional.
+
+sh:sparql [
+   sh:message "frameMomentFactorM must be 13.3 when frameBoundaryConditionType is continuousBeamWithBracketsFrameCondition and significantlyDifferentBoundaryConditions is false." ;
+   sh:select """
+     PREFIX nltl: <https://w3id.org/nltl/vocab#>
+     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+     PREFIX qudt: <http://qudt.org/schema/qudt#>
+     SELECT $this
+     WHERE {
+       $this nltl:frameBoundaryConditionType ?cond .
+       $this nltl:significantlyDifferentBoundaryConditions ?sdiff .
+       $this nltl:frameMomentFactorM ?mNode .
+       ?mNode qudt:numericValue ?mVal .
+       FILTER ( ?cond = nltl:continuousBeamWithBracketsFrameCondition && ?sdiff = false )
+       BIND (13.3 as ?expected)
+       BIND (abs(?mVal - ?expected) as ?diff)
+       BIND (1e-6 as ?tol)
+       FILTER ( ?diff > ?tol )
+     }
+   """
+] ;
+
+Second constraint for calculations.
+
+sh:sparql [
+   sh:message "Calculated longitudinalFrameLoadDistributionFactorF4, sectionModulus, and requiredShearArea must match formulas." ;
+   sh:select """
+     PREFIX nltl: <https://w3id.org/nltl/vocab#>
+     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+     PREFIX qudt: <http://qudt.org/schema/qudt#>
+     PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+     SELECT $this
+     WHERE {
+       # fetch operands
+       $this nltl:designIceLoadHeight ?hNode .
+       $this nltl:spacing ?sNode .
+       $this nltl:span ?lNode .
+       $this nltl:icePressure ?pNode .
+       $this nltl:yieldStrength ?sigNode .
+       $this nltl:frameMomentFactorM ?mNode .
+       $this nltl:longitudinalFrameLoadDistributionFactorF4 ?f4Node .
+       $this nltl:sectionModulus ?zNode .
+       $this nltl:requiredShearArea ?aNode .
+       
+       ?hNode qudt:numericValue ?hVal .
+       ?sNode qudt:numericValue ?sVal .
+       ?lNode qudt:numericValue ?lVal .
+       ?pNode qudt:numericValue ?pVal .
+       ?sigNode qudt:numericValue ?sigVal .
+       ?mNode qudt:numericValue ?mVal .
+       ?f4Node qudt:numericValue ?f4Val .
+       ?zNode qudt:numericValue ?zVal .
+       ?aNode qudt:numericValue ?aVal .
+       
+       # expected calculations
+       BIND (1 - (0.2 * ?hVal) / ?sVal AS ?expF4)
+       BIND ( ?expF4 * ?pVal * ?hVal * (?lVal * ?lVal) / (4 * ?mVal * ?sigVal) * 1000000 AS ?expZ )
+       BIND ( math:sqrt(3) * ?expF4 * 2.16 * ?pVal * ?hVal * ?lVal / (2 * ?sigVal) * 10000 AS ?expA )
+       
+       BIND (abs(?f4Val - ?expF4) AS ?diffF4)
+       BIND (abs(?zVal - ?expZ) AS ?diffZ)
+       BIND (abs(?aVal - ?expA) AS ?diffA)
+       
+       BIND (1e-6 AS ?tol)
+       FILTER ( ?diffF4 > ?tol || ?diffZ > ?tol || ?diffA > ?tol )
+     }
+   """
+] ;
+
+Now ensure that each quantity property shape ensures unit is appropriate.
+
+Add property shapes for f4, Z, A with unit constraints, also for other operands maybe not needed.
+
+Define for f4:
+
+sh:property [
+   sh:path nltl:longitudinalFrameLoadDistributionFactorF4 ;
+   sh:node [
+      sh:property [
+         sh:path qudt:numericValue ;
+         sh:datatype xsd:decimal ;
+      ] ;
+      sh:property [
+         sh:path qudt:unit ;
+         sh:hasValue <http://qudt.org/vocab/unit/UNITLESS> ;
+      ] ;
+   ] ;
+   sh:minCount 1 ; sh:maxCount 1
+] ;
+
+Z:
+
+sh:property [
+   sh:path nltl:sectionModulus ;
+   sh:node [
+      sh:property [ sh:path qudt:numericValue ; sh:datatype xsd:decimal ] ;
+      sh:property [ sh:path qudt:unit ; sh:hasValue <http://qudt.org/vocab/unit/CentiM3> ] ;
+   ] ;
+   sh:minCount 1 ; sh:maxCount 1
+] ;
+
+A:
+
+sh:property [
+   sh:path nltl:requiredShearArea ;
+   sh:node [
+      sh:property [ sh:path qudt:numericValue ; sh:datatype xsd:decimal ] ;
+      sh:property [ sh:path qudt:unit ; sh:hasValue <http://qudt.org/vocab/unit/CentiM2> ] ;
+   ] ;
+   sh:minCount 1 ; sh:maxCount 1
+] ;
+
+Also need property shapes for operand quantity properties perhaps but not required.
+
+Now include shapes for boolean etc.
+
+Also for frameBoundaryConditionType existence: need property shape with minCount 1.
+
+Now compile final Turtle.
+
+Make sure to include prefix declarations at top: @prefix nltl:..., sh:..., xsd:..., qudt:..., math:..., .
+
+Also include generated shape namespace.
+
+Now produce final answer.
+
+
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix math: <http://www.w3.org/2005/xpath-functions/math#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF-048
+    a sh:NodeShape ;
+    sh:targetClass nltl:longitudinalFrame ;
+
+    # presence of condition indicators
+    sh:property [
+        sh:path nltl:frameBoundaryConditionType ;
+        sh:minCount 1 ; sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:significantlyDifferentBoundaryConditions ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ; sh:maxCount 1
+    ] ;
+
+    # frameMomentFactorM – quantity with unit UNITLESS
+    sh:property [
+        sh:path nltl:frameMomentFactorM ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS>
+            ]
+        ]
+    ] ;
+
+    # longitudinalFrameLoadDistributionFactorF4 – unit UNITLESS
+    sh:property [
+        sh:path nltl:longitudinalFrameLoadDistributionFactorF4 ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/UNITLESS>
+            ]
+        ]
+    ] ;
+
+    # sectionModulus – unit cm^3
+    sh:property [
+        sh:path nltl:sectionModulus ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/CentiM3>
+            ]
+        ]
+    ] ;
+
+    # requiredShearArea – unit cm^2
+    sh:property [
+        sh:path nltl:requiredShearArea ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:node [
+            sh:property [
+                sh:path qudt:numericValue ;
+                sh:datatype xsd:decimal
+            ] ;
+            sh:property [
+                sh:path qudt:unit ;
+                sh:hasValue <http://qudt.org/vocab/unit/CentiM2>
+            ]
+        ]
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Conditional rule: m = 13.3 when continuous beam with brackets &
+    # no significantly different boundary conditions
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "When frameBoundaryConditionType = continuousBeamWithBracketsFrameCondition and significantlyDifferentBoundaryConditions = false, frameMomentFactorM must be 13.3 (UNITLESS)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+
+            SELECT $this
+            WHERE {
+                $this nltl:frameBoundaryConditionType ?cond .
+                $this nltl:significantlyDifferentBoundaryConditions ?sdiff .
+                $this nltl:frameMomentFactorM ?mNode .
+                ?mNode qudt:numericValue ?mVal .
+
+                FILTER ( ?cond = nltl:continuousBeamWithBracketsFrameCondition && ?sdiff = false ) .
+                BIND (13.3 AS ?expected) .
+                BIND (abs(?mVal - ?expected) AS ?diff) .
+                BIND (1e-6 AS ?tol) .
+                FILTER ( ?diff > ?tol )
+            }
+        """
+    ] ;
+
+    # -----------------------------------------------------------------
+    # Calculation checks for f4, Z, and required shear area A
+    # -----------------------------------------------------------------
+    sh:sparql [
+        sh:message "Calculated values for longitudinalFrameLoadDistributionFactorF4, sectionModulus, and requiredShearArea do not match the prescribed formulas." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+
+            SELECT $this
+            WHERE {
+                # operand quantity nodes
+                $this nltl:designIceLoadHeight ?hNode .
+                $this nltl:spacing ?sNode .
+                $this nltl:span ?lNode .
+                $this nltl:icePressure ?pNode .
+                $this nltl:yieldStrength ?sigNode .
+                $this nltl:frameMomentFactorM ?mNode .
+
+                # result quantity nodes
+                $this nltl:longitudinalFrameLoadDistributionFactorF4 ?f4Node .
+                $this nltl:sectionModulus ?zNode .
+                $this nltl:requiredShearArea ?aNode .
+
+                # numeric values
+                ?hNode qudt:numericValue ?hVal .
+                ?sNode qudt:numericValue ?sVal .
+                ?lNode qudt:numericValue ?lVal .
+                ?pNode qudt:numericValue ?pVal .
+                ?sigNode qudt:numericValue ?sigVal .
+                ?mNode qudt:numericValue ?mVal .
+
+                ?f4Node qudt:numericValue ?f4Val .
+                ?zNode qudt:numericValue ?zVal .
+                ?aNode qudt:numericValue ?aVal .
+
+                # expected calculations
+                BIND (1 - (0.2 * ?hVal) / ?sVal AS ?expF4) .
+                BIND ( ?expF4 * ?pVal * ?hVal * (?lVal * ?lVal) /
+                       (4 * ?mVal * ?sigVal) * 1000000 AS ?expZ ) .
+                BIND ( math:sqrt(3) * ?expF4 * 2.16 * ?pVal * ?hVal * ?lVal /
+                       (2 * ?sigVal) * 10000 AS ?expA ) .
+
+                # differences
+                BIND (abs(?f4Val - ?expF4) AS ?diffF4) .
+                BIND (abs(?zVal - ?expZ) AS ?diffZ) .
+                BIND (abs(?aVal - ?expA) AS ?diffA) .
+
+                BIND (1e-6 AS ?tol) .
+                FILTER ( ?diffF4 > ?tol || ?diffZ > ?tol || ?diffA > ?tol )
+            }
+        """
+    ] .
+<END_SHACL>

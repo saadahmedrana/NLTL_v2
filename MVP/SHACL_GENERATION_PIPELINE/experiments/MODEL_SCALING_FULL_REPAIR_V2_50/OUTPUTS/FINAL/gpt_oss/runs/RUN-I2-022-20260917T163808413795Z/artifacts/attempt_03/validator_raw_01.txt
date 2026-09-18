@@ -1,0 +1,86 @@
+We need to evaluate candidate SHACL against requirements, identify concrete blocking defects (category among listed). The output must be a single JSON line with keys accept, activate_variable_matcher, currentIssues (list of objects with keys category, location, problem, required_change, regression_guard, blocking, needs_vocabulary_resolution). We must return false accept if any blocking defects, else accept true with empty issues list.
+
+We must only consider concrete blocking defects: wrong target, applicability, ownership/path, mandatory condition, logic, cardinality, threshold/boundary, formula/table, unit/conversion, datatype/quantity access, missing-value behavior, canonical term, locked-vocabulary scope, or omitted obligatory semantic element.
+
+We need to examine candidate SHACL shape: NodeShape gen:I2-022Shape targeting class nltl:ship. Requirement target owner is ship -> correct.
+
+We need to see if the shape includes required constraints per requirement: It checks for presence of input quantities (peakPressureFactor, averageIcePressure, yieldStrength, loadPatchHeight, frameSpacing, selectedHullAreaFactor) via FILTER NOT EXISTS (i.e., it reports violation when missing). However, note that they used FILTER NOT EXISTS but they also used $this nltl:hasPlating ?pl etc. Should check: For each required input they used FILTER NOT EXISTS { $this nltl:peakPressureFactor ?ppf . ... } meaning violation if not exists. That's okay.
+
+Potential issues:
+
+- Does it include the required input "yieldStrength" (unit MPa) yes.
+
+- It includes "averageIcePressure" (unit MPa). Good.
+
+- It includes "peakPressureFactor" (unit UNITLESS). Good.
+
+- "loadPatchHeight". Good.
+
+- FrameSpacing is required on structural member, they check existence of structural member and its frameSpacing. They use FILTER NOT EXISTS { $this nltl:hasStructuralMember ?sm . ?sm nltl:frameSpacing ?fs . ... }. That ensures at least one structural member with frameSpacing. Good.
+
+- selectedHullAreaFactor similar.
+
+- "Result: iceLoadRequiredNetPlateThickness (unit mm) must be present on plating". They have FILTER NOT EXISTS { $this nltl:hasPlating ?pl2 . ?pl2 nltl:iceLoadRequiredNetPlateThickness ?t . ... } Good.
+
+- Dependency relationships: They have constraints that check platingHullAreaClassification and platingSupportedByStructuralMember are present on plating. That's good.
+
+- Applicability evidence: They have checks for existence of individuals bowIntermediateBottomHullArea, midbodyBottomHullArea, sternBottomHullArea. Good.
+
+- Also they have an applicability evidence check for platingHullAreaClassification property usage again (duplicate). That may be fine.
+
+Potential missing: The requirement mentions that the applicability is "including bottom plating in hull areas BI_b, M_b and S_b". The candidate includes check for individuals but does it enforce that plating's hullAreaClassification is one of those individuals? It only checks that platingHullAreaClassification property is present (any value). It does not restrict to allowed hull area values (BI_b, M_b, S_b). That could be a missing obligatory semantic element: needed to ensure classification is limited to those hull area individuals. This is a "locked-vocabulary scope" or "canonical term" issue? It's about relationship values being limited to specific controlled values. The requirement says include bottom plating in hull areas BI_b, M_b and S_b. The shape should assert that platingHullAreaClassification's object is one of those individuals. It currently just asserts existence, not the specific allowed values. That is a missing constraint, likely a blocking defect.
+
+Also the formula referenced: t_net = ... ; but verification mode is COMPLEX_READINESS (as per selection). The shape is not required to compute formula; just indicates it's informational, though possibly need to include result term present. They have presence check for result thickness, but not enforce calculation correctness. Since verificationMode is COMPLEX_READINESS and direct_check_subconstraints are empty, we may not need to enforce formula here. So not a defect.
+
+Another possible issue: The input "frameSpacing" is required on structuralMember, but the requirement also includes "b" (beam? maybe plate width) variable in formula denominator 1 + s/(2*b). The variable "b" is not represented; maybe it's a property not in requirement? But not required as input? The requirement includes "b" variable which is likely plating width; not present in candidate. However the selected inputs list includes only those listed; but missing "b" could be a missing mandatory input. The requirement's "requiredInputs": "yieldStrength_MPa" only? It only lists yieldStrength as required input in the requirement object. But the formula needs many other inputs; maybe they are not required in this candidate due to complexity. However the requirement's "requiredInputs" only specifies yieldStrength. So missing others might not be a defect.
+
+Check target: correct.
+
+Check applicability: It includes some applicability checks but maybe missing explicit check for Omega >=70 deg applicability. But they already have in the main constraint: # Find a plating with framing angle Omega >=70 deg. That ensures applicability is only evaluated when such plating exists; but they treat missing Omega as not applicable? The logic: SELECT $this WHERE { $this nltl:hasPlating ?pl . ?pl nltl:framingAngleOmega ?omegaQ . ... FILTER(?omegaVal >= 70) . ... (other checks) } The shape returns violations (nodes) that satisfy all conditions including Omega >=70. So if no plating with Omega >=70, shape will not select any violations (i.e., requirement not applicable). That's fine.
+
+Missing endpoint: The shape uses FILTER NOT EXISTS for averageIcePressure and others. However note the unit IRIs used: they used <http://qudt.org/vocab/unit/MegaPA> for MPa but QUDT unit for mega Pascal is 'MPa' maybe correct. However property unit for averageIcePressure uses MegaPA but correct unit is MPa (MegaPA). That's fine.
+
+Potential issue: In some FILTER NOT EXISTS they incorrectly used NOT EXISTS but also used wrong unit IRIs: For averageIcePressure they used <http://qudt.org/vocab/unit/MegaPA>. In QUDT the unit for megapascal is 'MegaPA' indeed (maybe case sensitive?). That's okay.
+
+Check that they used correct IRI for unitless: <http://qudt.org/vocab/unit/UNITLESS>. That's correct.
+
+Check that they used correct unit for mm: <http://qudt.org/vocab/unit/MilliM>. QUDT's unit for millimeter is "MilliM". That is correct.
+
+Potential issue: The FILTER NOT EXISTS for frameSpacing uses <http://qudt.org/vocab/unit/M>. QUDT's unit for meter is "M". Good.
+
+Potential issue: They used datatype check 'datatype(?v) = xsd:decimal' - may be too strict; QUDT numeric values may be xsd:double or other. This could be overly restrictive; if values are typed as xsd:double, the shape would not find them, leading to false violation. This is a concrete blocking defect: mandatory condition that numericValue must be xsd:decimal, but regulator may allow any numeric; The requirement doesn't state datatype; this restriction may be too strict and cause missing-value behavior. However the deterministic validation didn't flag datatype/unit issues; but that is about syntax validity of SHACL, not semantics. The blocking defect defined includes "datatype/quantity access", i.e., requirement that datatype must be a certain type could be a defect if not mandated. Since not mandated, requiring decimal is an extra mandatory condition not required; could be considered a defect. However the guidelines: must reject only for concrete blocking defects capable of changing regulatory semantics or executable conformance. Adding a restriction that the numeric value must be decimal could reject valid data (if they use double). That changes semantics, thus a defect.
+
+But we need to decide if this is considered a concrete blocking defect. The requirement does not specify datatype, but the candidate imposes xsd:decimal. That could be considered unnecessary, but is it a blocking defect? Likely yes.
+
+Also similar for other inputs.
+
+Thus we have at least two concrete defects: (1) Missing constraint that platingHullAreaClassification must be one of the controlled values (BI_b, M_b, S_b). (2) Overly restrictive datatype checks for numericValue being xsd:decimal.
+
+Also possibly missing check for variable "b" (maybe "frameSpacing"? Actually "b" in denominator is something else; not required. So ignore.
+
+Which category keys? category options: WRONG_TARGET, WRONG_APPLICABILITY, WRONG_OWNERSHIP_OR_PATH, WRONG_CARDINALITY, WRONG_THRESHOLD_OR_BOUNDARY, WRONG_FORMULA_OR_TABLE, WRONG_UNIT_OR_CONVERSION, WRONG_DATATYPE_OR_QUANTITY_ACCESS, MISSING_VALUE_BEHAVIOR, WRONG_CANONICAL_TERM, LOCKED_VOCABULARY_SCOPE, OMITTED_OBLIGATORY_SEMANTIC_ELEMENT. The missing classification constraint would be "OMITTED_OBLIGATORY_SEMANTIC_ELEMENT" maybe: because obligation to restrict to those hull areas is omitted. Could also be "LOCKED_VOCABULARY_SCOPE" because the value should be limited to those individuals. That seems appropriate.
+
+The datatype restriction issue would be "WRONG_DATATYPE_OR_QUANTITY_ACCESS" (since they enforce decimal but not required).
+
+We need to list each issue as separate object in currentIssues array. Must include all seven keys.
+
+Provide required_change description: brief.
+
+Regression_guard: maybe "Preserve the corrected target." Not needed; but we must give a string.
+
+Needs_vocabulary_resolution: false unless need to locate term. For datatype issue, false. For lock vocab scope issue, may need to reference ontology term but we already have. Likely false.
+
+activate_variable_matcher: only true if any issue has needs_vocabulary_resolution true. So false.
+
+If we have at least one issue, accept must be false.
+
+Thus produce JSON with two issues.
+
+Need location field: maybe "MainShape" or appropriate. Use "MainShape" as generic location.
+
+Provide problem description.
+
+Ok craft.
+
+
+{"accept":false,"activate_variable_matcher":false,"currentIssues":[{"category":"WRONG_DATATYPE_OR_QUANTITY_ACCESS","location":"MainShape","problem":"The shape restricts the datatype of every required numeric value to xsd:decimal via FILTER(datatype(?v) = xsd:decimal). The requirement does not prescribe a specific datatype, so valid data using other numeric types (e.g., xsd:double) would be incorrectly flagged as non‑conforming.","required_change":"Remove the datatype equality test or broaden it to accept any numeric datatype (e.g., xsd:double, xsd:float, xsd:decimal).","regression_guard":"Preserve removal of datatype check to keep datatype flexibility.","blocking":true,"needs_vocabulary_resolution":false},{"category":"LOCKED_VOCABULARY_SCOPE","location":"MainShape","problem":"The requirement mandates that platingHullAreaClassification must be one of the controlled hull‑area individuals BI_b, M_b or S_b. The shape only checks that the property exists, without constraining its object to those specific individuals, thus omitting an obligatory semantic restriction.","required_change":"Add a constraint (e.g., VALUES or FILTER) that limits the object of nltl:platingHullAreaClassification to exactly the IRIs https://w3id.org/nltl/vocab#bowIntermediateBottomHullArea, https://w3id.org/nltl/vocab#midbodyBottomHullArea, https://w3id.org/nltl/vocab#sternBottomHullArea.","regression_guard":"Preserve the added controlled‑value restriction for platingHullAreaClassification.","blocking":true,"needs_vocabulary_resolution":false}]}

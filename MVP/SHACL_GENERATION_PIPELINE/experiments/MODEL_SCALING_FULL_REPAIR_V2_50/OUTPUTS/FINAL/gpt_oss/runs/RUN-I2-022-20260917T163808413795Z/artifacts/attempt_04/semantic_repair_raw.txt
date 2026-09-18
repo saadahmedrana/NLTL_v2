@@ -1,0 +1,200 @@
+We need to modify the SHACL graph (previousCandidateShacl) to address the two currentIssues.
+
+Issue 1: Wrong datatype restriction. In many FILTER blocks they use FILTER(datatype(?v) = xsd:decimal). Should be removed or broadened to accept any numeric datatype. Need to edit all occurrences of such FILTER in the shape.
+
+Issue 2: LOCKED_VOCABULARY_SCOPE: platingHullAreaClassification must be limited to specific individuals: bowIntermediateBottomHullArea, midbodyBottomHullArea, sternBottomHullArea. Currently only existence check. Need to add constraint that the object is one of those IRIs. Could add a VALUES or FILTER.
+
+Implementation: probably modify the shape's SPARQL constraints where they check property values (existence) to also enforce allowed values. But the shape already includes existence constraints for many properties (peakPressureFactor etc). That's fine. For platingHullAreaClassification, there is a dedicated dependency relationship check that just ensures existence. We need to add another SPARQL constraint or modify that one to include VALUES.
+
+Specifically, there is:
+
+sh:sparql [ a sh:SPARQLConstraint ; sh:message "Missing required relationship: platingHullAreaClassification from plating." ; sh:select """... FILTER NOT EXISTS { ?pl nltl:platingHullAreaClassification ?any . }""" ]
+
+We must add a constraint to ensure that the object is one of the three IRIs.
+
+Could replace with a single constraint that checks existence and controlled values? Or add a second constraint.
+
+Simplest: modify that SPARQLConstraint's select to detect either missing property or property with disallowed value. But requirement says add constraint that limits the object to exactly the IRIs. So we could write a new SPARQL constraint that flags when a platingHullAreaClassification object is not one of those.
+
+Message: "platingHullAreaClassification must be one of bowIntermediateBottomHullArea, midbodyBottomHullArea, sternBottomHullArea."
+
+Select pattern: $this nltl:hasPlating ?pl . ?pl nltl:platingHullAreaClassification ?val . FILTER(?val NOT IN (nltl:bowIntermediateBottomHullArea, nltl:midbodyBottomHullArea, nltl:sternBottomHullArea))
+
+Thus we need to add that constraint.
+
+Also issue 1: remove datatype filter across shape. Let's locate each FILTER(datatype(?v) = xsd:decimal). They appear in many subqueries:
+
+- PeakPressureFactor check
+- AverageIcePressure check
+- YieldStrength check
+- LoadPatchHeight check
+- FrameSpacing check
+- SelectedHullAreaFactor check
+- iceLoadRequiredNetPlateThickness check
+
+Also possibly others. Need to replace with a more permissive test, maybe remove the datatype check altogether. So we will delete the FILTER(datatype(?v) = xsd:decimal) line each case. Ensure syntax remains valid.
+
+So modify the SPARQL string accordingly.
+
+Potential challenge: The SPARQL string is inside triple quotes. Must adjust correctly.
+
+Also need to ensure we don't break other parts.
+
+Now produce revised graph.
+
+We will copy previous graph and edit accordingly.
+
+Let's rewrite the shape with modifications.
+
+I'll construct the updated shape.
+
+Make sure prefixes remain same.
+
+Now generate final SHACL.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:I2-022Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For transversely‑framed plating (Omega ≥ 70 deg) the ship must provide all required input quantities and the calculated ice‑load net plate thickness (t_net) with correct units." ;
+        sh:select """PREFIX nltl: <https://w3id.org/nltl/vocab#>
+PREFIX qudt: <http://qudt.org/schema/qudt>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT $this WHERE {
+    # Find a plating with framing angle Omega >= 70 deg
+    $this nltl:hasPlating ?pl .
+    ?pl nltl:framingAngleOmega ?omegaQ .
+    ?omegaQ qudt:numericValue ?omegaVal .
+    ?omegaQ qudt:unit <http://qudt.org/vocab/unit/DEG> .
+    FILTER(?omegaVal >= 70) .
+
+    # PeakPressureFactor (unit UNITLESS) must be present on the ship
+    FILTER NOT EXISTS {
+        $this nltl:peakPressureFactor ?ppf .
+        ?ppf qudt:numericValue ?v .
+        ?ppf qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+    }
+
+    # AverageIcePressure (unit MPa) must be present on the ship
+    FILTER NOT EXISTS {
+        $this nltl:averageIcePressure ?aip .
+        ?aip qudt:numericValue ?v .
+        ?aip qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+    }
+
+    # YieldStrength (unit MPa) must be present on the ship
+    FILTER NOT EXISTS {
+        $this nltl:yieldStrength ?ys .
+        ?ys qudt:numericValue ?v .
+        ?ys qudt:unit <http://qudt.org/vocab/unit/MegaPA> .
+    }
+
+    # LoadPatchHeight (unit m) must be present on the ship
+    FILTER NOT EXISTS {
+        $this nltl:loadPatchHeight ?lph .
+        ?lph qudt:numericValue ?v .
+        ?lph qudt:unit <http://qudt.org/vocab/unit/M> .
+    }
+
+    # FrameSpacing (unit m) must be present on at least one structural member
+    FILTER NOT EXISTS {
+        $this nltl:hasStructuralMember ?sm .
+        ?sm nltl:frameSpacing ?fs .
+        ?fs qudt:numericValue ?v .
+        ?fs qudt:unit <http://qudt.org/vocab/unit/M> .
+    }
+
+    # SelectedHullAreaFactor (unit UNITLESS) must be present on at least one structural member
+    FILTER NOT EXISTS {
+        $this nltl:hasStructuralMember ?sm2 .
+        ?sm2 nltl:selectedHullAreaFactor ?af .
+        ?af qudt:numericValue ?v .
+        ?af qudt:unit <http://qudt.org/vocab/unit/UNITLESS> .
+    }
+
+    # Result: iceLoadRequiredNetPlateThickness (unit mm) must be present on plating
+    FILTER NOT EXISTS {
+        $this nltl:hasPlating ?pl2 .
+        ?pl2 nltl:iceLoadRequiredNetPlateThickness ?t .
+        ?t qudt:numericValue ?v .
+        ?t qudt:unit <http://qudt.org/vocab/unit/MilliM> .
+    }
+}""" ;
+    ] ;
+    # --- Dependency relationship checks ---
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Missing required relationship: platingHullAreaClassification from plating." ;
+        sh:select """PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this WHERE {
+    $this nltl:hasPlating ?pl .
+    FILTER NOT EXISTS { ?pl nltl:platingHullAreaClassification ?any . }
+}""" ;
+    ] ;
+    # Constrain platingHullAreaClassification to the allowed hull‑area individuals
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "platingHullAreaClassification must be one of bowIntermediateBottomHullArea, midbodyBottomHullArea, sternBottomHullArea." ;
+        sh:select """PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this WHERE {
+    $this nltl:hasPlating ?pl .
+    ?pl nltl:platingHullAreaClassification ?val .
+    FILTER(?val NOT IN (nltl:bowIntermediateBottomHullArea,
+                       nltl:midbodyBottomHullArea,
+                       nltl:sternBottomHullArea))
+}""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Missing required relationship: platingSupportedByStructuralMember from plating." ;
+        sh:select """PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this WHERE {
+    $this nltl:hasPlating ?pl .
+    FILTER NOT EXISTS { ?pl nltl:platingSupportedByStructuralMember ?any . }
+}""" ;
+    ] ;
+    # --- Applicability evidence (required hull area individuals) ---
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Applicability evidence missing: bowIntermediateBottomHullArea individual." ;
+        sh:select """PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this WHERE {
+    FILTER NOT EXISTS { nltl:bowIntermediateBottomHullArea a nltl:hullAreaValue . }
+}""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Applicability evidence missing: midbodyBottomHullArea individual." ;
+        sh:select """PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this WHERE {
+    FILTER NOT EXISTS { nltl:midbodyBottomHullArea a nltl:hullAreaValue . }
+}""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Applicability evidence missing: sternBottomHullArea individual." ;
+        sh:select """PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this WHERE {
+    FILTER NOT EXISTS { nltl:sternBottomHullArea a nltl:hullAreaValue . }
+}""" ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Applicability evidence missing: platingHullAreaClassification property usage." ;
+        sh:select """PREFIX nltl: <https://w3id.org/nltl/vocab#>
+SELECT $this WHERE {
+    $this nltl:hasPlating ?pl .
+    FILTER NOT EXISTS { ?pl nltl:platingHullAreaClassification ?any . }
+}""" ;
+    ] .
+<END_SHACL>

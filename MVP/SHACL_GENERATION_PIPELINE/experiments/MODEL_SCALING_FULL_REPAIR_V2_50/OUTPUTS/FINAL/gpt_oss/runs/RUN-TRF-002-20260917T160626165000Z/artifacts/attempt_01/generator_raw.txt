@@ -1,0 +1,163 @@
+We need to generate SHACL shape(s) for the requirement: "The Ice Class Regulations of 2017 apply to ships contracted for construction on or after 1 January 2019 but before 5 July 2021."
+
+We have vocabulary terms: applicableIceClassRegulationEdition (object property from benchmarkEntity to iceClassRegulationEditionValue), constructionContractDate (datatype property xsd:date on benchmarkEntity), iceClass (object property). Also we have controlled values for edition: iceClassRegulationEdition2017 (named individual) as a value of class iceClassRegulationEditionValue. Also we have other edition values irrelevant.
+
+We need to enforce that for a ship (class nltl:ship) with constructionContractDate in [2019-01-01, 2021-07-05) then applicableIceClassRegulationEdition must be iceClassRegulationEdition2017. Also, probably need presence of constructionContractDate and applicableIceClassRegulationEdition.
+
+Requirement: category Static, verificationMode DIRECT_STATIC: direct constraints over static RDF state. So we can express with SHACL: targetClass ship. Property shapes:
+
+- constructionContractDate: must be present, datatype xsd:date.
+- applicableIceClassRegulationEdition: must be present, with class iceClassRegulationEditionValue, and value must be iceClassRegulationEdition2017, but only when constructionContractDate in specified range.
+
+But we need to encode conditional applicability: if date in range, then must have edition 2017. If date outside range, maybe no requirement; we don't enforce.
+
+So we might need two shapes: one for date range applicability detection using sh:property with sh:if? SHACL doesn't have conditional directly; we can use sh:or with patterns, but better to use sh:node or sh:SPARQL constraint that checks condition.
+
+Simpler: a sh:property shape with sh:path nltl:constructionContractDate, sh:datatype xsd:date, sh:minCount 1, sh:maxCount 1 (maybe just minCount). Then a sh:SPARQLConstraint that filters nodes where date >=2019-01-01 and <2021-07-05, and then checks that applicableIceClassRegulationEdition/value = iceClassRegulationEdition2017.
+
+We need to use proper prefixes: nltl, sh, xsd, rdf maybe.
+
+We must include in SPARQL query its own prefixes. Use sh:message.
+
+Let's produce shape URIs under generatedShapeNamespace: e.g., urn:nltl:generated-shape:TRF-002_ShipShape.
+
+Now details: For checking the applicableIceClassRegulationEdition property, we need to retrieve its object, ensure it's iceClassRegulationEdition2017.
+
+So SPARQL: SELECT $this WHERE {
+  $this nltl:constructionContractDate ?date .
+  FILTER ( ?date >= "2019-01-01"^^xsd:date && ?date < "2021-07-05"^^xsd:date )
+  $this nltl:applicableIceClassRegulationEdition ?edition .
+  FILTER ( ?edition = nltl:iceClassRegulationEdition2017 )
+}
+
+If fails, then violation.
+
+But must include prefixes nltl, xsd, sh as per rule each query must declare prefixes inside its query.
+
+Also the shape may have a sh:property for constructionContractDate presence.
+
+Similarly for applicableIceClassRegulationEdition presence maybe also enforce presence, but conditional, so SPARQL handles both.
+
+Better: separate presence check just minCount anyway.
+
+Ok produce Turtle.
+
+Check allowed vocabulary: use nltl:constructionContractDate, nltl:applicableIceClassRegulationEdition, nltl:iceClassRegulationEdition2017 (named individual). These are all present.
+
+No other terms needed.
+
+Implement shape:
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:TRF-002_ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:property [
+        sh:path nltl:constructionContractDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ship must have a construction contract date." ;
+    ] ;
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:minCount 0 ; # presence handled conditionally
+        sh:maxCount 1 ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "If construction contract date is on or after 2019-01-01 and before 2021-07-05, the applicable ice class regulation edition must be 2017." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this WHERE {
+                $this nltl:constructionContractDate ?date .
+                FILTER ( ?date >= "2019-01-01"^^xsd:date && ?date < "2021-07-05"^^xsd:date )
+                $this nltl:applicableIceClassRegulationEdition ?edition .
+                FILTER ( ?edition = nltl:iceClassRegulationEdition2017 )
+            }
+        """ ;
+    ] .
+
+Check shape: presence of applicableIceClassRegulationEdition: we allow zero minCount because not required if date outside range; but to avoid violation for missing property when date in range, the SPARQL ensures existence. However if property missing and date in range, then SPARQL pattern will not match (no edition triple) and thus ?this not selected -> no violation? Actually SPARQLConstraint returns violation if SELECT returns a row (or if ASK returns true?). For sh:select constraints, each solution is a violation. Since we require both date and edition, missing edition will cause pattern to fail to match, so no row => no violation -> not correct. We need to enforce that when date in range, edition must exist and be specific.
+
+We can use a SPARQL ASK constraint that returns true if violation. But SHACL prefers SELECT with violations. Approach: Use SELECT that returns $this when condition (date in range) AND (edition missing OR edition != required). So we need to use OPTIONAL edition and filter accordingly.
+
+Pattern:
+
+{
+  $this nltl:constructionContractDate ?date .
+  FILTER ( ?date >= "2019-01-01"^^xsd:date && ?date < "2021-07-05"^^xsd:date )
+  OPTIONAL { $this nltl:applicableIceClassRegulationEdition ?edition . }
+  FILTER ( !bound(?edition) || ?edition != nltl:iceClassRegulationEdition2017 )
+}
+
+Thus violation when missing or wrong edition.
+
+Implement SELECT accordingly.
+
+Let's write the SELECT.
+
+Now shape property for applicableIceClassRegulationEdition maybe not needed, but okay.
+
+But we need to ensure the property is of class iceClassRegulationEditionValue; could be separate property shape with sh:class. But that property may be optional. Add sh:nodeKind sh:IRI maybe.
+
+Simplify: Keep property shape with minCount 0.
+
+Now produce final Turtle.
+
+Check prefixes: need sh, nltl, xsd, maybe rdf not needed.
+
+Make sure shape IRI: urn:nltl:generated-shape:TRF-002_ShipShape
+
+Now ensure all IRIs are correct.
+
+Return inside markers.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix g: <urn:nltl:generated-shape:> .
+
+g:TRF-002_ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # construction contract date must be present and be a date
+    sh:property [
+        sh:path nltl:constructionContractDate ;
+        sh:datatype xsd:date ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "A ship must have a construction contract date (xsd:date)." ;
+    ] ;
+    # the applicable ice‑class regulation edition may be present; when present it must be a regulated edition value
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:class nltl:iceClassRegulationEditionValue ;
+        sh:maxCount 1 ;
+    ] ;
+    # Conditional applicability: if the contract date is on/after 2019‑01‑01 and before 2021‑07‑05,
+    # the ship must reference the 2017 ice‑class regulation edition.
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "When the construction contract date is on or after 2019‑01‑01 and before 2021‑07‑05, the applicable ice‑class regulation edition must be the 2017 edition." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+            SELECT $this WHERE {
+                $this nltl:constructionContractDate ?date .
+                FILTER ( ?date >= "2019-01-01"^^xsd:date && ?date < "2021-07-05"^^xsd:date )
+                OPTIONAL { $this nltl:applicableIceClassRegulationEdition ?edition . }
+                FILTER ( !bound(?edition) || ?edition != nltl:iceClassRegulationEdition2017 )
+            }
+        """ ;
+    ] .
+<END_SHACL>

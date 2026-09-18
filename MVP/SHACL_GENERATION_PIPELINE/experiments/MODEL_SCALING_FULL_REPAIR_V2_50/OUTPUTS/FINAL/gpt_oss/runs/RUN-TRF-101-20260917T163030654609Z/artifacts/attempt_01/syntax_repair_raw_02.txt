@@ -1,0 +1,219 @@
+We need to repair the Turtle syntax error. The error is about bad escape in the SPARQL string inside sh:select. The Turtle uses double quoted string with triple quotes inside. In Turtle, to embed a triple-quoted string, we use """ ... """ without escaping. But within a Turtle string, to have line breaks we can use triple quotes directly. However the current representation is sh:select \"\"\"\\\n ... \"\"\" ; they attempted to escape. In Turtle, the syntax for a multiline string is """...""". No need to escape. If we need to include backslashes for newline? Actually inside triple quotes you can have newlines directly. So we should write sh:select """\nPREFIX ...\n...""" . Ensure no escaped quotes.
+
+Also need to escape double quotes inside if any but there are none.
+
+Also need to ensure proper semicolons and commas. In the candidate, after sh:select ... ; there is a semicolon then closing bracket of sh:sparql? Let's verify.
+
+The SPARQL block:
+
+[ sh:sparql [ 
+      sh:message "Calculated blade failure load does not match the provided bladeFailureUltimateLoad (kN) within tolerance." ;
+      sh:select "\"\"\"\\\n PREFIX ... \"\"\" ; 
+  ] 
+]
+
+We need to change to:
+
+sh:select """ 
+    PREFIX nltl: <https://w3id.org/nltl/vocab#>
+    ...
+""" ;
+
+So remove backslashes before triple quotes and escape inside Turtle? Actually triple quotes start and end the string; we need to ensure no stray backslashes.
+
+Thus modify both sh:select strings in the two SPARQL constraints.
+
+Also check any other escapes: the message strings have Unicode characters like \u2011 non-breaking hyphen? They use "non\u2011linear". That's fine, Turtle supports Unicode escapes. Also 10\u202f% for narrow no-break space; fine.
+
+Check for dash in comment "# Path A: approved non\u2011linear" fine.
+
+Also need to ensure after the sh:or list, there's a period after the list and before next predicate? Already there is a period after ) . That's okay.
+
+Now produce corrected candidate with proper triple-quoted strings.
+
+Make sure to close brackets and semicolons correctly.
+
+Let's rewrite.
+
+We keep prefixes, subject <urn:nltl:generated-shape:TRF-101>.
+
+Under sh:or ( list ), each member is a node shape.
+
+First member: [ sh:property [ ... ] ] . This is fine.
+
+Second member: [ sh:sparql [ sh:message ... ; sh:select """...""" ; ] ] . Ensure each ends with ; inside but after closing inner bracket no extra ;? In Turtle, within list we separate members with whitespace, no semicolon needed after list member. For list members are separate blank node property shapes, each is a node shape with properties. The syntax used previously: [ sh:property [ ... ] ] and [ sh:sparql [ ... ] ] are separate list entries, separated by whitespace. That's fine.
+
+Now write it.
+
+Also ensure that after the sh:or ( ... ) . the next predicate is sh:sparql ... ; that has a period at end.
+
+Now produce final output inside markers.
+
+
+<BEGIN_SHACL>
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+<urn:nltl:generated-shape:TRF-101>
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+
+    # ---- required quantity inputs -------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeChordLengthAtWeakestSection ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMaximumThicknessAtWeakestSection ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeCylindricalRootRadius ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeMinimumYieldStrength ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeUltimateTensileStrength ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:propellerDiameter ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeFailureUltimateLoad ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path nltl:bladeTipOffset ;
+        sh:class qudt:QuantityValue ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+
+    # ---- boolean evidence ---------------------------------------------------------
+    sh:property [
+        sh:path nltl:bladeFailureLoadWeakestDirectionConfirmed ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue true
+    ] ;
+
+    # ---- alternative compliance paths (approved analysis OR calculation) ----------
+    sh:or (
+        # Path A: approved non‑linear stress analysis record must be present
+        [ sh:property [
+              sh:path nltl:approvedNonlinearBladeStressAnalysis ;
+              sh:minCount 1 ;
+              sh:maxCount 1
+          ]
+        ]
+
+        # Path B: formula‑based calculation must be consistent
+        [ sh:sparql [
+              sh:message "Calculated blade failure load does not match the provided bladeFailureUltimateLoad (kN) within tolerance." ;
+              sh:select """ 
+                  PREFIX nltl: <https://w3id.org/nltl/vocab#>
+                  PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+                  PREFIX qudt: <http://qudt.org/schema/qudt#>
+                  PREFIX unit: <http://qudt.org/vocab/unit/>
+
+                  SELECT $this WHERE {
+                    # No approved analysis present
+                    FILTER NOT EXISTS { $this nltl:approvedNonlinearBladeStressAnalysis ?any . }
+
+                    # Operand quantities
+                    $this nltl:bladeChordLengthAtWeakestSection ?cNode .
+                    ?cNode qudt:numericValue ?cVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeMaximumThicknessAtWeakestSection ?tNode .
+                    ?tNode qudt:numericValue ?tVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeCylindricalRootRadius ?rNode .
+                    ?rNode qudt:numericValue ?rVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeMinimumYieldStrength ?sigma0Node .
+                    ?sigma0Node qudt:numericValue ?sigma0Val ;
+                                qudt:unit unit:MegaPA .
+
+                    $this nltl:bladeUltimateTensileStrength ?sigmaUNode .
+                    ?sigmaUNode qudt:numericValue ?sigmaUVal ;
+                               qudt:unit unit:MegaPA .
+
+                    $this nltl:propellerDiameter ?DNode .
+                    ?DNode qudt:numericValue ?DVal ;
+                           qudt:unit unit:M .
+
+                    $this nltl:bladeFailureUltimateLoad ?FNode .
+                    ?FNode qudt:numericValue ?FVal ;
+                          qudt:unit unit:KiloN .
+
+                    # Formula
+                    BIND ( (0.6 * ?sigma0Val + 0.4 * ?sigmaUVal) AS ?sigmaRef1 ) .
+                    BIND ( ?tVal * ?tVal AS ?tSq ) .
+                    BIND ( (0.8 * ?DVal - 2 * ?rVal) AS ?denom ) .
+                    BIND ( (300 * ?cVal * ?tSq * ?sigmaRef1) AS ?numer ) .
+                    BIND ( ?numer / ?denom AS ?calcF ) .
+
+                    # Tolerance (relative 1e-6, absolute fallback 1e-9)
+                    BIND ( 1e-6 AS ?relTol ) .
+                    BIND ( IF ( ?calcF = 0 , 1e-9 , ?relTol * ABS(?calcF) ) AS ?absTol ) .
+
+                    FILTER ( ABS(?FVal - ?calcF) > ?absTol )
+                  }
+              """ ;
+          ]
+        ]
+    ) .
+
+    # ---- blade failure status based on tip offset ----------------------------------
+    sh:sparql [
+        sh:message "Blade failure status must be true when blade tip offset exceeds 10 % of propeller diameter." ;
+        sh:select """ 
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this WHERE {
+              $this nltl:bladeTipOffset ?offNode .
+              ?offNode qudt:numericValue ?offVal ;
+                       qudt:unit unit:M .
+
+              $this nltl:propellerDiameter ?DNode .
+              ?DNode qudt:numericValue ?DVal ;
+                     qudt:unit unit:M .
+
+              # Condition: offset > 0.10 * D
+              FILTER ( ?offVal > (0.10 * ?DVal) ) .
+
+              $this nltl:bladeFailureStatus ?status .
+              FILTER ( ?status != true )
+            }
+        """ ;
+    ] .
+<END_SHACL>

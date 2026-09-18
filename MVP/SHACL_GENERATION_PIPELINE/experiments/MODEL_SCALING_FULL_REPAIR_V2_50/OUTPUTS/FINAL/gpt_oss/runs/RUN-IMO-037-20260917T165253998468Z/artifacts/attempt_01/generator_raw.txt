@@ -1,0 +1,200 @@
+We need to generate a SHACL shape graph for this complex readiness requirement. VerificationMode is COMPLEX_READINESS, so we must not reconstruct engineering calculation, just verify readiness and evidence. DirectCheckSubconstraints indicate we need to check each loadingConditionCase meets either residualStabilityFactorSI = 1 or alternativeInstrumentApplicable is true AND alternativeInstrumentResidualStabilityStatus = compliant. Also need applicability: shipCategory in A or B and constructionDate >= 2017-01-01.
+
+Also need evidence: hasLoadingConditionResultEvidence must be present? The dependency contract includes modelPaths: ship hasLoadingConditionCase -> loadingConditionCase; loadingConditionCase hasLoadingConditionResultEvidence -> evidenceArtifact. Not explicit requirement for evidence, but likely needed to evidence that the condition was assessed. Could include presence check.
+
+We must target ship class. The requirementTargetOwner is ship.
+
+So shape: targetClass nltl:ship. Inside, properties:
+
+- shipCategory must be one of A,B (object property shipCategory value polarShipCategoryA or B). Use sh:in with those individuals.
+
+- constructionDate datatype xsd:date, minInclusive "2017-01-01"^^xsd:date.
+
+- hasLoadingConditionCase: must have at least 1? It says for every applicable loading condition; we can require at least one case but not mandated? Probably require at least one case. Use sh:minCount 1.
+
+- For each loadingConditionCase, we need a node shape with constraints: either residualStabilityFactorSI = 1 OR (alternativeInstrumentApplicable = true AND alternativeInstrumentResidualStabilityStatus true? Actually "compliant" status. The term alternativeInstrumentResidualStabilityStatus is boolean? definition: datatype boolean. But "compliant" likely true. So we may check alternativeInstrumentResidualStabilityStatus = true.
+
+We'll need to get alternativeInstrumentApplicable property from loadingConditionCase (requiredOwner loadingConditionCase). That property is boolean.
+
+Thus within loadingConditionCase node shape: we need a sh:or list of two shapes:
+
+Option1: residualStabilityFactorSI numeric equals 1 (using qudt:QuantityValue). Need to check that residualStabilityFactorSI is present and its qudt:numericValue equals 1 with tolerance.
+
+Pattern: loadingConditionCase nltl:residualStabilityFactorSI ?q . ?q qudt:numericValue ?val . ?q qudt:unit ?unit . Unit should be UNITLESS but maybe not needed.
+
+We can enforce via sh:property sh:path nltl:residualStabilityFactorSI then must be a node with numeric 1. Could use sh:property with nested shape for quantity.
+
+Simpler: use sh:property with path nltl:residualStabilityFactorSI/sh:node ? Actually need to define a property shape with path nltl:residualStabilityFactorSI and then inside, a sh:property path qudt:numericValue with datatype xsd:decimal and sh:hasValue 1. However numericValue may not be direct literal? Use sh:hasValue decimal? Use sh:hasValue "1"^^xsd:decimal.
+
+Add sh:in for unit maybe.
+
+Option2: alternativeInstrumentApplicable true AND alternativeInstrumentResidualStabilityStatus true. Since both are boolean datatype properties on loadingConditionCase.
+
+Thus overall shape for loadingConditionCase with sh:or of two node shapes.
+
+Also need evidence: loadingConditionCase hasLoadingConditionResultEvidence some evidenceArtifact, require minCount 1.
+
+Now need to encode with prefixes: nltl, sh, xsd, qudt maybe.
+
+Ensure each SPARQL query includes prefixes.
+
+We can avoid SPARQL constraints by using core shapes and sh:or with nested shapes; but numeric tolerance can't be expressed with sh:hasValue exactly maybe okay.
+
+Need to also enforce applicability: the ship level constraints only apply when shipCategory in A/B and constructionDate >= 2017-01-01. If not applicable, we should not enforce loading condition checks. In SHACL, we can use sh:if? No built-in. Could use sh:targetClass ship and then property shapes with sh:condition? Not standard. Use sh:property with sh:or and sh:if... Not available. Approach: Use sh:nodeShape for ship and then separate shape with sh:targetClass ship and sh:condition via sh:filterShape? Might use sh:property with sh:path nltl:shipCategory and then use sh:hasValue or sh:in but can't make conditional.
+
+We might model as a target for loadingConditionCase directly, but guard by ship level applicability via sh:node shape that includes sh:property constraint only when condition holds. SHACL does not support conditional application directly, but we can embed SPARQL constraint that checks both applicability and outcome.
+
+Thus we can create a shape on ship with sh:sparql constraint that iterates over loadingConditionCase and checks condition.
+
+Simplify: Use sh:sparql constraint on ship that checks for any ship where shipCategory is A/B and constructionDate >= date, then for each loadingConditionCase related, enforce outcome.
+
+Construct SPARQL query:
+
+PREFIX nltl: <...>
+PREFIX xsd: <...>
+PREFIX qudt: <http://qudt.org/schema/qudt#>
+PREFIX sh: <http://www.w3.org/ns/shacl#>
+SELECT $this (COUNT(*) AS ?violations)
+WHERE {
+  $this nltl:shipCategory ?cat .
+  FILTER(?cat IN (nltl:polarShipCategoryA, nltl:polarShipCategoryB))
+  $this nltl:constructionDate ?cdate .
+  FILTER(?cdate >= "2017-01-01"^^xsd:date)
+  $this nltl:hasLoadingConditionCase ?lc .
+  OPTIONAL { ?lc nltl:alternativeInstrumentApplicable ?altApp . }
+  OPTIONAL { ?lc nltl:alternativeInstrumentResidualStabilityStatus ?altStat . }
+  OPTIONAL {
+    ?lc nltl:residualStabilityFactorSI ?q .
+    ?q qudt:numericValue ?val .
+  }
+  FILTER( !( (BOUND(?val) && abs(?val - 1) <= 1e-6) ||
+            (BOUND(?altApp) && ?altApp = true && BOUND(?altStat) && ?altStat = true) ) )
+}
+GROUP BY $this
+HAVING (COUNT(*) > 0)
+
+But we need to produce violations; sh:sparql constraint expects a SELECT that returns ?this where violation occurs. Usually you SELECT $this WHERE {...} without grouping.
+
+Simplify: SELECT $this WHERE { ... FILTER(condition fails) }.
+
+Thus:
+
+SELECT $this WHERE {
+  $this nltl:shipCategory ?cat .
+  FILTER(?cat = nltl:polarShipCategoryA || ?cat = nltl:polarShipCategoryB)
+  $this nltl:constructionDate ?cdate .
+  FILTER(?cdate >= "2017-01-01"^^xsd:date)
+  $this nltl:hasLoadingConditionCase ?lc .
+  OPTIONAL { ?lc nltl:residualStabilityFactorSI ?q .
+             ?q qudt:numericValue ?val .
+           }
+  OPTIONAL { ?lc nltl:alternativeInstrumentApplicable ?altApp . }
+  OPTIONAL { ?lc nltl:alternativeInstrumentResidualStabilityStatus ?altStat . }
+  FILTER( !( (BOUND(?val) && abs(?val - 1) <= 1e-6) ||
+            (BOUND(?altApp) && ?altApp = true && BOUND(?altStat) && ?altStat = true) ) )
+}
+
+Need to include abs function; XPath math function available? Could use math:abs via pref. Use math:abs from http://www.w3.org/2005/xpath-functions/math#. Use prefix math.
+
+Thus condition: (BOUND(?val) && math:abs(?val - 1) <= 1e-6) ...
+
+Will rely on math:abs.
+
+Now also need evidence presence: but not required explicitly, but may include separate core property shape.
+
+Add property shape on ship for hasLoadingConditionCase with minCount 1 maybe not needed but okay.
+
+Add property shape for hasLoadingConditionResultEvidence on loadingConditionCase with minCount 1. Could be separate shape targeting loadingConditionCase.
+
+Thus we may create two node shapes: one for ship with SHACL property constraints for category and date (presence), and SPARQL for residual check. Another shape for loadingConditionCase to require evidence.
+
+Define shapes with IDs: urn:nltl:generated-shape:ShipShape and LoadingConditionCaseShape.
+
+Now generate Turtle.
+
+Make sure use allowed terms only: ship, shipCategory, constructionDate, hasLoadingConditionCase, residualStabilityFactorSI, alternativeInstrumentApplicable, alternativeInstrumentResidualStabilityStatus, hasLoadingConditionResultEvidence, evidenceArtifact, loadingConditionCase, polarShipCategoryA/B.
+
+All are allowed. Use correct prefixes.
+
+Now produce.
+
+Check that all prefixes declared at top of Turtle.
+
+One shape with targetClass nltl:ship.
+
+Reference to nltl:polarShipCategoryA etc.
+
+Now output within <BEGIN_SHACL> ... <END_SHACL>.
+
+Let's craft.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt#> .
+@prefix math: <http://www.w3.org/2005/xpath-functions/math#> .
+@prefix : <urn:nltl:generated-shape:> .
+
+:ShipShape a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # shipCategory must be A or B
+    sh:property [
+        sh:path nltl:shipCategory ;
+        sh:in (nltl:polarShipCategoryA nltl:polarShipCategoryB) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Ship category must be A or B." ;
+    ] ;
+    # constructionDate must be on or after 2017‑01‑01
+    sh:property [
+        sh:path nltl:constructionDate ;
+        sh:datatype xsd:date ;
+        sh:minInclusive "2017-01-01"^^xsd:date ;
+        sh:message "Construction date must be on or after 2017‑01‑01." ;
+    ] ;
+    # at least one loading condition case (the detailed check is performed by SPARQL)
+    sh:property [
+        sh:path nltl:hasLoadingConditionCase ;
+        sh:minCount 1 ;
+        sh:message "At least one loading condition case must be provided." ;
+    ] ;
+    # Direct‑check SPARQL: each loading condition case satisfies SI=1 or allowed alternative
+    sh:sparql [
+        sh:message "Each loading condition case must have residualStabilityFactorSI = 1, or (alternativeInstrumentApplicable = true and alternativeInstrumentResidualStabilityStatus = true)." ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            PREFIX qudt: <http://qudt.org/schema/qudt#>
+            PREFIX math: <http://www.w3.org/2005/xpath-functions/math#>
+            SELECT $this WHERE {
+                $this nltl:shipCategory ?cat .
+                FILTER(?cat = nltl:polarShipCategoryA || ?cat = nltl:polarShipCategoryB) .
+                $this nltl:constructionDate ?cdate .
+                FILTER(?cdate >= "2017-01-01"^^xsd:date) .
+                $this nltl:hasLoadingConditionCase ?lc .
+
+                OPTIONAL {
+                    ?lc nltl:residualStabilityFactorSI ?q .
+                    ?q qudt:numericValue ?val .
+                }
+                OPTIONAL { ?lc nltl:alternativeInstrumentApplicable ?altApp . }
+                OPTIONAL { ?lc nltl:alternativeInstrumentResidualStabilityStatus ?altStat . }
+
+                FILTER( !( (BOUND(?val) && math:abs(?val - 1) <= 1e-6) ||
+                          (BOUND(?altApp) && ?altApp = true && BOUND(?altStat) && ?altStat = true) ) )
+            }
+        """ ;
+    ] .
+
+:LoadingConditionCaseShape a sh:NodeShape ;
+    sh:targetClass nltl:loadingConditionCase ;
+    # evidence artifact for each loading condition result
+    sh:property [
+        sh:path nltl:hasLoadingConditionResultEvidence ;
+        sh:class nltl:evidenceArtifact ;
+        sh:minCount 1 ;
+        sh:message "Loading condition case must cite a result evidence artifact." ;
+    ] .
+<END_SHACL>

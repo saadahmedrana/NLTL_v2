@@ -1,0 +1,120 @@
+We need to repair SHACL graph to address deterministic validation issue: unapproved external/generated IRI(s): http://qudt.org/schema/qudt#, http://qudt.org/schema/qudt#QuantityValue.
+
+We must correct this while preserving other semantics. The issue: Using external IRI for class qudt:QuantityValue maybe not allowed. Perhaps need to use canonical vocabulary term instead of external. In allowed vocabulary, there is no qudt terms. But they are used to represent quantity values. Could replace with blank node pattern using qudt:numericValue and qudt:unit but not referencing qudt:QuantityValue class? Possibly we can define a shape using sh:nodeKind sh:Literal with datatype xsd:decimal? But they want quantity value as node with numeric value and unit properties. We could define a local class for quantity value within our namespace, perhaps nltl:QuantityValue? However not in allowed vocab. Allowed terms include classes like iceClassValue, benchmarkEntity, ship, shipComponent. No QuantityValue class. Must not invent terms. The policy: useOnlyAllowedCanonicalTerms true. So cannot introduce new class IRI not in allowed list. Could we avoid referencing external class by removing sh:class qudt:QuantityValue and relying on sh:property constraints for its components? The shape could just assert that the property value is a blank node and then constraints about its predicates (numericValue, unit) are applied via a nested shape using sh:node (a property shape). For SHACL, we can use sh:node to define constraints on the blank node. That avoids referencing external class. So modify property shapes for maximumContinuousRatingPower and requiredPowerUnder1985Rules:
+
+Currently:
+
+sh:path nltl:maximumContinuousRatingPower ;
+sh:nodeKind sh:BlankNode ;
+sh:class qudt:QuantityValue ;
+...
+
+We can replace with:
+
+sh:path nltl:maximumContinuousRatingPower ;
+sh:nodeKind sh:BlankNode ;
+sh:node [
+   sh:property [
+      sh:path qudt:numericValue ;
+      sh:datatype xsd:decimal ;
+      sh:minCount 1 ; sh:maxCount 1 ;
+   ] ;
+   sh:property [
+      sh:path qudt:unit ;
+      sh:in ( nltl:iceClassRegulationEdition2002 ... )?? Actually unit is recommendedUnit: maybe we need to use the recommended unit IRI from vocabulary? For power, recommendedUnit is http://qudt.org/vocab/unit/KiloW which is external as well. That's also external. Issue may only about QuantityValue class but also unit IRI external. The deterministic validation flagged external IRIs: http://qudt.org/schema/qudt# and http://qudt.org/schema/qudt#QuantityValue. It didn't flag qudt:unit IRIs. Probably allowed only schema namespace? The IRI for unit (http://qudt.org/vocab/unit/KiloW) is also external but maybe not flagged. But to be safe, we may need to avoid external IRI anywhere. However usagePolicy: useOnlyAllowedCanonicalTerms, allowed vocabulary only includes those listed. qudt unit not allowed. So we must not use that either.
+
+But the original shape uses recommendedUnit from the property definition (which is external). The shape didn't refer to unit IRI directly; just used qudt:unit property, but not specify a value. That might be okay because it doesn't use external IRI as a value, just as a property predicate which is external but the property itself is also external. The deterministic issue flagged generated IRI(s): http://qudt.org/schema/qudt# and http://qudt.org/schema/qudt#QuantityValue. The former is the namespace of qudt schema (maybe used as prefix). It's used as prefix in the shape, which is external. The policy maybe prohibits any external vocab IRIs in the SHACL graph. But they allowed usage of external predicates? The earlier statements: "useOnlyAllowedCanonicalTerms" suggests only allowed canonical terms for vocab but perhaps external vocab like xsd, sh, rdf are allowed. qudt likely not allowed. So we need to remove qudt prefix usage altogether.
+
+Thus we need to replace reliance on qudt with allowed terms. However we don't have a quantity representation in allowed vocab. Could use literal directly: the property should have datatype xsd:decimal and perhaps unit as part of separate property? But there's no property for unit in allowed vocab. Could ignore unit.
+
+Simplify: For the quantity properties, enforce that they are literals numeric (e.g., datatype xsd:decimal). That removes external IRI usage.
+
+Thus modify property shapes:
+
+sh:path nltl:maximumContinuousRatingPower ;
+sh:datatype xsd:decimal ;
+sh:minCount 1 ; sh:maxCount 1 ;
+sh:message ...
+
+Similarly for requiredPowerUnder1985Rules.
+
+But the original comparison SPARQL expects quantity nodes with qudt:numericValue. We'll need to adjust SPARQL accordingly to extract literal values directly from the property.
+
+If we change shape to literal, we modify SPARQL: $this nltl:maximumContinuousRatingPower ?mcrVal . (no blank node). And similarly for requiredPowerUnder1985Rules.
+
+Update SPARQL accordingly.
+
+Remove qudt prefix and usage.
+
+This addresses deterministic error: eliminates external IRIs.
+
+Now ensure no other external IRIs remain: sh, xsd, nltl, gen, maybe rdf. Those are allowed (standard). No qudt anymore.
+
+Implement modifications in the SHACL graph.
+
+Return full revised graph.
+
+Let's craft revised graph:
+
+Prefixes: sh, nltl, xsd, gen (no qudt). Remove qudt prefix.
+
+Update shapes.
+
+Here is revised.
+
+
+<BEGIN_SHACL>
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix gen: <urn:nltl:generated-shape:> .
+
+gen:TRF023Shape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    # Applicability: ice class must be IB or IC
+    sh:property [
+        sh:path nltl:iceClass ;
+        sh:nodeKind sh:IRI ;
+        sh:in ( nltl:iceClassIb nltl:iceClassIc ) ;
+        sh:message "Ship must have ice class IB or IC." ;
+    ] ;
+    # Applicability: regulation edition must be the 1985 edition
+    sh:property [
+        sh:path nltl:applicableIceClassRegulationEdition ;
+        sh:hasValue nltl:iceClassRuleEdition1985 ;
+        sh:message "Applicable ice class regulation edition must be the 1985 edition." ;
+    ] ;
+    # Required input: maximum continuous rating power (numeric value in kW)
+    sh:property [
+        sh:path nltl:maximumContinuousRatingPower ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Maximum continuous rating power must be provided as a decimal value (kW)." ;
+    ] ;
+    # Required input: required power under 1985 rules (numeric value in kW)
+    sh:property [
+        sh:path nltl:requiredPowerUnder1985Rules ;
+        sh:datatype xsd:decimal ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Required power under 1985 rules must be provided as a decimal value (kW)." ;
+    ] ;
+    # Comparison: MCR power >= required power
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Maximum continuous rating power must be greater than or equal to required power under 1985 rules." ;
+        sh:select """
+            PREFIX sh: <http://www.w3.org/ns/shacl#>
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+            SELECT $this ( ?mcrVal AS ?value1 ) ( ?reqVal AS ?value2 )
+            WHERE {
+                $this nltl:maximumContinuousRatingPower ?mcrVal .
+                $this nltl:requiredPowerUnder1985Rules ?reqVal .
+                FILTER ( ?mcrVal < ?reqVal )
+            }
+        """ ;
+    ] .
+<END_SHACL>
