@@ -7,6 +7,7 @@ from rdflib.plugins.sparql.parser import parseQuery
 from rdflib.plugins.sparql import prepareQuery
 from .schema import N,Q,U
 from .core import finding,digest
+from .enumerations import coverage_findings
 
 def iri_tokens(text):
  prefixes={p:u for p,u in re.findall(r'(?i)\b(?:PREFIX|@prefix)\s+([\w-]+):\s*<([^>]+)>',text)}
@@ -56,7 +57,14 @@ def check(c,schema,rid):
   excerpt=c.code.splitlines()[line-1] if line and line<=len(c.code.splitlines()) else c.code
   return [finding(c,'PARSE_ERROR','Turtle parse failed',excerpt,evidence='rdflib Turtle parser',suggestion='Correct only the reported syntax.',location='Turtle parser'+(' line '+str(line) if line else ''),diagnostic=str(e))]
  ids={str(x) for triple in g for x in triple if isinstance(x,URIRef)}
- for q in g.objects(None,SH.select):ids|=iri_tokens(str(q))
+ query_iris=set()
+ for q in g.objects(None,SH.select):query_iris|=iri_tokens(str(q))
+ ids|=query_iris
+ # A declared SHACL shape identifier is an artifact name, not a regulatory operand.
+ defined_shapes=set(g.subjects(RDF.type,SH.NodeShape))|set(g.subjects(RDF.type,SH.PropertyShape))
+ regulatory_uses={p for _,p,_ in g}|query_iris
+ for predicate in [SH.path,SH['class'],SH.targetClass,SH.datatype,SH.hasValue,RDF.first]:regulatory_uses.update(g.objects(None,predicate))
+ ids-={str(x) for x in defined_shapes-regulatory_uses if isinstance(x,URIRef)}
  for i in sorted(ids):
   if i.startswith(str(N)) and i not in schema.canonical or i.startswith(str(U)) and i not in schema.units or i.startswith(str(Q)) and i not in {str(Q.unit),str(Q.numericValue),str(Q.QuantityValue)}:
    local=re.split(r'[/#]',i)[-1];matches=[u for u in schema.canonical if re.split(r'[/#]',u)[-1]==local]
@@ -148,6 +156,8 @@ def check(c,schema,rid):
        for qs,qp,qo in edges:
         if qs[1:]==o[1:] and iri(qp)==str(Q.unit) and not qo.startswith(('?','$')) and iri(qo)!=term['unitIri']:
          out.append(finding(c,'UNIT_CONSISTENCY_ERROR','SPARQL operand unit incompatible with property scale',qo,expected=term['unitIri'],evidence=json.dumps(term),suggestion='Use source-supported conversion; do not relabel a numeric value.',location='sh:select unit '+pred))
+ enum_findings,_=coverage_findings(c,schema,rid,g)
+ out+=enum_findings
  # RDF1.1 plain strings are xsd:string; no invented numeric/string coercions.
  unique={f.key:f for f in out};return list(unique.values())
 
@@ -159,7 +169,11 @@ def obligation_signature(code):
   if isinstance(p,URIRef):sig.add(('path',str(p)))
  for pred in [SH.datatype,SH['class'],SH.pattern,SH.minLength,SH.maxLength,SH.minCount,SH.maxCount,SH.minInclusive,SH.maxInclusive,SH.minExclusive,SH.maxExclusive,SH.hasValue,SH.targetClass,SH['in'],SH['or'],SH['and']]:
   for s,o in g.subject_objects(pred):
-   path=g.value(s,SH.path); value='STRUCTURE' if isinstance(o,BNode) else o.n3();sig.add((str(pred),str(path or 'node'),value))
+   path=g.value(s,SH.path); value='STRUCTURE' if isinstance(o,BNode) else o.n3()
+   if pred==SH['in']:
+    try:value=json.dumps(sorted(x.n3() for x in Collection(g,o)))
+    except Exception:value='MALFORMED_LIST'
+   sig.add((str(pred),str(path or 'node'),value))
  for query in g.objects(None,SH.select):
   # Query changes are never silently accepted. Exact semantics require evidenced review.
   sig.add(('query',str(query)))
@@ -171,6 +185,14 @@ def regression(previous,current,authorization=None):
  justified=[]
  for old in removed:
   text=old[-1]
+  if authorization and old[0]==str(SH['in']):
+   for f in authorization:
+    try:
+     report=json.loads(f.diagnostic)
+     expected={URIRef(x).n3() for x in report.get('expected_IRIs',[])}
+     if report.get('status')=='INCORRECT_ENUMERATION_SET' and old[1] in report.get('required_path',[]) and expected and any(new[0]==str(SH['in']) and new[1]==old[1] and set(json.loads(new[2]))==expected for new in obligation_signature(current.code)):
+      justified.append(old)
+    except (ValueError,TypeError):pass
   if authorization and any(f.category=='TERM_KIND_ERROR' and f.excerpt and f.excerpt in text and old[0]==str(SH.datatype) for f in authorization):justified.append(old)
   if authorization and any(f.category=='CANONICAL_IDENTIFIER_ERROR' and f.excerpt in text and f.expected.startswith(('http://','https://')) and text.replace(f.excerpt,f.expected) in {x[-1] for x in obligation_signature(current.code)} for f in authorization):justified.append(old)
   if authorization and any(f.category=='SOURCE_BACKED_LOGIC_ERROR' and f.confirmed and f.excerpt==text and f.evidence and f.suggestion for f in authorization):justified.append(old)

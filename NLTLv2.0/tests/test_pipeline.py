@@ -112,8 +112,8 @@ class PipelineTests(unittest.TestCase):
   manifest=load(self.p.path('schema/schema_changes.json'));self.assertEqual(hashlib.sha256(self.p.path('schema/Schema_for_NLTL.ttl').read_bytes()).hexdigest(),manifest['sha256']);self.assertEqual(manifest['rdf_changes'],[])
 
  def test_semantic_findings_reach_targeted_route(self):
-  ctx=self.s.context('TRF-010');empty=PREFIX+'<urn:test:shape> a sh:NodeShape ; sh:targetClass n:ship .\n'
-  issue=dict(category='SOURCE_BACKED_LOGIC_ERROR',source_clause=ctx['requirement']['clause'],source_excerpt=ctx['requirement']['text'],candidate_excerpt='sh:targetClass n:ship',reason='Missing required ice-class enumeration',expected='Required source-backed six-value ice-class constraint',suggestion='Add required iceClass constraint and six source classes; preserve target.',evidence_excerpt='iceClass')
+  ctx=self.s.context('TRF-010');empty=GOOD.replace('sh:minCount 1 ; ','')
+  issue=dict(category='SOURCE_BACKED_LOGIC_ERROR',source_clause=ctx['requirement']['clause'],source_excerpt=ctx['requirement']['text'],candidate_excerpt='sh:targetClass n:ship',reason='Missing required ice-class assignment',expected='Required source-backed assignment presence',suggestion='Add minCount 1 for the required iceClass assignment; preserve enumeration and target.',evidence_excerpt='iceClass')
   raw=json.dumps(dict(decision='REJECT',issues=[issue]));r,t,_=self.run_script([wrap(empty),raw,wrap(GOOD),ACCEPT]);self.assertEqual(r['status'],'ACCEPTED');q=next(q for q in t.calls if q['route']=='targeted_repair');self.assertEqual(q['payload']['current_findings'][0]['diagnostic'],raw);self.assertEqual(q['payload']['previous_candidate'],empty)
  def test_real_unrelated_rejection_and_counterfactual(self):
   core=load(self.p.path('evaluation/selections/regression_core.json'));case=next(c for c in core['cases'] if c['case_id']=='TRF-010-F01');g=Graph().parse(self.p.path(case['fixture']));repaired=Graph().parse(self.p.path(case['counterfactual']));shape,_=reference_shape('TRF-010')

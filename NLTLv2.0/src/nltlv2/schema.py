@@ -1,16 +1,42 @@
 from __future__ import annotations
 import json,collections,re
 from rdflib import Graph,Namespace,URIRef,RDF,RDFS,OWL,XSD,Literal
+from rdflib.namespace import SKOS
+import hashlib,copy
 from .core import load,digest
 N=Namespace('https://w3id.org/nltl/vocab#');Q=Namespace('http://qudt.org/schema/qudt/');U=Namespace('http://qudt.org/vocab/unit/')
 class Schema:
  def __init__(self,project):
   self.project=project;self.graph=Graph().parse(project.path('schema/Schema_for_NLTL.ttl'))
-  self.registry=load(project.path('schema/term_registry.json'));self.terms={r['iri']:r for r in self.registry};self.index=load(project.path('data/contracts/requirement_term_index.json'))
+  self.registry=load(project.path('schema/term_registry.json'))
+  self.controlled_registry=load(project.path('schema/controlled_value_registry.json'))
+  self.enumeration_obligations=load(project.path('data/contracts/enumeration_obligations.json'))['requirements']
+  self.validate_enumeration_contracts()
+  self.registry+=list(self.controlled_registry['terms'].values())
+  self.terms={r['iri']:r for r in self.registry};self.index=load(project.path('data/contracts/requirement_term_index.json'))
   self.requirements=load(project.path('data/requirements/requirements.json'));self.context_issues=load(project.path('data/contracts/context_issues.json'))
   self.units={r['unitIri'] for r in self.registry if r.get('unitIri')}
   self.ontology_terms={str(s) for s in self.graph.subjects() if isinstance(s,URIRef)}
   self.canonical=set(self.terms)|self.ontology_terms|self.units|{str(Q.numericValue),str(Q.unit),str(Q.QuantityValue)}
+ def validate_enumeration_contracts(self):
+  """Fail closed on broken source, schema or supplemental-registry bindings."""
+  locked_iris={row['iri'] for row in load(self.project.path('schema/term_registry.json'))}
+  for rid,obligations in self.enumeration_obligations.items():
+   for obligation in obligations:
+    owner=obligation['owner_evidence'];locked=load(self.project.path(owner['file']))
+    if obligation['requirement_id']!=rid or obligation['target_class']!=str(N.ship) or obligation['path']!=[str(N.iceClass)] or locked['termOwners'][rid].get('iceClass')!='ship':raise ValueError('Unverified enumeration owner/path contract')
+    source=obligation['source'];file=self.project.path(source['file'])
+    if hashlib.sha256(file.read_bytes()).hexdigest()!=source['sha256'] or source['exact_excerpt'] not in file.read_text():raise ValueError('Enumeration source evidence is stale or absent: '+rid)
+    iris=[x['iri'] for x in obligation['members']]
+    if len(iris)!=len(set(iris)) or len(iris)!=6:raise ValueError('Duplicate/incomplete TRF-010 value binding')
+    for member in obligation['members']:
+     iri=URIRef(member['iri']);row=self.controlled_registry['terms'][str(iri).split('#')[-1]]
+     if row['iri']!=str(iri) or (iri,RDF.type,N.iceClassValue) not in self.graph or member['source_label'] not in [str(x) for x in self.graph.objects(iri,SKOS.prefLabel)]:raise ValueError('Unverified canonical value IRI: '+str(iri))
+     registry=row['locked_registry_verification']
+     if hashlib.sha256(self.project.path(registry['file']).read_bytes()).hexdigest()!=registry['sha256']:raise ValueError('Locked registry verification is stale')
+     if registry['status']!=('PRESENT' if str(iri) in locked_iris else 'ABSENT'):raise ValueError('Incorrect locked registry membership assertion')
+     if f"{member['source_ordinal']}. ice class {member['source_label']};" not in source['exact_excerpt']:raise ValueError('Source class/value binding absent')
+  return {'status':'VERIFIED', 'requirements':sorted(self.enumeration_obligations),'supplemental_values':len(self.controlled_registry['terms'])}
  def subtype(self,child,parent):return child==parent or parent in self.graph.transitive_objects(child,RDFS.subClassOf)
  def allowed_paths(self,rid):
   d=self.index['dependencyContracts'].get(rid,{});owners=self.index['termOwners'].get(rid,{})
@@ -28,15 +54,25 @@ class Schema:
      if len(route)<=len(d.get('modelPaths',[])) and route not in routes.setdefault(e['toOwner'],[]):routes[e['toOwner']].append(route)
   return root,{str(N[p]):[x+(str(N[p]),) for x in routes.get(owner,[])] for p,owner in owners.items()}
  def context(self,rid):
-  req=self.requirements[rid];terms=self.index['requirements'].get(rid,[]);owners=self.index['termOwners'].get(rid,{})
+  req=copy.deepcopy(self.requirements[rid]);terms=list(self.index['requirements'].get(rid,[]));owners=self.index['termOwners'].get(rid,{})
+  obligations=self.enumeration_obligations.get(rid,[])
+  terms+= [str(x['iri']).split('#')[-1] for o in obligations for x in o['members']]
   rows=[r for r in self.registry if r['localName'] in terms]
   # Indexed legacy terms without binding remain explicit unresolved context, never guessed.
   unbound=[r['localName'] for r in rows if 'Property' in r['kind'] and r['localName'] not in owners]
   examples=[json.loads(l) for l in self.project.path('data/examples/few_shot_pairs.jsonl').read_text().splitlines() if l.strip()][:2]
   contract={k:v for k,v in self.index['dependencyContracts'].get(rid,{}).items() if k not in ['observedFailureStatus','r6AuditDisposition','auditFlags']}
+  contract=copy.deepcopy(contract)
+  if obligations:
+   contract['enumerationObligations']=copy.deepcopy(obligations)
+   contract['verificationScope']='Assigned ice-class category membership only; the source descriptions do not create independent engineering qualification checks in this represented requirement.'
+   contract['controlledValueTerms']=[str(x['iri']).split('#')[-1] for o in obligations for x in o['members']]
+   contract['controlledValueMappings']=[copy.deepcopy(x) for o in obligations for x in o['members']]
+   contract['cardinalityReview']=copy.deepcopy(obligations[0]['cardinality_review'])
   evidence_subjects={URIRef(r['iri']) for r in rows}|{N[o] for o in owners.values()}|{URIRef(r['unitIri']) for r in rows if r.get('unitIri')}
+  evidence_subjects|={URIRef(row['parentOrRange']) for row in rows if row.get('parentOrRange','').startswith(('http://','https://'))}
   for subject in list(evidence_subjects):evidence_subjects.update(self.graph.transitive_objects(subject,RDFS.subClassOf))
-  evidence=sorted([[s.n3(),p.n3(),o.n3()] for s in evidence_subjects for p,o in self.graph.predicate_objects(s) if p in [RDF.type,RDFS.domain,RDFS.range,RDFS.subClassOf]])
+  evidence=sorted([[s.n3(),p.n3(),o.n3()] for s in evidence_subjects for p,o in self.graph.predicate_objects(s) if p in [RDF.type,RDFS.domain,RDFS.range,RDFS.subClassOf,SKOS.prefLabel]])
   return dict(requirement=req,schema_terms=rows,ontology_evidence=evidence,unresolvedSourceContext=self.context_issues.get(rid,[]),contract=contract,termOwners=owners,modelPaths=self.index['dependencyContracts'].get(rid,{}).get('modelPaths',[]),unresolvedOwnership=unbound,examples=examples,scope='Locked representation only; unresolved ownership must not be invented. No evaluation inputs.')
  def audit(self):
   issues=[];counts=collections.Counter();kinds={'DatatypeProperty':OWL.DatatypeProperty,'ObjectProperty':OWL.ObjectProperty,'QuantityProperty':OWL.ObjectProperty}

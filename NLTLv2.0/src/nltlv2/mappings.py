@@ -2,6 +2,8 @@ import json,collections,hashlib
 from .core import load
 
 def verify(project):
+ from .schema import Schema
+ Schema(project).validate_enumeration_contracts()
  reqs=load(project.path('mappings/requirements.json'));cases=load(project.path('mappings/cases.json'));known={x['requirement_id'] for x in reqs}
  for rows,key in [(reqs,'requirement_id'),(cases,'case_id')]:
   ids=[x[key] for x in rows]

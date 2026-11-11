@@ -2,6 +2,7 @@ from __future__ import annotations
 import difflib,json,time
 from .core import Candidate,finding,normalize,WrapperError,write,digest
 from .schema import Schema
+from .enumerations import coverage_findings
 from .checks import check,regression,transitions,runtime_probe
 from .requests import initial_request,repair_request,assert_integrity,parse_review,ReviewerFormatError,review_conflicts
 class Runner:
@@ -45,6 +46,8 @@ class Runner:
    if method=='Single-shot':
     history.append(dict(attempt=attempt,version=c.version,sha256=c.sha256,status='FORMAT_ERROR' if format_error else 'ORIGINAL_RESPONSE',accepted=None,findings=[],response_format_error=format_error));status='SINGLE_SHOT_COMPLETE';write(self.output/'history.json',history);break
    fs=[finding(c,'RESPONSE_FORMAT_ERROR','Missing or ambiguous response wrapper',raw,expected='<BEGIN_SHACL>\\ncomplete Turtle\\n<END_SHACL>',evidence='prompts/generator.txt wrapper contract',suggestion='Return exactly one full SHACL block with expected markers.',diagnostic=format_error)] if format_error else check(c,self.schema,rid)
+   if not format_error and not any(f.category=='PARSE_ERROR' for f in fs):
+    _,coverage=coverage_findings(c,self.schema,rid);write(self.output/f'enumeration_coverage_{attempt:02d}.json',coverage)
    if old:
     self.output.joinpath(f'diff_{attempt-1:02d}_{attempt:02d}.patch').write_text(''.join(difflib.unified_diff(old.code.splitlines(True),c.code.splitlines(True),fromfile=f'v{old.version}',tofile=f'v{c.version}')))
     if not format_error:fs+=regression(old,c,authorization)

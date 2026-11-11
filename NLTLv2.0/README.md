@@ -36,3 +36,5 @@ Prepared commands for later work (not executed):
 ```
 
 Only six development requirements are presently ready; the gap to 50 is 44. The prepared queue is not a certified selection. External credentials configuration, isolation reproduction and checker limits are documented under `docs/`.
+
+The TRF-010 pilot findings are implemented in version 0.2.0: complete source context, an explicit six-value contract, a source/schema-backed supplemental registry and an NLTL acceptance gate. See [TRF-010 enumeration gate](docs/TRF010_enumeration_gate.md) for recognized equivalent encodings, source evidence and unresolved maximum cardinality. The historical pilot and original schema/registry are preserved. All replays and scripted repairs are diagnostics, not new live performance results.
