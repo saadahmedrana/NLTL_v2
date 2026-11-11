@@ -14,6 +14,28 @@ class RetrievalTests(unittest.TestCase):
         cls.config = PipelineConfig.load()
         cls.vocabulary = VocabularyRepository(cls.config)
 
+    def test_unknown_target_owner_is_not_assumed_to_be_ship(self) -> None:
+        from unittest.mock import patch
+        with patch.dict(self.vocabulary.requirement_target_owner, clear=True):
+            context = self.vocabulary.build_context_pack("IMO-057")
+        self.assertIsNone(context.selection["requiredTargetOwner"])
+        self.assertEqual(context.selection["targetOwnershipResolution"], "UNRESOLVED")
+        self.assertFalse(context.selection["ownershipReadyForGeneration"])
+
+    def test_ambiguous_property_owner_is_explicitly_unresolved(self) -> None:
+        from unittest.mock import patch
+        from copy import deepcopy
+        terms = deepcopy(self.vocabulary.all_terms)
+        terms["hasComponent"]["domains"] = []
+        owners = deepcopy(self.vocabulary.term_owners)
+        owners.setdefault("IMO-057", {}).pop("hasComponent", None)
+        with patch.object(self.vocabulary, "all_terms", terms), patch.object(self.vocabulary, "term_owners", owners):
+            context = self.vocabulary.build_context_pack("IMO-057")
+        term = next(t for t in context.terms if t["localName"] == "hasComponent")
+        self.assertIsNone(term["requiredOwner"])
+        self.assertEqual(term["ownershipResolution"], "UNRESOLVED")
+        self.assertEqual(term["ownerCandidates"], [])
+
     def test_locked_counts_and_eligibility(self) -> None:
         self.assertEqual(len(self.vocabulary.requirements), 313)
         self.assertEqual(len(self.vocabulary.registry), 1625)

@@ -1,0 +1,1 @@
+This first checker run stopped because the audit compared internal ValidatorIssue.source attribution with the seven-field rendered issue contract. That field is intentionally omitted by ValidatorIssue.to_dict. This was a checker implementation issue, not stale pipeline feedback. This failed development attempt is preserved; use the later completed run.

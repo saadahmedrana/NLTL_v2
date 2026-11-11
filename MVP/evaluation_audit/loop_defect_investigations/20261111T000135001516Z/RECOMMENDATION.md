@@ -1,0 +1,9 @@
+Add a deterministic canonical operand/term-kind checker inside the existing static-check → structured-feedback → repair path. It addresses **29 confirmed faulty generated shapes across 24 requirements** (17 NLTL_v2, 12 Single-shot); all 29 saved deterministic reports passed them. The missing check is property-specific unit/term-role resolution, rather than another validation run or another generic LLM reviewer.
+
+Use locked property kind/range/datatype/unit metadata plus parsed SHACL/SPARQL paths. Return exact locations and source metadata with minimal edits; unknown owners/units remain unresolved. Insert after parsing, before acceptance, and rerun it after repair. Reuse the existing issue memory. The evaluated NLTL_v2 controller only repaired syntax, so semantic feedback routing must be explicitly enabled in a future experiment, not assumed.
+
+In four selected development requirements, shared unit/string corrections recovered **16/16 NLTL_v2** and **8/16 Single-shot** reviewed strict cases, plus **12/13** and **7/13** positives respectively. No positive regressions occurred, but four Single-shot negative rejections disappeared because they had masked a separate AND bug. These are manual diagnostic results, not measured pipeline gains.
+
+Next priorities: independent source-approved branch/query witnesses (including algebra binding checks), then explicit owner/path propagation. Do not automatically compile contradictory or unspecified contracts: TRF-017 lacks an allowed additional-power operand/binding; TRF-050’s ownership mutation remains an intended failure, not a shape defect.
+
+Checker cost: zero LLM calls; local AST/metadata work and, for branch witnesses, bounded CPU validations. Subsequent automated repair cost/success is unmeasured. Both methods benefit; no evidence yet establishes an extra NLTL_v2 loop advantage. No held-out fixtures or labels enter the proposed loop.

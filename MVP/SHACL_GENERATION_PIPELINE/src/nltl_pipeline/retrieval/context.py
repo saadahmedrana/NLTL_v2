@@ -226,17 +226,34 @@ class VocabularyRepository:
         for name in INFRASTRUCTURE_DEPENDENCIES:
             reasons[name].append("baseline target infrastructure")
 
-        target_owner = self.requirement_target_owner.get(requirement_id, "ship")
-        reasons[target_owner].append("authoritative requirement target owner")
+        target_owner = self.requirement_target_owner.get(requirement_id)
+        target_resolution = "EXPLICIT" if target_owner else "UNRESOLVED"
+        if not target_owner:
+            indexed_domains = {
+                str(domain)[len(NLTL):]
+                for name in indexed
+                for domain in self.all_terms.get(name, {}).get("domains", [])
+                if str(domain).startswith(NLTL) and str(domain) != NLTL + "benchmarkEntity"
+            }
+            if len(indexed_domains) == 1:
+                target_owner = next(iter(indexed_domains))
+                target_resolution = "UNIQUE_INDEXED_DOMAIN"
+        if target_owner:
+            reasons[target_owner].append(
+                "authoritative requirement target owner" if target_resolution == "EXPLICIT"
+                else "unique canonical domain across indexed requirement properties"
+            )
         ownership = self.term_owners.get(requirement_id, {})
-        required_owners = {target_owner, *ownership.values()}
+        required_owners = set(ownership.values())
+        if target_owner:
+            required_owners.add(target_owner)
         for owner in required_owners:
             reasons[owner].append("authoritative required owner class")
 
         # When a required operand belongs to another node, expose the canonical
         # object-property path from the target to that owner. This is a general
         # graph-model expansion and does not encode requirement answer logic.
-        target_iri = NLTL + target_owner
+        target_iri = NLTL + target_owner if target_owner else None
         for owner in sorted(required_owners - {target_owner}):
             owner_iri = NLTL + owner
             for local_name, candidate in self.all_terms.items():
@@ -304,8 +321,17 @@ class VocabularyRepository:
             # A unique canonical rdfs:domain is safer than silently defaulting
             # every older term to the requirement target (normally ship).
             # Explicit per-requirement ownership still has highest precedence.
-            inferred_owner = domain_owners[0] if len(set(domain_owners)) == 1 else target_owner
+            inferred_owner = domain_owners[0] if len(set(domain_owners)) == 1 else None
             term["requiredOwner"] = explicit_owner or inferred_owner
+            term["ownershipResolution"] = (
+                "EXPLICIT" if explicit_owner else
+                "UNIQUE_DOMAIN" if inferred_owner else
+                "UNRESOLVED" if term.get("kind") in {
+                    "ObjectProperty", "DatatypeProperty", "QuantityProperty"
+                } else "NOT_APPLICABLE"
+            )
+            if term["ownershipResolution"] == "UNRESOLVED":
+                term["ownerCandidates"] = sorted(set(domain_owners))
         kinds = {item["kind"] for item in terms}
         patterns: list[dict[str, Any]] = []
         if "Class" in kinds:
@@ -321,7 +347,10 @@ class VocabularyRepository:
             })
         patterns.insert(0, {
             "id": "requirementTargetOwner",
-            "pattern": f"Target {NLTL}{target_owner}; each allowed vocabulary term carries its authoritative requiredOwner for this requirement.",
+            "pattern": (
+                f"Target {NLTL}{target_owner}. " if target_owner else
+                "Target ownership is UNRESOLVED; establish the target before generation. "
+            ) + "Inspect ownershipResolution on each term. An UNRESOLVED property has no established owner and must not be assumed to belong to ship or the target.",
         })
         return ContextPack(
             requirement=requirement,
@@ -333,7 +362,11 @@ class VocabularyRepository:
                 "indexedTermCount": len(indexed),
                 "expandedTermCount": len(terms),
                 "eligibleForGeneration": self.is_generation_eligible(requirement),
+                "ownershipReadyForGeneration": bool(target_owner) and not any(
+                    term["ownershipResolution"] == "UNRESOLVED" for term in terms
+                ),
                 "requiredTargetOwner": target_owner,
+                "targetOwnershipResolution": target_resolution,
                 "semanticObligations": list(self.semantic_obligations.get(requirement_id, [])),
                 "exclusivePropertyGroups": list(self.exclusive_property_groups.get(requirement_id, [])),
                 "dependencyContract": dict(self.dependency_contracts.get(requirement_id, {})),
@@ -345,6 +378,7 @@ class VocabularyRepository:
                 "useOnlyAllowedCanonicalTerms": True,
                 "useExactCanonicalIris": True,
                 "reportVocabularyGapInsteadOfInventingATerm": True,
+                "resolveUnknownOwnershipBeforeGeneration": True,
                 "containsRegulatoryAnswerLogic": False,
             },
         )
