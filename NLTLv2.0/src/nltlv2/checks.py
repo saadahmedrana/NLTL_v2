@@ -74,8 +74,14 @@ def check(c,schema,rid):
   try:return [str(x) for x in Collection(g,node)] if (node,RDF.first,None) in g else None
   except Exception:return None
  root,allowed=schema.allowed_paths(rid)
- owner_contract=schema.index['termOwners'].get(rid,{})
+ owner_contract=schema.effective_owners(rid)
  def property_checks(ps,path):
+  # Direct datatype restrictions must admit the locked canonical numeric encoding.
+  # This does not declare other numeric RDF literals illegal globally.
+  if path and path[-1]==str(Q.numericValue):
+   datatype=g.value(ps,SH.datatype);expected=schema.quantity_profile['canonical_literal_encoding']
+   if datatype is not None and str(datatype)!=expected:
+    out.append(finding(c,'TERM_KIND_ERROR','Numeric operand datatype restriction rejects the locked canonical decimal encoding',str(datatype),expected=expected,evidence=json.dumps(schema.quantity_profile),suggestion='Accept the canonical decimal encoding (or an evidenced compatible numeric validation), without coercing values or relabelling units.',location='sh:datatype on qudt:numericValue'))
   for idx,prop in enumerate(path or []):
    term=schema.terms.get(prop,{})
    if not term:continue

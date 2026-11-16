@@ -46,7 +46,7 @@ class PipelineTests(unittest.TestCase):
   self.assertNotIn('PATH_CONTRACT_ERROR',self.categories(code,'I2-005'))
  def test_unknown_ownership_explicit(self):
   code=PREFIX+'<urn:s> a sh:NodeShape ; sh:targetClass n:ship ; sh:property [ sh:path n:upperIceWaterline ; sh:minCount 1 ] .'
-  fs=check(self.c(code),self.s,'I2-004');self.assertTrue(any(f.category=='UNRESOLVED_CONTEXT' and not f.confirmed for f in fs));self.assertIn('upperIceWaterline',self.s.context('I2-004')['unresolvedOwnership'])
+  fs=check(self.c(code),self.s,'I2-004');self.assertTrue(any(f.category=='UNRESOLVED_CONTEXT' and not f.confirmed for f in fs));self.assertIn('upperIceWaterline',self.s.context('I2-004')['contract']['inactiveLegacyTerms']);self.assertNotIn('upperIceWaterline',self.s.context('I2-004')['termOwners'])
  def test_contradictory_reviewer_stops(self):
   ctx=self.s.context('TRF-010');issue=dict(category='SOURCE_BACKED_LOGIC_ERROR',source_clause=ctx['requirement']['clause'],source_excerpt=ctx['requirement']['text'],candidate_excerpt='n:iceClass',reason='Scripted conflicting ownership claim',expected='ship-independent ice class',suggestion='Move to another owner',evidence_excerpt=ctx['requirement']['text'],property=str(N.iceClass),proposed_path=[str(N.hasStructuralMember),str(N.iceClass)])
   r,t,p=self.run_script([wrap(GOOD),json.dumps(dict(decision='REJECT',issues=[issue]))]);self.assertEqual(r['status'],'CONFLICT');self.assertEqual(len(t.calls),2);self.assertTrue(r['history'][0]['conflicts'])
@@ -94,7 +94,7 @@ class PipelineTests(unittest.TestCase):
   result=verify(self.p);self.assertEqual(result['core'],37)
   for bad in ['../schema/a','/tmp/test']:
    with self.assertRaises(ValueError):self.p.path(bad)
-  self.assertEqual(len(list(self.p.path('configs').glob('*.json'))),5)
+  self.assertEqual(len(list(self.p.path('configs').glob('*.json'))),7)
  def test_output_no_overwrite(self):
   name='collision_'+self._testMethodName;p=self.p.output('audits',name)
   try:

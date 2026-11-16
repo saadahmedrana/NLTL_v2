@@ -9,11 +9,16 @@ def main():
  p=argparse.ArgumentParser();p.add_argument('--project',default='.');sub=p.add_subparsers(dest='command',required=True)
  s=sub.add_parser('smoke');s.add_argument('--run-id',default=None);s.add_argument('--skip-core',action='store_true')
  sub.add_parser('check');sub.add_parser('schema-audit');sub.add_parser('prepare-study')
+ pf=sub.add_parser('preflight');pf.add_argument('--manifest',default='configs/paired_development_pilot.json');pf.add_argument('--require-ready',action='store_true')
  g=sub.add_parser('run');g.add_argument('--config',required=True);g.add_argument('--requirement',required=True);g.add_argument('--experiment-id',required=True);g.add_argument('--script');g.add_argument('--allow-model-calls',action='store_true')
  e=sub.add_parser('evaluate-core');e.add_argument('--run-id')
  v=sub.add_parser('evaluate');v.add_argument('--shape-manifest',required=True);v.add_argument('--experiment-id',required=True)
  a=sub.add_parser('analyze-budgets');a.add_argument('histories',nargs='+');a.add_argument('--experiment-id',required=True)
  args=p.parse_args();project=Project(args.project)
+ if args.command=='preflight':
+  from .preflight import run_preflight
+  with offline_network_guard():result=run_preflight(project,args.manifest,args.require_ready)
+  print(json.dumps(dict(output=result['output'],requirements=len(result['requirements']),manifest=result['manifest'],model_calls=0),indent=2));return
  if args.command=='check':
   with offline_network_guard():
    for f in project.path('configs').glob('*.json'):project.config(str(f.relative_to(project.root)))

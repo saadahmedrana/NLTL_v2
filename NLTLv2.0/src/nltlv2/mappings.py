@@ -3,7 +3,7 @@ from .core import load
 
 def verify(project):
  from .schema import Schema
- Schema(project).validate_enumeration_contracts()
+ repository=Schema(project);repository.validate_enumeration_contracts();repository.validate_development_profiles()
  reqs=load(project.path('mappings/requirements.json'));cases=load(project.path('mappings/cases.json'));known={x['requirement_id'] for x in reqs}
  for rows,key in [(reqs,'requirement_id'),(cases,'case_id')]:
   ids=[x[key] for x in rows]
@@ -28,4 +28,5 @@ def verify(project):
  if len(current)!=1290 or sum(c['expected']=='PASS' for c in current)!=606 or sum(c['expected']=='FAIL' for c in current)!=684:raise ValueError('Historical inventory count mismatch')
  snapshot=load(project.path('evaluation/selections/historical_553_case_ids.json'))
  if len(snapshot)!=553 or len({c['requirement_id'] for c in inv if c['case_id'] in snapshot})!=157:raise ValueError('Historical snapshot identity mismatch')
- return dict(requirements=len(reqs),case_inventory=len(cases),snapshot=553,snapshot_requirements=157,core=len(core['cases']),core_requirements=len(core['requirements']),ready_for_50=6,gap=44)
+ blocked=[rid for rid in core['requirements'] if any(issue.get('blocking_before_generation') for issue in repository.context_issues.get(rid,[]))]
+ return dict(requirements=len(reqs),case_inventory=len(cases),snapshot=553,snapshot_requirements=157,core=len(core['cases']),core_requirements=len(core['requirements']),nominal_reviewed_core_requirements=6,additional_requirements_pending_review=44,current_preflight_blocked_requirements=blocked,preflight_unblocked_requirements=len(core['requirements'])-len(blocked),study_dispatch_allowed=False)

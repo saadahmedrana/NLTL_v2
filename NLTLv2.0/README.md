@@ -38,3 +38,16 @@ Prepared commands for later work (not executed):
 Only six development requirements are presently ready; the gap to 50 is 44. The prepared queue is not a certified selection. External credentials configuration, isolation reproduction and checker limits are documented under `docs/`.
 
 The TRF-010 pilot findings are implemented in version 0.2.0: complete source context, an explicit six-value contract, a source/schema-backed supplemental registry and an NLTL acceptance gate. See [TRF-010 enumeration gate](docs/TRF010_enumeration_gate.md) for recognized equivalent encodings, source evidence and unresolved maximum cardinality. The historical pilot and original schema/registry are preserved. All replays and scripted repairs are diagnostics, not new live performance results.
+
+Version 0.3.0 adds the offline [six-requirement source/context preflight](docs/six_requirement_preflight.md). Run `python -m nltlv2 preflight` to produce the readiness table. The prepared paired manifest is not dispatchable while I2-042 welded-profile applicability remains unresolved. No model calls are made by preflight; the other 44 requirements remain pending for the 50-requirement study.
+
+
+v0.3.1 adds source-authored finite behavioral checks; see [coverage and limits](docs/development_behavior_gate.md). I2-042 remains deferred pending an explicit welded-profile eligibility decision: [evidence and proposed restricted scope](docs/I2-042_applicability_decision.md). The historical six-requirement manifest remains frozen and is stale under the new implementation. The separate `configs/five_requirement_development_pilot.json` selects 30 development cases (14 positive, 16 negative) and 16 counterparts. No model dispatch is authorized by this preparation.
+
+Offline readiness check for that exact selection:
+
+```sh
+python -m nltlv2 --project . preflight --manifest configs/five_requirement_development_pilot.json --require-ready
+```
+
+Passing finite witnesses or semantic review is not complete correctness verification. Evaluation files remain outside the generation/repair resource view; external reference controls run separately.

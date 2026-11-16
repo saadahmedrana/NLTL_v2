@@ -21,11 +21,14 @@ class Project:
   p=self.path(f'outputs/{kind}/{identifier}');p.mkdir(parents=True,exist_ok=False);return p
  def config(self,relative):
   c=load(self.path(relative))
-  if c['method'] not in ['NLTL','Single-shot','offline','evaluation','study']:raise ValueError('Unknown method')
+  if c['method'] not in ['NLTL','Single-shot','offline','evaluation','study','paired-development-pilot']:raise ValueError('Unknown method')
   if not 1<=c.get('maximum_candidate_attempts',1)<=6:raise ValueError('Attempt limit must be 1..6')
   if c.get('fresh_regeneration',False):raise ValueError('Fresh regeneration disabled for prefix study')
   for v in c.get('resources',{}).values():
    if not self.path(v).is_file():raise ValueError('Missing configured resource: '+v)
+  if c['method']=='paired-development-pilot':
+   from .preflight import validate_manifest
+   validate_manifest(self,c)
   return c
 @dataclasses.dataclass(frozen=True)
 class Candidate:
@@ -76,3 +79,11 @@ def offline_network_guard():
  socket.socket=socket.create_connection=socket.getaddrinfo=denied
  try:yield
  finally:socket.socket,socket.create_connection,socket.getaddrinfo=orig
+
+class GenerationProject(Project):
+ """Resource firewall for source/context/check/repair. Evaluation is a separate consumer."""
+ def path(self,relative):
+  value=pathlib.Path(relative)
+  if value.parts and value.parts[0] in ['evaluation','outputs','results']:
+   raise ValueError('EVALUATION_RESOURCE_FORBIDDEN_IN_GENERATION_OR_REPAIR: '+str(relative))
+  return super().path(relative)
