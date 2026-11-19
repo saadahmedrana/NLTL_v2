@@ -7,45 +7,25 @@ from rdflib.plugins.sparql.parser import parseQuery
 from rdflib.plugins.sparql import prepareQuery
 from .schema import N,Q,U
 from .core import finding,digest
-from .enumerations import coverage_findings
 
 def iri_tokens(text):
  prefixes={p:u for p,u in re.findall(r'(?i)\b(?:PREFIX|@prefix)\s+([\w-]+):\s*<([^>]+)>',text)}
  tokens=set(re.findall(r'<([A-Za-z][A-Za-z0-9+.-]*:[^<>\s]*)>',text))
  tokens|={prefixes[p]+local for p,local in re.findall(r'(?<![\w:/])([\w-]+):([A-Za-z_][\w.-]*)',text) if p in prefixes}
  return tokens-set(prefixes.values())
-def sparql_checks(c,query,evidence='SPARQL 1.1 parse and simple SELECT/BGP binding analysis'):
- out=[]
- try:parseQuery(query);algebra=prepareQuery(query).algebra
- except Exception as e:return [finding(c,'SPARQL_ERROR','Embedded query does not parse',query,evidence=evidence,suggestion='Correct the exact SPARQL parser diagnostic.',location='sh:select',diagnostic=f'{type(e).__name__}: {e}')]
- projected={str(x) for x in algebra.get('PV',[]) if isinstance(x,Variable)}
- if 'this' not in projected:out.append(finding(c,'SPARQL_ERROR','SHACL SELECT must project ?this',query,expected='SELECT $this ...',evidence='SHACL-SPARQL constraint SELECT result contract',suggestion='Project $this without changing filtering logic.',location='sh:select'))
- # Conservative guaranteed binding for flat BGP + BIND. OPTIONAL/UNION/subqueries are not claimed covered.
- if re.search(r'\b(OPTIONAL|UNION|SERVICE|MINUS|EXISTS|GROUP\s+BY)\b',query,re.I):return out
- triples=[];extends=[];filters=[]
- def walk(x):
-  if hasattr(x,'name'):
-   if x.name=='BGP':triples.extend(x['triples'])
-   if x.name=='Extend':extends.append(x)
-   if x.name=='Filter':filters.append(x)
-   for v in x.values():walk(v)
-  elif isinstance(x,(list,tuple)):
-   for v in x:walk(v)
- def variables(x):
-  if isinstance(x,Variable):return {str(x)}
-  if hasattr(x,'values'):return set().union(*(variables(v) for v in x.values())) if len(x) else set()
-  if isinstance(x,(list,tuple,set)):return set().union(*(variables(v) for v in x)) if x else set()
-  return set()
- walk(algebra);bound={'this'}|variables(triples)
- for x in reversed(extends):
-  missing=variables(x['expr'])-bound
-  if missing:out.append(finding(c,'SPARQL_ERROR','Unbound BIND operand: '+','.join(sorted(missing)),query,expected='Every operand bound before use',evidence=evidence,suggestion='Bind the intended operand from the explicit schema path before this BIND.',location='sh:select/BIND'))
-  bound.add(str(x['var']))
- for x in filters:
-  missing=variables(x['expr'])-bound
-  # BOUND/!BOUND intentionally tests missing values; skip those variables, preserve limited scope.
-  missing-={v for v in re.findall(r'\bBOUND\s*\(\s*[?$](\w+)\s*\)',query,re.I)}
-  if missing:out.append(finding(c,'SPARQL_ERROR','Unbound FILTER operand: '+','.join(sorted(missing)),query,expected='Bound comparison operands',evidence=evidence,suggestion='Use the bound variable or add the source-backed operand path.',location='sh:select/FILTER'))
+def sparql_checks(c,query,evidence='Parsed SPARQL/SHACL analysis',*,scope='SHACL-SPARQL',slot='query'):
+ from .sparql_analysis import analyze
+ out=analyze(c,query,scope=scope,slot=slot)[0]
+ try:
+  from .sparql_analysis import children
+  from rdflib.plugins.sparql.parserutils import CompValue
+  stack=[parseQuery(query)]
+  while stack:
+   node=stack.pop()
+   if isinstance(node,CompValue) and node.name in ['ServiceGraphPattern','DatasetClause']:
+    out.append(finding(c,'SPARQL_ERROR','External dataset/service access is outside local execution policy',query,expected='Local data and supplied ontology only',evidence='Production execution policy, not a regulatory conformance judgment',suggestion='Use supplied local data; record missing external evidence as unresolved instead of executing a remote query.',location='SPARQL '+node.name,contract_id=scope,check_id='external-data-policy'))
+   stack.extend(v for _,v in children(node))
+ except Exception:pass
  return out
 
 def check(c,schema,rid):
@@ -73,6 +53,16 @@ def check(c,schema,rid):
   if isinstance(node,URIRef):return [str(node)]
   try:return [str(x) for x in Collection(g,node)] if (node,RDF.first,None) in g else None
   except Exception:return None
+ # Canonical constraint predicates/classes are checked regardless of namespace;
+ # artifact shape names and ordinary data-instance IRIs are not mistaken for terms.
+ for position in [SH.path,SH['class'],SH.targetClass]:
+  for value in g.objects(None,position):
+   values=[value] if isinstance(value,URIRef) else [x for x in (pathitems(value) or [])]
+   for value in values:
+    iri=str(value)
+    if iri not in schema.canonical and iri!=str(RDF.type):
+     local=re.split(r'[/#]',iri)[-1];matches=[x for x in schema.canonical if re.split(r'[/#]',x)[-1]==local]
+     out.append(finding(c,'CANONICAL_IDENTIFIER_ERROR','Constraint uses an undeclared schema identifier',iri,expected=matches[0] if len(matches)==1 else 'An explicitly declared schema term; mapping unresolved',evidence='Supplied ontology and canonical term metadata',suggestion='Use the unique evidenced identifier where available, or resolve the schema mapping without inventing a term.',location=str(position)))
  root,allowed=schema.allowed_paths(rid)
  owner_contract=schema.effective_owners(rid)
  def property_checks(ps,path):
@@ -106,9 +96,9 @@ def check(c,schema,rid):
   if path:
    for i,prop in enumerate(path):
     if prop in allowed and allowed[prop] and tuple(path[:i+1]) not in allowed[prop]:
-     out.append(finding(c,'PATH_CONTRACT_ERROR','Complete property path conflicts with explicit ownership contract',' / '.join(path),expected=json.dumps(allowed[prop]),evidence=json.dumps(dict(termOwners=owner_contract,modelPaths=schema.index['dependencyContracts'].get(rid,{}).get('modelPaths',[]))),suggestion='Follow the evidenced complete path; preserve the remaining obligation.',location='sh:path '+prop))
+     out.append(finding(c,'PATH_CONTRACT_ERROR','Complete property path conflicts with explicit ownership contract',' / '.join(path),expected=json.dumps(allowed[prop]),evidence=json.dumps(dict(termOwners=owner_contract,modelPaths=schema.bindings.get(rid,{}).get('model_paths',[]))),suggestion='Follow the evidenced complete path; preserve the remaining obligation.',location='sh:path '+prop))
     elif prop.startswith(str(N)) and 'Property' in schema.terms.get(prop,{}).get('kind','') and prop not in allowed:
-     out.append(finding(c,'UNRESOLVED_CONTEXT','No explicit ownership/path contract for used property',prop,expected='Source-backed owner binding before path judgment',evidence='No termOwners entry; RDFS domain is not exclusive ownership',suggestion='Document and resolve representation evidence; do not assume ship.',location='owner '+prop,confirmed=False))
+     out.append(finding(c,'UNRESOLVED_CONTEXT','No explicit ownership/path contract for used property',prop,expected='Source-backed owner binding before path judgment',evidence='No termOwners entry; RDFS domain is not exclusive ownership',suggestion='Document and resolve representation evidence; do not assume ship.',location='owner '+prop,confirmed=False,blocking=False,assessment='UNSPECIFIED_REPRESENTATION'))
  def visit(node,prefix,stack):
   if node in stack:return
   stack=stack|{node}
@@ -131,14 +121,14 @@ def check(c,schema,rid):
    for prop,paths in allowed.items():
     if str(owner_contract.get(prop.removeprefix(str(N)),'')) in matching:routes += [list(p[:-1]) for p in paths]
    if matching and routes:visit(shape,min(routes,key=len),set())
-   else:out.append(finding(c,'UNRESOLVED_CONTEXT','Target cannot be bound to an explicit model owner',str(cls),expected=root,evidence='termOwners/modelPaths and rdfs:subClassOf closure',suggestion='Resolve target applicability from source and contract.',location='sh:targetClass',confirmed=False))
+   else:out.append(finding(c,'UNRESOLVED_CONTEXT','Target cannot be bound to an explicit model owner',str(cls),expected=root,evidence='termOwners/modelPaths and rdfs:subClassOf closure',suggestion='Resolve target applicability from source and contract.',location='sh:targetClass',confirmed=False,blocking=False,assessment='UNSPECIFIED_REPRESENTATION'))
   else:visit(shape,[],set())
  for dtype in g.objects(None,SH.datatype):
   valid={'string','boolean','decimal','integer','int','long','short','byte','nonNegativeInteger','positiveInteger','nonPositiveInteger','negativeInteger','unsignedLong','unsignedInt','unsignedShort','unsignedByte','double','float','date','dateTime','time','duration','dayTimeDuration','yearMonthDuration','anyURI','normalizedString','token','language','Name','NCName','NMTOKEN','hexBinary','base64Binary','gYear','gMonth','gDay','gYearMonth','gMonthDay'}
   if not isinstance(dtype,URIRef) or str(dtype).startswith(str(XSD)) and str(dtype).removeprefix(str(XSD)) not in valid:
    out.append(finding(c,'TERM_KIND_ERROR','Unsupported or invalid datatype IRI',str(dtype),expected='Valid declared XML Schema/RDF datatype',evidence='XML Schema datatype vocabulary and locked metadata',suggestion='Use the declared property datatype.',location='sh:datatype'))
- for q in g.objects(None,SH.select):
-  text=str(q);out+=sparql_checks(c,text)
+ for qi,q in enumerate([v for predicate in [SH.select,SH.ask,SH.construct] for v in g.objects(None,predicate)]):
+  text=str(q);out+=sparql_checks(c,text,scope="SHACL-SPARQL:"+rid,slot="select["+str(qi)+"]")
   # Supported simple BGP path tracking. Complex branches are explicitly outside owner inference.
   prefixes={p:u for p,u in re.findall(r'(?i)\bPREFIX\s+(\w+):\s*<([^>]+)>',text)}
   def iri(x):return x[1:-1] if x.startswith('<') else prefixes.get(x.split(':')[0],'')+x.split(':',1)[-1]
@@ -162,53 +152,14 @@ def check(c,schema,rid):
        for qs,qp,qo in edges:
         if qs[1:]==o[1:] and iri(qp)==str(Q.unit) and not qo.startswith(('?','$')) and iri(qo)!=term['unitIri']:
          out.append(finding(c,'UNIT_CONSISTENCY_ERROR','SPARQL operand unit incompatible with property scale',qo,expected=term['unitIri'],evidence=json.dumps(term),suggestion='Use source-supported conversion; do not relabel a numeric value.',location='sh:select unit '+pred))
- enum_findings,_=coverage_findings(c,schema,rid,g)
- out+=enum_findings
- # RDF1.1 plain strings are xsd:string; no invented numeric/string coercions.
- unique={f.key:f for f in out};return list(unique.values())
-
-def obligation_signature(code):
- try:g=Graph().parse(data=code,format='turtle')
- except Exception:return set()
- sig=set()
- for p in g.objects(None,SH.path):
-  if isinstance(p,URIRef):sig.add(('path',str(p)))
- for pred in [SH.datatype,SH['class'],SH.pattern,SH.minLength,SH.maxLength,SH.minCount,SH.maxCount,SH.minInclusive,SH.maxInclusive,SH.minExclusive,SH.maxExclusive,SH.hasValue,SH.targetClass,SH['in'],SH['or'],SH['and']]:
-  for s,o in g.subject_objects(pred):
-   path=g.value(s,SH.path); value='STRUCTURE' if isinstance(o,BNode) else o.n3()
-   if pred==SH['in']:
-    try:value=json.dumps(sorted(x.n3() for x in Collection(g,o)))
-    except Exception:value='MALFORMED_LIST'
-   sig.add((str(pred),str(path or 'node'),value))
- for query in g.objects(None,SH.select):
-  # Query changes are never silently accepted. Exact semantics require evidenced review.
-  sig.add(('query',str(query)))
- return sig
-
-def regression(previous,current,authorization=None):
- # A source-backed semantic correction may change exactly its cited excerpt. It cannot authorize unrelated deletions.
- removed=obligation_signature(previous.code)-obligation_signature(current.code)
- justified=[]
- for old in removed:
-  text=old[-1]
-  if authorization and old[0]==str(SH['in']):
-   for f in authorization:
-    try:
-     report=json.loads(f.diagnostic)
-     expected={URIRef(x).n3() for x in report.get('expected_IRIs',[])}
-     if report.get('status')=='INCORRECT_ENUMERATION_SET' and old[1] in report.get('required_path',[]) and expected and any(new[0]==str(SH['in']) and new[1]==old[1] and set(json.loads(new[2]))==expected for new in obligation_signature(current.code)):
-      justified.append(old)
-    except (ValueError,TypeError):pass
-  if authorization and any(f.category=='TERM_KIND_ERROR' and f.excerpt and f.excerpt in text and old[0]==str(SH.datatype) for f in authorization):justified.append(old)
-  if authorization and any(f.category=='CANONICAL_IDENTIFIER_ERROR' and f.excerpt in text and f.expected.startswith(('http://','https://')) and text.replace(f.excerpt,f.expected) in {x[-1] for x in obligation_signature(current.code)} for f in authorization):justified.append(old)
-  if authorization and any(f.category=='SOURCE_BACKED_LOGIC_ERROR' and f.confirmed and f.excerpt==text and f.evidence and f.suggestion for f in authorization):justified.append(old)
- removed-=set(justified)
- if not removed:return []
- return [finding(current,'SOURCE_BACKED_LOGIC_ERROR','Repair removed or changed an existing obligation/threshold/applicability',json.dumps(sorted(removed)),expected='Preserve prior obligations unless an exact source-backed correction discharges this change',evidence='Previous candidate '+previous.sha256+' vs '+current.sha256,suggestion='Restore the removed obligation or supply exact source-backed review for this change.',location='repair regression guard',diagnostic='REMOVED_OR_CHANGED '+json.dumps(sorted(removed)))]
-
-def transitions(old,new):
- a={f.key for f in old};b={f.key for f in new}
- return dict(resolved=sorted(a-b),persistent=sorted(a&b),new=sorted(b-a))
+ if any(g.objects(None,SH.js)) or any(g.objects(None,SH.construct)) or any(g.objects(None,SH.rule)):
+  out.append(finding(c,'UNRESOLVED_CONTEXT','Rule/JavaScript execution is outside supported validation scope','',expected='Supported local SHACL constraints or an explicit execution-scope decision',evidence='Checker coverage policy; no regulatory answer inferred',suggestion='Represent the constraint using supported validation constructs or resolve execution scope; do not silently ignore executable rules.',location='unsupported SHACL execution form',confirmed=False,assessment='UNSUPPORTED_EXECUTION_FORM'))
+ # Exact RDF-term matching is sometimes intentional. Flag numeric identity for
+ # source review without supplying a per-regulation value or calling it a defect.
+ for ps,value in g.subject_objects(SH.hasValue):
+  if isinstance(value,Literal) and value.datatype in {XSD.decimal,XSD.integer,XSD.double,XSD.float}:
+   out.append(finding(c,'NUMERIC_TERM_REVIEW','Numeric RDF-term identity needs source interpretation',value.n3(),expected='Decide from source whether value equality or exact RDF identity is required',evidence='SHACL sh:hasValue uses RDF-term matching; numeric spellings can denote equal values',suggestion='Inspect source and this constraint. If source requires numeric equality, use a numeric comparison while retaining required datatype and units; otherwise retain exact-term matching.',location='sh:hasValue numeric literal',confirmed=False,assessment='STATIC_WARNING',blocking=False))
+ return list({f.key:f for f in out}.values())
 
 def runtime_probe(c,schema):
  """Approved schema-derived synthetic empty targets; conformance is deliberately ignored."""
@@ -221,4 +172,6 @@ def runtime_probe(c,schema):
   if not isinstance(report,Graph):raise RuntimeError(str(report))
   return [],dict(policy='Schema-derived synthetic empty targets only; never evaluation fixtures',ignored_conformance=True,witness=witness.serialize(format='turtle'))
  except Exception as e:
-  return [finding(c,'SPARQL_ERROR','Local SHACL execution failed; not a conformance verdict',c.code,expected='Executable SHACL on approved synthetic development input',evidence='Schema-derived empty-target runtime probe',suggestion='Correct execution/binding structure without changing regulatory obligations.',location='local runtime',diagnostic=type(e).__name__+': '+str(e))],dict(error=type(e).__name__+': '+str(e),not_conformance=True)
+  from .execution_policy import classify,diagnostic
+  kind=classify(e);candidate=kind=='CANDIDATE_ERROR'
+  return [finding(c,'SPARQL_ERROR' if candidate else 'RESOURCE_UNCERTAIN' if kind=='RESOURCE_UNCERTAIN' else 'INFRASTRUCTURE_ERROR','Local SHACL execution failed; not a conformance verdict',c.code,expected='Executable SHACL on approved synthetic development input',evidence='Schema-derived empty-target runtime probe',suggestion='Correct the attributable generated-query diagnostic without changing source obligations.' if candidate else 'Stop dispatch; investigate runtime/resources without blaming or automatically repairing code.',location='local runtime',diagnostic=diagnostic(e),confirmed=candidate,assessment='CONFIRMED_CANDIDATE_QUERY_ERROR' if candidate else kind,contract_id='SHACL-runtime',obligation_id='execution',check_id='engine.execution')],dict(error=diagnostic(e),failure_kind=kind,not_conformance=True)

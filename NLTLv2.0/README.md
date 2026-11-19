@@ -1,53 +1,36 @@
-# NLTLv2.0
+# NLTLv2.0 v0.6.0 — source-grounded pipeline
 
-An independent refinement of FULL_REPAIR_V2 RUN_01. Historical pipeline files, scores and outputs are unchanged. No generations or paid API calls were made to implement or test this project.
+This is a forward refactor. The tested parsing, canonical/type/unit checks, SPARQL analysis, latest-code feedback, request integrity, diagnostics, diffs, issue tracking and bounded retries are retained. Production does not load regulatory solution profiles, expected verdicts, behavioral witnesses, gold shapes or bespoke change permissions. No model calls were made for this refactor.
 
-Run from this directory. Python 3.11+ is required; the isolated test used Python 3.13.5. All resources resolve relative to this project root. Keep the project directory when installing the code: the wheel provides code, while this directory provides the locked data/configuration bundle.
+**Flow.** Both methods receive the same original source documents and declared schema/mappings, with the same generation settings. Single-shot makes one generation request and only extracts its original response. NLTL checks a candidate, probes only local execution on schema-derived empty targets (ignoring conformance), then performs source/schema semantic review. A repair receives the full latest code/version/hash and original diagnostics. Subsequent reviews inspect both candidates, account for every structural change and reconcile prior issues. Source-backed removal of an excessive restriction is permitted through review; an old constraint is not automatically required. Model interpretations are labelled as such, never independently verified facts. Material uncertainty stops the loop. A model ACCEPT is not proof of regulatory correctness.
 
-```sh
-python3 -m venv ../NLTLv2-env
-../NLTLv2-env/bin/python -m pip install -r requirements-lock.txt
-../NLTLv2-env/bin/python -m pip install --no-deps .
-../NLTLv2-env/bin/python -m nltlv2 check
-../NLTLv2-env/bin/python -m nltlv2 smoke
-```
+The initial request includes no handwritten SHACL examples. Curated examples and legacy witnesses remain test-only. This changes the experimental setup; do not pool v0.6.0 results with historical versions.
 
-`smoke` blocks socket creation/DNS/connections and never loads credentials. It saves a timestamped directory under `outputs/smoke_tests/`, including complete requests, raw scripted responses, candidates, hashes, findings, diffs and reports. A destination cannot be reused. `check` verifies configuration, mappings, snapshot counts and fixture hashes. `schema-audit` writes a fresh report under `outputs/audits/`.
+## Offline verification
 
-**Methods.** Single-shot means one generation call, which includes the same two synthetic few-shot examples as NLTL. It has no checker, reviewer, matcher, repair or regeneration. Wrapper extraction is shared; malformed responses are retained. NLTL checks each candidate, runs source/contract-evidenced review and repairs the immediately preceding full candidate. Initial generation plus every code revision counts toward the six-candidate limit. Only reviewer JSON format retries are auxiliary; they do not generate code. Fresh regeneration is disabled. No internal evaluation scores select candidates.
-
-**Evidence.** R13 was renamed to `schema/Schema_for_NLTL.ttl` byte for byte; ontology IRIs are unchanged. See `schema/schema_changes.json`, `docs/migration_manifest.json` and `docs/limitations.md`. The schema is not final: unresolved ownership and declaration gaps remain. Locked domains are typing assertions, never exclusive owner rules.
-
-**Evaluation.** The preserved 553-negative snapshot spans 157 requirements. Their inventory has 1,290 cases: 606 positive and 684 negative. TRF-130's additional 12 cases are separately identified. Individual review states are retained; being in an inventory does not certify a fixture. The six-requirement development core has 37 cases (17 positive, 20 negative), with 20 intended-only repaired counterparts. It is not a representative held-out benchmark. The bundled regression checks use explicitly source-authored reference controls; their passing results do not measure automatic generation or repair quality. No historical generated shapes or output trees were copied.
-
-The external evaluator reports ordinary agreement, positive acceptance, strict intended detection, unrelated/additional rejection, missed defects, no executable verdict and unresolved attribution separately. Unreviewed violation semantics stay unresolved. Original no-verdict outcomes cannot gain offline credit. Evaluation fixtures, labels and counterparts are never loaded by the generation/repair modules. Approved internal runtime probes contain only schema-derived synthetic empty targets; conformance of those probes is ignored.
-
-Mappings are in `mappings/requirement_mapping.xlsx`, with JSON/CSV sources and a data dictionary. Empty fixture references explicitly mean not bundled. Every core input required for offline tests is bundled.
-
-Prepared commands for later work (not executed):
+From this folder, using the existing environment:
 
 ```sh
-# Prepare a performance-blind review queue; does not start a study.
-../NLTLv2-env/bin/python -m nltlv2 prepare-study
-# After a separately authorized live pilot: see docs/later_pilot.md.
-# Analyze saved histories only; never selects candidates using evaluation scores.
-../NLTLv2-env/bin/python -m nltlv2 analyze-budgets \
-  outputs/experiments/PILOT_ID/run.json --experiment-id PILOT_BUDGET_ANALYSIS
+../NLTLv2-env/bin/python -m nltlv2 --project . check
+../NLTLv2-env/bin/python -m nltlv2 --project . smoke
 ```
 
-Only six development requirements are presently ready; the gap to 50 is 44. The prepared queue is not a certified selection. External credentials configuration, isolation reproduction and checker limits are documented under `docs/`.
+`smoke` runs scripted local responses with real checks and a novel requirement without a solution profile. Network calls are blocked; no credentials are loaded. The 37-case/20-counterpart source-authored external reference-control suite runs in a separate process afterward. Its success measures the independent evaluator controls, not automatic generation quality. Results go to a fresh `outputs/smoke_tests/<run_id>/` directory. Existing destinations cannot be overwritten.
 
-The TRF-010 pilot findings are implemented in version 0.2.0: complete source context, an explicit six-value contract, a source/schema-backed supplemental registry and an NLTL acceptance gate. See [TRF-010 enumeration gate](docs/TRF010_enumeration_gate.md) for recognized equivalent encodings, source evidence and unresolved maximum cardinality. The historical pilot and original schema/registry are preserved. All replays and scripted repairs are diagnostics, not new live performance results.
+Dependencies remain pinned in `requirements-lock.txt`; Python 3.11+ is required. Install code with `../NLTLv2-env/bin/python -m pip install --no-deps .` after dependencies/build tools are available. Keep this project directory: installed code uses its relative source/schema resources.
 
-Version 0.3.0 adds the offline [six-requirement source/context preflight](docs/six_requirement_preflight.md). Run `python -m nltlv2 preflight` to produce the readiness table. The prepared paired manifest is not dispatchable while I2-042 welded-profile applicability remains unresolved. No model calls are made by preflight; the other 44 requirements remain pending for the 50-requirement study.
+## A new regulation
 
+See [required inputs](docs/new_regulation_inputs.md). Add an ID, source citation/clause, exact regulatory excerpt and authoritative source file under `data/requirements/`. Supply supporting source files when cross-references matter. The shared ontology and datatype/unit metadata must declare the vocabulary. Optional representation mappings select terms and declare owners/paths; they must not encode regulatory formulas, limits, applicability algorithms or expected verdicts. No per-requirement Python function or gold SHACL is required.
 
-v0.3.1 adds source-authored finite behavioral checks; see [coverage and limits](docs/development_behavior_gate.md). I2-042 remains deferred pending an explicit welded-profile eligibility decision: [evidence and proposed restricted scope](docs/I2-042_applicability_decision.md). The historical six-requirement manifest remains frozen and is stale under the new implementation. The separate `configs/five_requirement_development_pilot.json` selects 30 development cases (14 positive, 16 negative) and 16 counterparts. No model dispatch is authorized by this preparation.
+The source catalog resolves existing source titles to retained original documents. Full documents are supplied unless the input set itself is carefully curated; they can be large. Missing source or a hash mismatch prevents dispatch. Unknown mappings and unsupported constructs remain uncertain; there is no fallback owner `ship`.
 
-Offline readiness check for that exact selection:
+## Operational limits
 
-```sh
-python -m nltlv2 --project . preflight --manifest configs/five_requirement_development_pilot.json --require-ready
-```
+`configs/nltl.json`: at most six candidates including the initial generation, first internal acceptance, no fresh regeneration. Format retries apply only to reviewer JSON and are counted separately. `configs/single_shot.json`: exactly one generation request and no review/repair. Real provider use still requires the external environment location, `NLTL_ALLOW_MODEL_CALLS=YES`, and explicit `--allow-model-calls`. Nothing here dispatches those calls. External credentials are never copied or read by offline checks.
 
-Passing finite witnesses or semantic review is not complete correctness verification. Evaluation files remain outside the generation/repair resource view; external reference controls run separately.
+Independent evaluation code, fixtures, labels and counterparts stay under `evaluation/` and are denied to generation resources. Test witnesses are under `tests/data/` and also denied. Mapping catalogs, historical source-preparation material and past outputs cannot be read through the generation capability. `GenerationProject` is a trusted-code resource boundary, not an OS sandbox for arbitrary untrusted Python.
+
+Historical experiments and their snapshots/reports remain unchanged under `outputs/`. Earlier documentation is labelled historical under `docs/history/`; earlier workbook/catalog material is preserved under `mappings/historical_v050/`. Those are evidence, not alternate production modes. Seeded/preflight/study dispatch configs and test-guided runtime modules were removed. The 50-requirement preparation was not resumed.
+
+See [architecture and coverage](docs/source_grounded_architecture.md) and the new refactor audit under `outputs/audits/` for the recovery patch, selective recovery archive, dependency audit, exact cleanup ledger, space accounting and verification.

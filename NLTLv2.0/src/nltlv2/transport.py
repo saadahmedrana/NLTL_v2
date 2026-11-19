@@ -2,6 +2,7 @@ from __future__ import annotations
 import json,os,pathlib,time
 from .requests import assert_integrity
 class ScriptedTransport:
+ is_live=False
  def __init__(self,responses):self.responses=list(responses);self.calls=[]
  def dispatch(self,request,latest=None,expected_findings=None):
   if request['route'].endswith('repair'):assert_integrity(request,latest,expected_findings)
@@ -10,6 +11,7 @@ class ScriptedTransport:
   x=self.responses.pop(0)
   return dict(text=x,finish_reason='stop',usage={},elapsed_seconds=0) if isinstance(x,str) else x
 class LiveTransport:
+ is_live=True
  """Explicit opt-in only; credentials are external and loaded only on construction."""
  def __init__(self,*,enabled=False,project_root=None):
   if not enabled or os.environ.get('NLTL_ALLOW_MODEL_CALLS')!='YES':raise RuntimeError('LIVE_MODEL_CALLS_DISABLED')

@@ -1,2 +1,2 @@
-"""Self-contained NLTL refinement. Importing this package never loads credentials."""
-__version__ = '0.3.1'
+"""General source-grounded NLTL pipeline. No credentials loaded on import."""
+__version__ = "0.6.0"
