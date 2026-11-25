@@ -4,7 +4,7 @@
 
 `Runner → Schema (original source + ontology + representation metadata), checks, SPARQL analysis, change_review, requests, Tracker, transport`.
 
-There is no import or resource dependency on the former development oracle, enumeration-answer gate, permission engine, per-regulation source-solution profile, preflight/study selector or evaluation module. The original mixed R13 requirement index is retained as provenance; only term associations, explicit owners/paths and target declarations were migrated. Verified representation edges were retained, without transferring law constants, formulas, active-term pruning, applicability interpretations or pass/fail logic. Full original source documents supply regulatory content.
+There is no import or resource dependency on the former development oracle, enumeration-answer gate, permission engine, per-regulation source-solution profile, preflight/study selector or evaluation module. The original mixed R13 requirement index is retained as provenance; only term associations, explicit owners/paths and target declarations were migrated. Verified representation edges were retained, without transferring law constants, formulas, active-term pruning, applicability interpretations or pass/fail logic. Original source documents supply regulatory content through v0.7.0 deterministic clause/parent/definition/reference selection, with exact included/omitted manifests and full-source retrieval.
 
 ## Checks and review
 
@@ -26,4 +26,7 @@ The software suite demonstrates a novel requirement with no profile, identical p
 
 ## Remaining limitations
 
-There is no independent general proof of regulatory implementation. The model reviewer may make unsupported interpretations even when its quotes are real; post-run independent evaluation remains necessary. Full source documents may be large and cross-reference completeness needs careful input curation. Static SPARQL coverage is bounded and complex encodings can remain unresolved. Registry/ontology/mapping ambiguities remain visible; the ontology is not declared final. Historical results use older methodology and cannot be pooled with v0.6.0.
+There is no independent general proof of regulatory implementation. The model reviewer may make unsupported interpretations even when its quotes are real; post-run independent evaluation remains necessary. Source selection reduces redundant text but implicit references and definition completeness still need careful review; ambiguities remain explicit. Static SPARQL coverage is bounded and complex encodings can remain unresolved. Registry/ontology/mapping ambiguities remain visible; the ontology is not declared final. Historical results use older methodology and cannot be pooled with v0.6.0.
+
+
+The v0.7.0 protocol, activation guard, alias normalization, removal assessments and provider capability policy are specified in `docs/v070_protocol_and_context.md`. Material unchecked scope now blocks acceptance; broad uncertainty is not silently accepted.

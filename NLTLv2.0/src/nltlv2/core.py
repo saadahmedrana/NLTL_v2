@@ -32,9 +32,14 @@ class Project:
   for value in c.get('resources',{}).values():
    if c['method'] in ['NLTL','Single-shot']:GenerationProject(self.root).path(value)
    if not self.path(value).is_file():raise ValueError('Missing resource '+value)
+  if c.get('admission_file'):GenerationProject(self.root).path(c['admission_file'])
   for name in ['repeated_failure_set_limit','unchanged_candidate_limit','oscillation_limit']:
    limit=c.get('stagnation',{}).get(name)
    if limit is not None and (isinstance(limit,bool) or not isinstance(limit,int) or limit<1):raise ValueError('Invalid stagnation limit')
+  from .review_protocol import response_format
+  response_format(c)
+  from .context_resolution import limits
+  limits(c)
   return c
 @dataclasses.dataclass(frozen=True)
 class Candidate:
@@ -99,6 +104,6 @@ class GenerationProject(Project):
  """
  def path(self,relative):
   value=pathlib.Path(relative);parts=value.parts
-  allowed=(len(parts)>1 and parts[0]=='prompts' and value.suffix=='.txt') or (len(parts)>2 and parts[:2] in [('data','requirements'),]) or str(value) in {'schema/Schema_for_NLTL.ttl','schema/term_registry.json','schema/representation_bindings.json','schema/locked_representation_context.jsonld'}
+  allowed=(len(parts)>1 and parts[0]=='prompts' and value.suffix=='.txt') or (len(parts)>2 and parts[:2] in [('data','requirements'),]) or (len(parts)==3 and parts[:2]==('data','admissions') and value.suffix=='.json') or str(value) in {'schema/Schema_for_NLTL.ttl','schema/term_registry.json','schema/representation_bindings.json','schema/locked_representation_context.jsonld'}
   if not allowed:raise ValueError('NON_SOURCE_RESOURCE_FORBIDDEN: '+str(relative))
   return super().path(relative)

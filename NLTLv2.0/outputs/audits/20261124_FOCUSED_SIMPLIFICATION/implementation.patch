@@ -1,0 +1,1212 @@
+--- before/src/nltlv2/runner.py
++++ after/src/nltlv2/runner.py
+@@ -10,6 +10,7 @@
+ from .review_protocol import normalize_response,response_format,reviewer_schema
+ from .prompt_accounting import measure
+ from .evidence import evidence_catalog,review_binding,assert_review_packet,probe_summary,CITATION_FORMAT
++from .requests import compact_review,review_base,concise_findings
+ from .requests import initial_request,repair_request,assert_integrity,parse_review,ReviewerFormatError,review_conflicts
+ class Runner:
+  def __init__(self,project,config,transport,output):
+@@ -23,14 +24,16 @@
+   self.verify_inputs()
+   body=json.loads(request['user']);body=body.get('original_request',body)
+   supplied=body.get('context',{}).get('admission') if request['route'] in ['generation','review','review_format_retry'] else body.get('admission')
+-  if supplied!=self.admission_context:raise ValueError('ADMISSION_REQUEST_INTEGRITY_FAILURE')
++  if body.get('protocol_version')==2:
++   if body.get('admission_sha256')!=hashlib.sha256(json.dumps(self.admission_context,sort_keys=True).encode()).hexdigest():raise ValueError('ADMISSION_REQUEST_INTEGRITY_FAILURE')
++  elif supplied!=self.admission_context:raise ValueError('ADMISSION_REQUEST_INTEGRITY_FAILURE')
+   self.sequence+=1;request=dict(request,model=self.cfg['model'],max_output_tokens=self.cfg['review_max_tokens'] if request['route'].startswith('review') else self.cfg['generation_max_tokens'])
+   if latest is not None:
+    if (self.output/f'candidate_{latest.version:02d}.ttl').read_text()!=latest.code:raise ValueError('PRECEDING_CANDIDATE_ARTIFACT_STALE')
+    if request['route'].endswith('repair'):write(self.output/f'request_{self.sequence:03d}_integrity.json',assert_integrity(request,latest,self.latest_findings))
+    if request['route'].startswith('review'):
+     data=json.loads(request['user']);data=data.get('original_request',data)
+-    if data!=self.active_review_body:raise ValueError('REVIEW_RETRY_STATE_INTEGRITY_FAILURE')
++    if review_base(data)!=self.active_review_body:raise ValueError('REVIEW_RETRY_STATE_INTEGRITY_FAILURE')
+     assert_review_packet(data,latest)
+     if data['candidate_version']!=latest.version or data['candidate_sha256']!=latest.sha256 or data['full_candidate']!=latest.code:raise ValueError('STALE_REVIEW_CANDIDATE')
+   write(self.output/f'request_{self.sequence:03d}_sizes.json',measure(request));write(self.output/f'request_{self.sequence:03d}.json',request);(self.output/f'request_{self.sequence:03d}.rendered.txt').write_text(request['system']+'\n\n--- USER ---\n'+request['user']);self.calls.append(request)
+@@ -39,10 +42,11 @@
+  def review(self,c,context,previous,changes,tracker,warnings,prior_override=None):
+   prior=copy.deepcopy(tracker.prior_semantic_issues() if prior_override is None else prior_override);body=dict(context=context,candidate_version=c.version,candidate_sha256=c.sha256,full_candidate=c.code,previous_candidate=None if previous is None else dict(version=previous.version,sha256=previous.sha256,full_code=previous.code),change_manifest=changes,prior_issues=prior,static_warnings=[f.asdict() for f in warnings if not f.blocking],deterministic_findings=[dict(f.asdict(),finding_key=f.key) for f in warnings],acceptance_blockers=[dict(f.asdict(),finding_key=f.key) for f in warnings if f.blocking],max_issues=self.cfg['review_max_issues'],expected_response_schema=reviewer_schema(self.cfg['review_max_issues']))
+   execution=self.execution_summaries.get(c.version,probe_summary(c))
+-  body.update(review_binding(c,context,prior,previous,changes,execution),execution_probe=copy.deepcopy(execution),evidence_catalog=evidence_catalog(context,execution),citation_format=CITATION_FORMAT)
+-  self.active_review_body=copy.deepcopy(body);assert_review_packet(body,c)
++  body.update(protocol_version=2,concise_findings=concise_findings(warnings),**review_binding(c,context,prior,previous,changes,execution),execution_probe=copy.deepcopy(execution),evidence_catalog=evidence_catalog(context,execution),citation_format=CITATION_FORMAT)
++  wire=compact_review(body);self.active_review_body=copy.deepcopy(wire);assert_review_packet(wire,c)
++  write(self.output/f'review_state_{self.sequence+1:03d}.json',body)
+   write(self.output/f'review_packet_{self.sequence+1:03d}_evidence.json',body['evidence_catalog'])
+-  request=dict(route='review',system=self.p.path('prompts/reviewer.txt').read_text(),user=json.dumps(body,ensure_ascii=False))
++  request=dict(route='review',system=self.p.path('prompts/reviewer.txt').read_text(),user=json.dumps(wire,ensure_ascii=False))
+   fmt=response_format(self.cfg)
+   if fmt:request['response_format']=fmt
+   for retry in range(self.cfg['review_format_retries']+1):
+@@ -53,7 +57,10 @@
+    except ReviewerFormatError as e:
+     write(self.output/f'reviewer_format_failure_{self.sequence:03d}.json',dict(error=str(e),error_details=e.details,validation_errors=getattr(e,'errors',[e.details]),original_prior_issues=prior,raw_response=response,candidate_version=c.version,sha256=c.sha256,not_regulatory_rejection=True))
+     if retry==self.cfg['review_format_retries']:return None,[],str(e)
+-    request=dict(request,route='review_format_retry',user=json.dumps(dict(original_request=copy.deepcopy(body),format_error=e.details,validation_errors=getattr(e,'errors',[e.details]),citation_format=CITATION_FORMAT,allowed_reconciliation_ids=[x['issue_id'] for x in prior],failed_review_is_not_prior_state=True,expected_structure=reviewer_schema(self.cfg['review_max_issues']),raw_previous_response=response['text'],instruction='Correct every validation error against the SAME original_request candidate, evidence catalog and original prior_issues. A failed review creates NO prior issues. Reconciliations must contain exactly original prior issue IDs, empty when prior_issues is empty. Cite source_evidence_id/source_excerpt and evidence_id/evidence_excerpt exactly as citation_format specifies. Do not change candidate code or treat raw_previous_response as accepted review state. Return one complete bounded JSON response, echoing original candidate version/hash/review_request_id.')))
++    feedback=dict(validation_errors=getattr(e,'errors',[e.details]),allowed_reconciliation_ids=[x['issue_id'] for x in prior],failed_review_is_not_prior_state=True,instruction='Correct all errors against the unchanged candidate, request binding, supplied evidence IDs and original prior issues. Failed output creates no accepted issues. Full raw response is retained in server artifacts.')
++    retry_body=copy.deepcopy(wire);retry_body['format_feedback']=feedback
++    request=dict(request,route='review_format_retry',user=json.dumps(retry_body,ensure_ascii=False))
++
+  def transition(self,c,state,**details):
+   self.controller_transitions.append(dict(state=state,candidate_version=c.version,candidate_sha256=c.sha256,**details));write(self.output/'controller_transitions.json',self.controller_transitions)
+  def retrieve_context(self,c,context,requests,rid):
+@@ -147,5 +154,5 @@
+   try:self.verify_inputs()
+   except Exception as e:
+    status='REQUEST_INTEGRITY_FAILURE';operational=dict(status=status,diagnostic=str(e),no_automatic_retry=True);write(self.output/'operational_failure.json',operational)
+-  result=dict(version='0.9.2',admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=len(self.calls) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(history),dispatch_attempts=len(self.calls),generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history and history[0]['status']!='FORMAT_ERROR' else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
++  result=dict(version='0.10.0',admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=len(self.calls) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(history),dispatch_attempts=len(self.calls),generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history and history[0]['status']!='FORMAT_ERROR' else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
+   write(self.output/'run.json',result);return result
+--- before/src/nltlv2/checks.py
++++ after/src/nltlv2/checks.py
+@@ -13,9 +13,9 @@
+  tokens=set(re.findall(r'<([A-Za-z][A-Za-z0-9+.-]*:[^<>\s]*)>',text))
+  tokens|={prefixes[p]+local for p,local in re.findall(r'(?<![\w:/])([\w-]+):([A-Za-z_][\w.-]*)',text) if p in prefixes}
+  return tokens-set(prefixes.values())
+-def sparql_checks(c,query,evidence='Parsed SPARQL/SHACL analysis',*,scope='SHACL-SPARQL',slot='query'):
++def sparql_checks(c,query,evidence='Parsed SPARQL/SHACL analysis',*,scope='SHACL-SPARQL',slot='query',value_prebound=False,extravars=()):
+  from .sparql_analysis import analyze
+- out=analyze(c,query,scope=scope,slot=slot)[0]
++ out=analyze(c,query,scope=scope,slot=slot,value_prebound=value_prebound,extravars=extravars)[0]
+  try:
+   from .sparql_analysis import children
+   from rdflib.plugins.sparql.parserutils import CompValue
+@@ -36,6 +36,16 @@
+   match=re.search(r'at line (\d+)',str(e));line=int(match.group(1)) if match else None
+   excerpt=c.code.splitlines()[line-1] if line and line<=len(c.code.splitlines()) else c.code
+   return [finding(c,'PARSE_ERROR','Turtle parse failed',excerpt,evidence='rdflib Turtle parser',suggestion='Correct only the reported syntax.',location='Turtle parser'+(' line '+str(line) if line else ''),diagnostic=str(e))]
++ from pyshacl.entrypoints import meta_validate
++ import io,contextlib
++ stdout,stderr=io.StringIO(),io.StringIO()
++ try:
++  with contextlib.redirect_stdout(stdout),contextlib.redirect_stderr(stderr):
++   conforms,report,text=meta_validate(g,inference='none',advanced=False,do_owl_imports=False)
++  if not conforms:raise ValueError(str(text))
++ except Exception as e:
++  out.append(finding(c,'SHACL_STRUCTURE_ERROR','Meta-SHACL structural validation failed','',expected='A structurally valid SHACL graph',evidence='Generic pySHACL Meta-SHACL, no regulatory expected outcome',suggestion='Correct the exact SHACL structural diagnostic, preserving unrelated obligations.',location='Meta-SHACL',diagnostic=type(e).__name__+': '+str(e)+'\nstdout:'+stdout.getvalue()+'\nstderr:'+stderr.getvalue(),contract_id='SHACL-structure',check_id='meta-shacl'))
++ if any(f.category=='SHACL_STRUCTURE_ERROR' for f in out):return out
+  from .activation import checks as activation_checks
+  out+=activation_checks(c,g)
+  if admission:
+@@ -136,8 +146,16 @@
+   valid={'string','boolean','decimal','integer','int','long','short','byte','nonNegativeInteger','positiveInteger','nonPositiveInteger','negativeInteger','unsignedLong','unsignedInt','unsignedShort','unsignedByte','double','float','date','dateTime','time','duration','dayTimeDuration','yearMonthDuration','anyURI','normalizedString','token','language','Name','NCName','NMTOKEN','hexBinary','base64Binary','gYear','gMonth','gDay','gYearMonth','gMonthDay'}
+   if not isinstance(dtype,URIRef) or str(dtype).startswith(str(XSD)) and str(dtype).removeprefix(str(XSD)) not in valid:
+    out.append(finding(c,'TERM_KIND_ERROR','Unsupported or invalid datatype IRI',str(dtype),expected='Valid declared XML Schema/RDF datatype',evidence='XML Schema datatype vocabulary and locked metadata',suggestion='Use the declared property datatype.',location='sh:datatype'))
+- for qi,q in enumerate([v for predicate in [SH.select,SH.ask,SH.construct] for v in g.objects(None,predicate)]):
+-  text=str(q);out+=sparql_checks(c,text,scope="SHACL-SPARQL:"+rid,slot="select["+str(qi)+"]")
++ for qi,(query_node,predicate,q) in enumerate([(s,p,v) for p in [SH.select,SH.ask,SH.construct] for s,v in g.subject_objects(p)]):
++  custom=any(g.subjects(SH.validator,query_node)) or any(g.subjects(SH.nodeValidator,query_node)) or any(g.subjects(SH.propertyValidator,query_node))
++  parameters=set()
++  if custom:
++   for component in set(s for relation in [SH.validator,SH.nodeValidator,SH.propertyValidator] for s in g.subjects(relation,query_node)):
++    for parameter in g.objects(component,SH.parameter):
++     path=g.value(parameter,SH.path)
++     if isinstance(path,URIRef) and any(g.subjects(path,None)):parameters.add(str(path).rsplit('#',1)[-1].rsplit('/',1)[-1])
++  text=str(q);out+=sparql_checks(c,text,scope="SHACL-SPARQL:"+rid,slot="select["+str(qi)+"]",value_prebound=custom,extravars=parameters)
++
+   # Supported simple BGP path tracking. Complex branches are explicitly outside owner inference.
+   prefixes={p:u for p,u in re.findall(r'(?i)\bPREFIX\s+(\w+):\s*<([^>]+)>',text)}
+   def iri(x):return x[1:-1] if x.startswith('<') else prefixes.get(x.split(':')[0],'')+x.split(':',1)[-1]
+--- before/src/nltlv2/__init__.py
++++ after/src/nltlv2/__init__.py
+@@ -1,2 +1,2 @@
+ """General source-grounded NLTL pipeline. No credentials loaded on import."""
+-__version__ = "0.9.2"
++__version__ = "0.10.0"
+--- before/src/nltlv2/prompt_accounting.py
++++ after/src/nltlv2/prompt_accounting.py
+@@ -13,7 +13,9 @@
+   return 'metadata_and_json_overhead'
+  def visit(value,path):
+   if isinstance(value,dict):
+-   for k,v in value.items():visit(v,path+[k])
++   for k,v in value.items():
++    label=['source_documents'] if k=='text' and value.get('kind')=='SOURCE' else ['schema_terms'] if k=='text' and value.get('kind') in ['SCHEMA_TEXT','RDF_FACT','CALLER_DECLARATION','CONTEXT_STATUS'] else []
++    visit(v,path+label+[k])
+   elif isinstance(value,list):
+    for v in value:visit(v,path)
+   else:
+--- before/src/nltlv2/review_validation.py
++++ after/src/nltlv2/review_validation.py
+@@ -8,6 +8,16 @@
+  try:normalized,audit=normalize_response(response)
+  except ReviewerFormatError as e:return None,None,[e.details]
+  obj=audit['normalized_response']
++ from .evidence import resolve_locations
++ if isinstance(obj,dict):
++  errors.extend(resolve_locations(obj,c,previous,required=bool(request_body and request_body.get('protocol_version')==2)))
++  for assessment in obj.get('change_assessments',[]) if isinstance(obj.get('change_assessments'),list) else []:
++   if not isinstance(assessment,dict) or 'removal_disposition' not in assessment:continue
++   if 'removal_assessments' in assessment:error('DUPLICATE_CHANGE_ASSESSMENT','$.change_assessments','Use one removal_disposition on the change group, not a second assessment list')
++   if assessment['removal_disposition'] not in [None,'SUPPORTED_REMOVAL','REPLACED','REGRESSION','UNRESOLVED']:error('INVALID_REMOVAL_DISPOSITION','$.change_assessments','Supported removal disposition')
++   group=next((g for g in (changes or {}).get('changes',[]) if g['change_id']==assessment.get('change_id')),None)
++   if group and group.get('removal_alerts') and assessment['removal_disposition'] is None:error('UNASSESSED_OBLIGATION_LOSS','$.change_assessments','Explicit removal disposition required')
++   assessment['removal_assessments']=[dict(alert_id=a['alert_id'],disposition=assessment['removal_disposition'],**{k:assessment[k] for k in ['source_evidence_id','source_excerpt','candidate_excerpt','previous_excerpt','reason'] if k in assessment}) for a in (group or {}).get('removal_alerts',[])]
+  allowed={'decision','issues','change_assessments','reconciliations','unchecked','evidence_requests','context_assessments','candidate_version','candidate_sha256','review_request_id'}
+  required={'decision','issues','change_assessments','reconciliations','unchecked'}
+  if not isinstance(obj,dict):error('INVALID_REVIEW_STRUCTURE_OR_ISSUE_BOUND','$','One review object');return obj,audit,errors
+@@ -40,7 +50,9 @@
+   if not isinstance(x.get('reason'),str) or not x['reason'].strip():error('MISSING_REASON',path+'.reason','Specific source/code-based reason')
+  schemas=reviewer_schema(max_issues)['properties']
+  def fields(x,path,name):
+-  props=schemas['change_assessments']['items']['properties']['removal_assessments']['items']['properties'] if name=='removal' else schemas[name]['items']['properties']
++  props=({k:{} for k in ['alert_id','disposition','source_evidence_id','source_excerpt','previous_excerpt','candidate_excerpt','insertion_context','reason']} if name=='removal' else dict(schemas[name]['items']['properties']))
++  props.update({k:{} for k in ['candidate_excerpt','previous_excerpt','insertion_context']})
++  if name=='change_assessments':props['removal_assessments']={}
+   for key in set(x)-set(props):error('UNKNOWN_REVIEW_FIELD',path+'.'+key,'Only documented fields for '+name)
+  ids=[]
+  for i,x in enumerate(obj['issues']):
+@@ -54,6 +66,7 @@
+   for key in ['property','proposed_unit','proposed_datatype','change_id']:
+    if x.get(key) is not None and not isinstance(x[key],str):error('INVALID_OPTIONAL_ISSUE_FIELD',path+'.'+key,'String or null')
+   if x.get('proposed_path') is not None and (not isinstance(x['proposed_path'],list) or any(not isinstance(t,str) for t in x['proposed_path'])):error('INVALID_PROPOSED_PATH',path+'.proposed_path','IRI string array or null')
++  if x.get('proposed_path_role') not in [None,'PROPERTY','NUMERIC_OPERAND']:error('INVALID_PATH_ROLE',path+'.proposed_path_role','PROPERTY or NUMERIC_OPERAND')
+   grounded(x,path);cite(x,path);ids.append(x.get('issue_id'))
+  if len(ids)!=len(set(map(str,ids))):error('DUPLICATE_ISSUE_ID','$.issues','Unique stable issue IDs')
+  if decision=='UNRESOLVED' and not any(isinstance(x,dict) and x.get('category')=='UNRESOLVED_CONTEXT' for x in obj['issues']):error('UNRESOLVED_DECISION_NEEDS_CONTEXT_ISSUE','$.issues','An explicit unresolved context issue')
+--- before/src/nltlv2/review_protocol.py
++++ after/src/nltlv2/review_protocol.py
+@@ -31,15 +31,34 @@
+ 
+ def reviewer_schema(max_issues=12,strict=False):
+  def obj(props):
+-  optional={'insertion_context','property','proposed_unit','proposed_datatype','proposed_path','change_id','removal_assessments','evidence_requests','context_assessments','reference','section','revision'}
++  optional={'insertion_context','property','proposed_unit','proposed_datatype','proposed_path','change_id','removal_assessments','evidence_requests','context_assessments','reference','section','revision','candidate_excerpt','previous_excerpt','proposed_path_role'}
+   if 'disposition' in props:optional.discard('change_id')
+   return dict(type='object',properties=props,required=[k for k in props if strict or k not in optional],additionalProperties=False)
+  text={'type':'string'};nullable={'type':['string','null']}
++ location=obj(dict(candidate_version={'type':'integer'},candidate_sha256=text,unit={'type':'string','enum':['characters','lines']},start={'type':'integer'},end={'type':'integer'}))
+  issue=obj(dict(issue_id=text,category={'type':'string','enum':['SOURCE_BACKED_LOGIC_ERROR','UNRESOLVED_CONTEXT']},source_clause=text,source_evidence_id=text,source_excerpt=text,candidate_excerpt=text,insertion_context=nullable,reason=text,expected=text,suggestion=text,evidence_id=text,evidence_excerpt=text,change_id=nullable,property=nullable,proposed_unit=nullable,proposed_datatype=nullable,proposed_path={'anyOf':[{'type':'array','items':text},{'type':'null'}]}))
+- removal=obj(dict(alert_id=text,disposition={'type':'string','enum':['SUPPORTED_REMOVAL','REPLACED','REGRESSION','UNRESOLVED']},source_evidence_id=text,source_excerpt=text,previous_excerpt=text,candidate_excerpt=text,insertion_context=nullable,reason=text))
+- change=obj(dict(change_id=text,disposition={'type':'string','enum':['SUPPORTED','REGRESSION','UNRESOLVED']},source_evidence_id=text,source_excerpt=text,previous_excerpt=text,candidate_excerpt=text,insertion_context=nullable,reason=text,removal_assessments={'type':'array','items':removal}))
++
++ change=obj(dict(change_id=text,disposition={'type':'string','enum':['SUPPORTED','REGRESSION','UNRESOLVED']},source_evidence_id=text,source_excerpt=text,previous_excerpt=text,candidate_excerpt=text,insertion_context=nullable,reason=text))
+  reconciliation=obj(dict(issue_id=text,state={'type':'string','enum':['RESOLVED','PERSISTENT','REGRESSED','UNASSESSABLE']},source_evidence_id=text,source_excerpt=text,candidate_excerpt=text,insertion_context=nullable,reason=text))
+- return obj(dict(candidate_version={'type':'integer'},candidate_sha256=text,review_request_id=text,decision={'type':'string','enum':['ACCEPT','REJECT','UNRESOLVED','REQUEST_EVIDENCE']},issues={'type':'array','items':issue,'maxItems':max_issues},change_assessments={'type':'array','items':change},reconciliations={'type':'array','items':reconciliation},unchecked={'type':'array','items':obj(dict(scope=text,material={'type':'boolean'},reason=text))},evidence_requests={'type':'array','maxItems':3,'items':obj(dict(kind={'type':'string','enum':['source','schema']},reference=nullable,section=nullable,revision={'type':['integer','null']},query=text,reason=text))},context_assessments={'type':'array','items':obj(dict(finding_key=text,disposition={'type':'string','enum':['REPAIRABLE_CODE','MISSING_INFORMATION','UNRESOLVED']},source_evidence_id=text,source_excerpt=text,candidate_excerpt=text,insertion_context=nullable,evidence_id=text,evidence_excerpt=text,reason=text))}))
++ result=obj(dict(candidate_version={'type':'integer'},candidate_sha256=text,review_request_id=text,decision={'type':'string','enum':['ACCEPT','REJECT','UNRESOLVED','REQUEST_EVIDENCE']},issues={'type':'array','items':issue,'maxItems':max_issues},change_assessments={'type':'array','items':change},reconciliations={'type':'array','items':reconciliation},unchecked={'type':'array','items':obj(dict(scope=text,material={'type':'boolean'},reason=text))},evidence_requests={'type':'array','maxItems':3,'items':obj(dict(kind={'type':'string','enum':['source','schema']},reference=nullable,section=nullable,revision={'type':['integer','null']},query=text,reason=text))},context_assessments={'type':'array','items':obj(dict(finding_key=text,disposition={'type':'string','enum':['REPAIRABLE_CODE','MISSING_INFORMATION','UNRESOLVED']},source_evidence_id=text,source_excerpt=text,candidate_excerpt=text,insertion_context=nullable,evidence_id=text,evidence_excerpt=text,reason=text))}))
++ for name in ['issues','change_assessments','reconciliations','context_assessments']:
++  item=result['properties'][name]['items'];item['properties']['candidate_location']=location;item['required'].append('candidate_location')
++  if name=='issues':item['properties']['proposed_path_role']={'type':['string','null'],'enum':['PROPERTY','NUMERIC_OPERAND',None]}
++  if name=='change_assessments':
++   item['properties']['previous_location']=location;item['required'].append('previous_location');item['properties']['removal_disposition']={'type':['string','null'],'enum':['SUPPORTED_REMOVAL','REPLACED','REGRESSION','UNRESOLVED',None]};item['required'].append('removal_disposition');item['properties'].pop('removal_assessments',None)
++  # Advertise locations, not exact-code quotation fields. Legacy fields stay parser-only.
++  for field in ['candidate_excerpt','previous_excerpt','insertion_context']:
++   item['properties'].pop(field,None)
++   if field in item['required']:item['required'].remove(field)
++ if strict:
++  def require_all(node):
++   if isinstance(node,dict):
++    if node.get('type')=='object':node['required']=list(node['properties'])
++    for value in node.values():require_all(value)
++   elif isinstance(node,list):
++    for value in node:require_all(value)
++  require_all(result)
++ return result
+ 
+ def response_format(config):
+  mode=config.get('review_output_mode','bounded_json')
+--- before/src/nltlv2/admission.py
++++ after/src/nltlv2/admission.py
+@@ -108,4 +108,4 @@
+  return dict(valid=valid,status='ADMITTED_DATA_BOUNDARY_MATCH' if valid else 'UNRESOLVED_ADMISSION',declared_nodes=sorted(expected),selected_nodes_with_rdfs=sorted(actual),missing_nodes=sorted(expected-actual),unadmitted_nodes=sorted(actual-expected),eligibility_independently_certified=False,reason='Evaluation-only population identity under an approved experimental assumption, not real-vessel eligibility certification')
+ 
+ def blocked_result(config,rid,result):
+- return dict(version='0.9.2',method=config['method'],requirement_id=rid,status='UNRESOLVED_ADMISSION',admission_validation=result,candidate_attempts=0,provider_calls=0,generation_calls=0,repair_calls=0,auxiliary_format_retries=0,accepted_version=None,evaluation_candidate=None,history=[],complete_verification=False)
++ return dict(version='0.10.0',method=config['method'],requirement_id=rid,status='UNRESOLVED_ADMISSION',admission_validation=result,candidate_attempts=0,provider_calls=0,generation_calls=0,repair_calls=0,auxiliary_format_retries=0,accepted_version=None,evaluation_candidate=None,history=[],complete_verification=False)
+--- before/src/nltlv2/requests.py
++++ after/src/nltlv2/requests.py
+@@ -1,14 +1,18 @@
+ from __future__ import annotations
+ import json
+ from .core import digest,finding
+-CATEGORIES={'RESPONSE_FORMAT_ERROR','PARSE_ERROR','CANONICAL_IDENTIFIER_ERROR','TERM_KIND_ERROR','UNIT_CONSISTENCY_ERROR','PATH_CONTRACT_ERROR','SPARQL_ERROR','SOURCE_BACKED_LOGIC_ERROR','UNRESOLVED_CONTEXT','SPARQL_STATIC_WARNING','INFRASTRUCTURE_ERROR','RESOURCE_UNCERTAIN','NUMERIC_TERM_REVIEW','PRESERVATION_CONFLICT','ACTIVATION_ERROR','ADMISSION_SCOPE_ERROR'}
++CATEGORIES={'RESPONSE_FORMAT_ERROR','PARSE_ERROR','CANONICAL_IDENTIFIER_ERROR','TERM_KIND_ERROR','UNIT_CONSISTENCY_ERROR','PATH_CONTRACT_ERROR','SPARQL_ERROR','SOURCE_BACKED_LOGIC_ERROR','UNRESOLVED_CONTEXT','SPARQL_STATIC_WARNING','INFRASTRUCTURE_ERROR','RESOURCE_UNCERTAIN','NUMERIC_TERM_REVIEW','PRESERVATION_CONFLICT','ACTIVATION_ERROR','ADMISSION_SCOPE_ERROR','SHACL_STRUCTURE_ERROR'}
+ def initial_request(project,context,settings):
+  return dict(route='generation',system=project.path('prompts/generator.txt').read_text(),user=json.dumps(dict(context=context,generation_settings=settings),ensure_ascii=False),settings=settings)
+ def repair_request(project,context,c,findings,persistent_summary=None):
+  if not findings:raise ValueError('Repair requires current findings')
+  if any(f.version!=c.version or f.candidate_sha256!=c.sha256 for f in findings):raise ValueError('STALE_FEEDBACK')
+- payload=dict(admission=context.get('admission'),requirement_id=context['requirement']['id'],exact_regulatory_text=context['requirement']['text'],source_clause=context['requirement']['clause'],source_documents=context['source_documents'],source_selection=context.get('source_selection'),unresolved_source_context=context.get('unresolvedSourceContext',[]),retrieval_evidence=context.get('retrieval_evidence',[]),retrieved_schema_evidence=context.get('retrieved_schema_evidence',[]),verification_scope=context['scope'],schema_contract_evidence={k:context[k] for k in ['schema_terms','ontology_evidence','contract','termOwners','modelPaths','unresolvedOwnership','quantityEncoding']},candidate_version=c.version,candidate_sha256=c.sha256,previous_candidate=c.code,current_findings=[f.asdict() for f in findings],interpretation_policy='Model review findings are grounded interpretations, not independently validated facts. Resolve uncertain source/schema context explicitly. No handwritten solution or change permissions.',preserve='Preserve source obligations, not every accidental restriction in old code. Explain removals/replacements against source/schema; do not invent obligations, conversions or applicability.')
+- if persistent_summary is not None:payload['persistent_failure_summary']=persistent_summary
++ payload=dict(admission=context.get('admission'),requirement_id=context['requirement']['id'],exact_regulatory_text=context['requirement']['text'],source_clause=context['requirement']['clause'],source_documents=context['source_documents'],source_selection=context.get('source_selection'),unresolved_source_context=context.get('unresolvedSourceContext',[]),retrieval_evidence=context.get('retrieval_evidence',[]),retrieved_schema_evidence=context.get('retrieved_schema_evidence',[]),verification_scope=context['scope'],schema_contract_evidence={k:context[k] for k in ['schema_terms','ontology_evidence','contract','termOwners','modelPaths','unresolvedOwnership','quantityEncoding']},candidate_version=c.version,candidate_sha256=c.sha256,previous_candidate=c.code,current_findings=repair_findings(findings,c),interpretation_policy='Model review findings are grounded interpretations, not independently validated facts. Resolve uncertain source/schema context explicitly. No handwritten solution or change permissions.',preserve='Preserve source obligations, not every accidental restriction in old code. Explain removals/replacements against source/schema; do not invent obligations, conversions or applicability.')
++ for key in ['exact_regulatory_text','source_clause','source_documents','source_selection','unresolved_source_context','retrieval_evidence','retrieved_schema_evidence','schema_contract_evidence','admission','verification_scope','interpretation_policy','preserve']:payload.pop(key,None)
++ from .evidence import evidence_catalog,wire_catalog
++ payload.update(protocol_version=2,context=compact_context(context),evidence_catalog=wire_catalog(evidence_catalog(context)),admission_sha256=digest(json.dumps(context.get('admission'),sort_keys=True)))
++ if persistent_summary is not None:payload['persistent_failure_summary']={k:persistent_summary[k] for k in ['current_version','current_sha256','repeat_detection'] if k in persistent_summary}
++ payload['repair_packet_sha256']=digest(json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(',',':')))
+  route='syntax_repair' if all(f.category in ['PARSE_ERROR','RESPONSE_FORMAT_ERROR'] for f in findings) else 'targeted_repair'
+  return dict(route=route,system=project.path('prompts/repair.txt').read_text(),payload=payload,user=json.dumps(payload,ensure_ascii=False))
+ def assert_integrity(request,latest,expected_findings=None):
+@@ -18,11 +22,14 @@
+   if p.get('candidate_version')!=latest.version or p.get('candidate_sha256')!=latest.sha256 or digest(code)!=latest.sha256:raise ValueError('STALE_CANDIDATE_HASH_OR_VERSION')
+   if json.loads(request['user'])!=p:raise ValueError('RENDERED_REQUEST_PAYLOAD_MISMATCH')
+   fs=p.get('current_findings',[])
+-  if expected_findings is not None and fs!=[f.asdict() for f in expected_findings]:raise ValueError('FEEDBACK_NOT_IDENTICAL_TO_LATEST_CHECK_REPORT')
++  if expected_findings is not None and fs!=repair_findings(expected_findings,latest):raise ValueError('FEEDBACK_NOT_IDENTICAL_TO_LATEST_CHECK_REPORT')
+   if not fs or any(f.get('version')!=latest.version or f.get('candidate_sha256')!=latest.sha256 for f in fs):raise ValueError('STALE_FEEDBACK')
+   if any(k in p for k in ['validated_constraint_changes','expected_verdicts','behavioral_witnesses']):raise ValueError('LEGACY_SOLUTION_PACKET_FORBIDDEN')
+   for f in fs:
+    if f['category'] not in CATEGORIES or not f.get('diagnostic') or not f.get('location') or not f.get('suggestion'):raise ValueError('INCOMPLETE_FINDING')
++  if p.get('protocol_version')==2:
++   unsigned={k:v for k,v in p.items() if k!='repair_packet_sha256'}
++   if p.get('repair_packet_sha256')!=digest(json.dumps(unsigned,sort_keys=True,ensure_ascii=False,separators=(',',':'))):raise ValueError('REPAIR_CONTEXT_INTEGRITY_FAILURE')
+  elif request['route']=='fresh_regeneration':raise ValueError('FRESH_REGENERATION_DISABLED')
+  elif request['route'] not in ['generation','review','review_format_retry']:raise ValueError('UNKNOWN_ROUTE')
+  return dict(previous_code_full=True,version=latest.version,sha256=latest.sha256,feedback_same_version=True,route=request['route'])
+@@ -47,5 +54,65 @@
+   prop=x.get('property');term=schema.terms.get(prop,{})
+   if x.get('proposed_unit') and term.get('unitIri') and x['proposed_unit']!=term['unitIri']:conflicts.append(dict(property=prop,reviewer_issue=x,reason='Proposed unit contradicts declared representation; conversion/interpretation is not an identifier fix'))
+   if x.get('proposed_datatype') and term.get('datatype') and x['proposed_datatype']!=term['datatype'].replace('xsd:','http://www.w3.org/2001/XMLSchema#'):conflicts.append(dict(property=prop,reviewer_issue=x,reason='Proposed datatype contradicts explicit schema'))
+-  if x.get('proposed_path') and allowed.get(prop) and tuple(x['proposed_path']) not in allowed[prop]:conflicts.append(dict(property=prop,reviewer_issue=x,reason='Proposed path contradicts explicit representation mapping'))
++  if x.get('proposed_path') and allowed.get(prop):
++   proposed=tuple(x['proposed_path']);supported=set(allowed[prop]);role=x.get('proposed_path_role') or 'PROPERTY'
++   if role=='NUMERIC_OPERAND' and (term.get('kind')=='QuantityProperty' or term.get('parentOrRange')==schema.quantity_profile['quantity_class']):supported={p+(schema.quantity_profile['numeric_predicate'],) for p in supported}
++   if proposed not in supported:conflicts.append(dict(property=prop,reviewer_issue=x,reason='Proposed '+role+' path contradicts explicit representation mapping'))
+  return conflicts
++
++
++def compact_context(context):
++ """Metadata only; supplied source/schema content lives once in evidence_catalog."""
++ keys=['requirement','scope','source_selection','source_completeness']
++ result={k:context[k] for k in keys if k in context}
++ if 'requirement' in result:result['requirement']={k:v for k,v in result['requirement'].items() if k!='text'}
++ return result
++
++def concise_prior(prior):
++ return [dict(issue_id=x['issue_id'],last_seen_version=x.get('last_seen_version'),last_seen_sha256=x.get('last_seen_sha256'),summary=(x.get('finding') or {}).get('message',x.get('reason','')),state='UNRESOLVED') for x in prior]
++
++def concise_changes(changes):
++ return dict(status=changes.get('status'),changes=[dict(change_id=x['change_id'],kind=x['kind'],removed_count=len(x.get('removed',[])),added_count=len(x.get('added',[])),removal_required=bool(x.get('removal_alerts'))) for x in changes.get('changes',[])])
++
++def concise_findings(findings):
++ return [dict(finding_key=f.key,category=f.category,message=f.message,location=f.location,expected=f.expected,suggestion=f.suggestion,blocking=f.blocking,assessment=f.assessment,diagnostic=f.diagnostic if f.assessment not in ['MODEL_INTERPRETATION','UNRESOLVED_CONTEXT'] else 'Raw reviewer response in artifacts',diagnostic_sha256=digest(f.diagnostic)) for f in findings]
++
++def compact_review(body):
++ out={k:body[k] for k in ['candidate_version','candidate_sha256','review_request_id','full_candidate','previous_candidate','max_issues','expected_response_schema','execution_probe','citation_format']}
++ execution=dict(out['execution_probe'])
++ logs=execution.pop('exact_diagnostics',{})
++ execution['diagnostics']={k:dict(sha256=digest(str(v)),characters=len(str(v)),artifact_field='execution_probe.exact_diagnostics.'+k) for k,v in logs.items()}
++ out['execution_probe']=execution
++ from .evidence import wire_catalog
++ out.update(protocol_version=2,context=compact_context(body['context']),admission_sha256=digest(json.dumps(body['context'].get('admission'),sort_keys=True)),evidence_catalog=wire_catalog(body['evidence_catalog']),change_manifest=concise_changes(body['change_manifest']),prior_issues=concise_prior(body['prior_issues']),findings=body['concise_findings'])
++ out['packet_sha256']=digest(json.dumps(out,sort_keys=True,ensure_ascii=False,separators=(',',':')))
++ return out
++
++def review_base(body):return {k:v for k,v in body.items() if k!='format_feedback'}
++
++def assert_compact_review(body,c):
++ from .evidence import extract_location
++ base=review_base(body);expected=base.pop('packet_sha256',None)
++ if expected!=digest(json.dumps(base,sort_keys=True,ensure_ascii=False,separators=(',',':'))):raise ValueError('REVIEW_RETRY_STATE_INTEGRITY_FAILURE')
++ if type(base.get('candidate_version')) is not int or base['candidate_version']!=c.version or base['candidate_sha256']!=c.sha256 or base['full_candidate']!=c.code:raise ValueError('STALE_REVIEW_CANDIDATE')
++ if digest(base['full_candidate'])!=c.sha256:raise ValueError('STALE_REVIEW_CANDIDATE')
++ prev=base.get('previous_candidate')
++ if prev and digest(prev['full_code'])!=prev['sha256']:raise ValueError('STALE_PREVIOUS_CANDIDATE')
++ return base
++
++def repair_findings(findings,c):
++ result=[]
++ for f in findings:
++  row=f.asdict()
++  excerpt=row.pop('excerpt')
++  if excerpt and excerpt in c.code:
++   from .evidence import code_location
++   start=c.code.index(excerpt);row['candidate_location']=code_location(c,start,start+len(excerpt))
++  elif excerpt:row['identifier_excerpt']=excerpt
++  if f.assessment in ['MODEL_INTERPRETATION','UNRESOLVED_CONTEXT']:
++   row['diagnostic_artifact_sha256']=digest(row.pop('diagnostic'));row['diagnostic']='Grounded model interpretation; full raw response retained in artifacts.'
++   try:
++    support=json.loads(row['evidence']);row['evidence']={k:v for k,v in support.items() if k in ['source_evidence_id','evidence_id','epistemic_status']}
++   except (ValueError,TypeError):pass
++  result.append(row)
++ return result
+--- before/src/nltlv2/evidence.py
++++ after/src/nltlv2/evidence.py
+@@ -29,9 +29,11 @@
+   entries[key]=entry
+  for doc in context.get('source_documents',[]):
+   add('SOURCE',doc['text'],{k:copy.deepcopy(doc[k]) for k in ['file','sha256','edition','authority','selection'] if k in doc})
+- for name in ['schema_terms','contract','termOwners','modelPaths','quantityEncoding','retrieved_schema_evidence','admission','unresolvedOwnership','unresolvedSourceContext','retrieval_evidence','retrieval_gaps']:
++ for name in ['schema_terms','contract','quantityEncoding','retrieved_schema_evidence','admission','unresolvedOwnership','unresolvedSourceContext','retrieval_evidence','retrieval_gaps']:
+   value=context.get(name)
+   if value is None:continue
++  if name=='retrieved_schema_evidence':
++   value=[{k:v for k,v in row.items() if k!='ontology_triples'} for row in value]
+   rows=value if name=='schema_terms' else [value]
+   for row in rows:add('CALLER_DECLARATION' if name=='admission' else 'CONTEXT_STATUS' if name in ['unresolvedOwnership','unresolvedSourceContext','retrieval_evidence','retrieval_gaps'] else 'SCHEMA_TEXT',json.dumps(row,ensure_ascii=False,sort_keys=True),dict(context_field=name))
+  # Only explicit triples already in the supplied context, never schema.graph lookup.
+@@ -41,8 +43,11 @@
+   except Exception:
+    add('SCHEMA_TEXT',json.dumps(supplied,ensure_ascii=False),dict(context_field='ontology_evidence',limit='Text-only supplied fact; ground-term identity/equivalence unavailable. No inference or blank-node equivalence.'));continue
+   add('RDF_FACT',fact_text(triple),dict(context_field='ontology_evidence',meaning='Explicit supplied triple only; no inferred ownership or regulatory implication'),triple)
+- if execution is not None:add('EXECUTION_OBSERVATION',json.dumps(execution,sort_keys=True,ensure_ascii=False),dict(meaning='Engine observation only, not regulatory correctness'))
+- values=sorted(entries.values(),key=lambda e:e['evidence_id']);return dict(format_version=1,entries=values,catalog_sha256=digest(canonical(values)),limits='Ground RDF triples only; exact RDF terms, no inference, no blank-node equivalence, no numeric value coercion. Source quotations remain verbatim.')
++ # Execution observations are supplied once in execution_probe, never as law/catalog facts.
++ values=sorted(entries.values(),key=lambda e:e['evidence_id'])
++ for i,entry in enumerate(values,1):
++  entry['evidence_sha256']=entry['evidence_id'][3:];entry['provenance_sha256']=digest(canonical(entry['origin']));entry['evidence_id']='E'+str(i)
++ return dict(format_version=2,entries=values,catalog_sha256=digest(canonical(values)),limits='Ground RDF triples only; exact RDF terms, no inference, no blank-node equivalence, no numeric value coercion. Source quotations remain verbatim.')
+ def citation_error(catalog,evidence_id,excerpt,*,source=False):
+  entry=next((x for x in catalog['entries'] if x['evidence_id']==evidence_id),None)
+  if entry is None:return 'MISSING_OR_UNSUPPLIED_EVIDENCE_ID','Use an evidence_id from this exact review packet'
+@@ -55,7 +60,7 @@
+   except Exception:return 'INVALID_RDF_FACT_QUOTATION','One ground Turtle/N-Triples fact; no blank nodes, imports or inference'
+   if parsed!=expected:return 'ALTERED_OR_UNSUPPORTED_RDF_FACT','Exact subject/predicate/object RDF terms of the referenced supplied fact; datatype, lexical form and language preserved'
+  return None
+-CITATION_FORMAT=dict(source='source_evidence_id + source_excerpt: verbatim nonempty substring of that SOURCE text; preserve whitespace',schema='evidence_id + evidence_excerpt: exact substring of referenced text. RDF_FACT permits a single equivalent Turtle/N-Triples fact with exact RDF terms only.',state='Echo candidate_version, candidate_sha256 and review_request_id. Reconcile only IDs in original prior_issues. Failed review output is not state.',limits='Do not cite arbitrary ontology facts, unsupplied context, inference or numeric-value equivalence as RDF identity.')
++CITATION_FORMAT=dict(source='source_evidence_id + source_excerpt: verbatim nonempty substring of that SOURCE text; preserve whitespace',schema='evidence_id + evidence_excerpt: exact substring of referenced text. RDF_FACT permits a single equivalent Turtle/N-Triples fact with exact RDF terms only.',code='candidate_location / previous_location: {candidate_version, candidate_sha256, unit: lines|characters, start, end}; lines are inclusive one-based, Unicode character offsets half-open zero-based. Exact code is extracted server-side; do not reproduce indentation.',state='Echo candidate_version, candidate_sha256 and review_request_id. Reconcile only IDs in original prior_issues. Failed review output is not state.',limits='Do not cite arbitrary ontology facts, unsupplied context, inference or numeric-value equivalence as RDF identity.')
+ def probe_summary(c,probe=None,reason='No execution probe was run for this candidate'):
+  if probe is None:return dict(candidate_version=c.version,candidate_sha256=c.sha256,engine_outcome='NOT_RUN',exact_diagnostics=dict(reason=reason),regulatory_correctness_established=False)
+  if probe.get('candidate_sha256') not in [None,c.sha256] or probe.get('candidate_version') not in [None,c.version]:raise ValueError('STALE_EXECUTION_PROBE_INTEGRITY_FAILURE')
+@@ -64,6 +69,9 @@
+  catalog=evidence_catalog(context,execution);identity=dict(candidate_version=c.version,candidate_sha256=c.sha256,context_sha256=digest(canonical(context)),catalog_sha256=catalog['catalog_sha256'],prior_issues=list(prior),previous_candidate=None if previous is None else dict(version=previous.version,sha256=previous.sha256,full_code=previous.code),changes=(changes or {}).get('changes',[]),execution_probe=execution)
+  return dict(candidate_version=c.version,candidate_sha256=c.sha256,review_request_id='review:'+digest(canonical(identity)))
+ def assert_review_packet(body,c):
++ if body.get('protocol_version')==2 and 'packet_sha256' in body:
++  from .requests import assert_compact_review
++  return assert_compact_review(body,c)
+  from .core import Candidate
+  previous=body.get('previous_candidate');p=None if previous is None else Candidate(previous['version'],previous['full_code'],'')
+  expected=review_binding(c,body['context'],body['prior_issues'],p,body['change_manifest'],body.get('execution_probe'))
+@@ -72,3 +80,59 @@
+  execution=body.get('execution_probe')
+  if not execution or execution.get('candidate_sha256')!=c.sha256 or execution.get('candidate_version')!=c.version:raise ValueError('STALE_OR_ABSENT_EXECUTION_SUMMARY_INTEGRITY_FAILURE')
+  return expected
++
++
++def code_location(candidate,start,end,*,unit='characters'):
++ """Half-open Unicode character offsets or inclusive one-based whole line ranges."""
++ return dict(candidate_version=candidate.version,candidate_sha256=candidate.sha256,unit=unit,start=start,end=end)
++
++def extract_location(location,candidate):
++ if not isinstance(location,dict) or set(location)!={'candidate_version','candidate_sha256','unit','start','end'}:raise ValueError('INVALID_CODE_LOCATION')
++ if type(location['candidate_version']) is not int or location['candidate_version']!=candidate.version or location['candidate_sha256']!=candidate.sha256:raise ValueError('STALE_CODE_LOCATION')
++ a,b=location['start'],location['end']
++ if type(a) is not int or type(b) is not int:raise ValueError('INVALID_CODE_RANGE')
++ if location['unit']=='lines':
++  lines=candidate.code.splitlines(keepends=True)
++  if not 1<=a<=b<=len(lines):raise ValueError('INVALID_CODE_RANGE')
++  return ''.join(lines[a-1:b])
++ if location['unit']!='characters' or not 0<=a<b<=len(candidate.code):raise ValueError('INVALID_CODE_RANGE')
++ return candidate.code[a:b]
++
++def resolve_locations(obj,candidate,previous=None,*,required=False):
++ """Extract code on the server. Never repair an asserted, altered quotation."""
++ errors=[]
++ def walk(x,path='$'):
++  if isinstance(x,list):
++   for i,v in enumerate(x):walk(v,path+'['+str(i)+']')
++  elif isinstance(x,dict):
++   grounded='source_excerpt' in x or 'source_evidence_id' in x
++   for field,target,code in [('candidate_location',candidate,'candidate_excerpt'),('previous_location',previous,'previous_excerpt')]:
++    if field not in x:
++     if required and grounded and (field=='candidate_location' or 'change_id' in x and 'disposition' in x and field=='previous_location'):
++      errors.append(dict(code='MISSING_CODE_LOCATION',path=path+'.'+field,expected='Candidate-bound range; code quotations are extracted server-side',observed=None,category='INVALID_CANDIDATE_QUOTATION'))
++     continue
++    try:
++     if target is None:raise ValueError('ABSENT_PREVIOUS_CANDIDATE')
++     exact=extract_location(x[field],target)
++     if x.get(code) and x[code]!=exact:raise ValueError('ASSERTED_CODE_QUOTATION_MISMATCH')
++     x[code]=exact
++    except ValueError as e:errors.append(dict(code=str(e),path=path+'.'+field,expected='Valid range bound to exact candidate/version/hash',observed=x[field],category='INVALID_CANDIDATE_QUOTATION'))
++   for k,v in list(x.items()):
++    if k not in ['candidate_location','previous_location']:walk(v,path+'.'+k)
++ walk(obj)
++ return errors
++
++
++def wire_catalog(catalog):
++ """Public aliases and evidence once; immutable hash/provenance map stays in artifacts."""
++ entries=[]
++ for entry in catalog['entries']:
++  origin=entry['origin']
++  if entry['kind']=='SOURCE':
++   provenance={k:origin[k] for k in ['file','edition','authority'] if k in origin}
++   if origin.get('selection'):provenance['selection']={k:v for k,v in origin['selection'].items() if k in ['start','end','line_start','line_end','page_start','page_end']}
++  else:provenance={k:origin[k] for k in ['context_field','limit'] if k in origin}
++  public=dict(evidence_id=entry['evidence_id'],kind=entry['kind'],text=entry['text'])
++  if provenance:public['origin']=provenance
++  entries.append(public)
++ return dict(format_version=2,catalog_sha256=catalog['catalog_sha256'],entries=entries,limits=catalog['limits'])
+--- before/src/nltlv2/sparql_analysis.py
++++ after/src/nltlv2/sparql_analysis.py
+@@ -42,7 +42,7 @@
+  if 'p' in node:return bound(node['p'])
+  return set()
+ 
+-def analyze(c,query,*,scope='SHACL-SPARQL',slot='query',value_prebound=False):
++def analyze(c,query,*,scope='SHACL-SPARQL',slot='query',value_prebound=False,extravars=()):
+  out=[];query_hash=digest(query);report=dict(query_sha256=query_hash,slot=slot,nested_selects=[],binding_warnings=[],limits=['Conservative RDFLib algebra analysis; OPTIONAL/EXISTS/aggregates/correlation are not fully proven.','Engine legality check mirrors pySHACL 0.31.0; its regex coverage limits are retained alongside parsed nested-SELECT inspection.'])
+  def emit(check_id,message,expected,suggestion,diagnostic,*,warning=False,path='query',excerpt=None):
+   out.append(finding(c,'SPARQL_STATIC_WARNING' if warning else 'SPARQL_ERROR',message,query if excerpt is None else excerpt,expected=expected,evidence='Parsed RDFLib SPARQL structure and locked pySHACL 0.31.0 SHACL pre-binding contract',suggestion=suggestion,location='sh:select '+slot+' '+path,diagnostic=diagnostic,contract_id=scope,obligation_id='sparql-execution',check_id=check_id+':'+slot,query_sha256=query_hash,assessment='STATIC_WARNING' if warning else 'CONFIRMED_CANDIDATE_QUERY_ERROR',confirmed=not warning,blocking=not warning))
+@@ -57,15 +57,15 @@
+   emit('translation_context','Standalone algebra translation needs unresolved query context','Resolve explicit SHACL prefix/environment evidence before judging the query','Check the supplied SHACL prefix declarations or unsupported translation context. Do not invent a namespace or binding.',report['unresolved_static_context'],warning=True)
+   return out,report
+  projected={str(v) for v in algebra.get('PV',[])}
+- if 'this' not in projected:emit('outer_projection','SHACL SELECT must project ?this','SELECT $this ...','Project the existing pre-bound focus variable; $this and ?this are equivalent.','Outer projected variables: '+str(sorted(projected)))
++ if algebra.name=='SelectQuery' and 'this' not in projected:emit('outer_projection','SHACL SELECT must project ?this','SELECT $this ...','Project the existing pre-bound focus variable; $this and ?this are equivalent.','Outer projected variables: '+str(sorted(projected)))
+  # Use the actual locked engine implementation to preserve its diagnostic verbatim.
+  engine_error=None
+- try:SPARQLQueryHelper.__new__(SPARQLQueryHelper).check_invalid_sparql(query,valuenode=object() if value_prebound else None)
++ try:SPARQLQueryHelper.__new__(SPARQLQueryHelper).check_invalid_sparql(query,valuenode=object() if value_prebound else None,extravars=set(extravars))
+  except Exception as e:engine_error=str(e)
+  nested=[(path,node) for path,node in walk(tree) if node.name=='SubSelect']
+  for subquery_index,(path,node) in enumerate(nested):
+   projection=node.get('projection',[]);names={str(x['var'] if 'var' in x else x['evar']) for x in projection if 'var' in x or 'evar' in x}
+-  missing={'this'}-names
++  missing=({'this'}|set(extravars))-names
+   if value_prebound:missing|={'value'}-names
+   report['nested_selects'].append(dict(ast_path=path,projected=sorted(names),missing_prebound=sorted(missing),explicit_projection=bool(projection)))
+   if missing:
+--- before/tests/test_v091.py
++++ after/tests/test_v091.py
+@@ -21,7 +21,7 @@
+    if r['route']=='generation':return base.wrap(base.BAD_EXTRA)
+    if r['route'].endswith('repair'):return base.wrap(base.GOOD)
+    if i==2:return '{invalid'
+-   body=json.loads(r['user']);body=body.get('original_request',body)
++   body=base.request_data(r);body=body.get('original_request',body)
+    return base.review_response(r,'REJECT',base.issue_for(r)) if body['candidate_version']==1 else base.review_response(r)
+   try:result,t,out=self.run_local(handler)
+   finally:enabled[0]=False
+@@ -29,7 +29,7 @@
+   for r in t.calls:
+    text=json.dumps(r)
+    for canary in ['CASE_CANARY_8f1','FIXTURE_CANARY_8f1','LABEL_CANARY_8f1','COUNTERPART_CANARY_8f1']:self.assertNotIn(canary,text)
+-   body=json.loads(r['user']);body=body.get('original_request',body);ad=body.get('context',{}).get('admission') if r['route'] in ['generation','review','review_format_retry'] else body['admission'];self.assertEqual(set(ad['declaration']['focus_set']),{'mode','owner_class'})
++   body=base.request_data(r);body=body.get('original_request',body);ad=body.get('context',{}).get('admission') if r['route'] in ['generation','review','review_format_retry'] else body['admission'];self.assertEqual(set(ad['declaration']['focus_set']),{'mode','owner_class'})
+   if os.environ.get('NLTL_TEST_OUTPUT'):
+    import shutil;shutil.copytree(out,pathlib.Path(os.environ['NLTL_TEST_OUTPUT'])/'scope_isolation_complete_packets')
+  def test_input_binding_or_legacy_identity_declaration_cannot_generate(self):
+--- before/tests/test_v080.py
++++ after/tests/test_v080.py
+@@ -60,7 +60,7 @@
+   c=Candidate(1,base.GOOD,'');obj=base.bind_review_response({'user':json.dumps(dict(context=self.s.context('NOVEL-RULE'),full_candidate=c.code,previous_candidate=None,change_manifest={'changes':[]},prior_issues=[]))},dict(decision='REQUEST_EVIDENCE',issues=[],change_assessments=[],reconciliations=[],unchecked=[],evidence_requests=[]))
+   with self.assertRaisesRegex(ReviewerFormatError,'EMPTY_EVIDENCE_REQUEST'):parse_review({'text':json.dumps(obj)},c,self.s.context('NOVEL-RULE'))
+  def repair_review(self,request):
+-  data=json.loads(request['user']);ctx=data['context'];source=next(x['text'] for x in ctx['source_documents'] if 'software scope applies' in x['text']);o=json.loads(base.review_response(request));o.update(decision='REJECT',issues=[dict(issue_id='deactivated-control',category='SOURCE_BACKED_LOGIC_ERROR',source_clause=ctx['requirement']['clause'],source_excerpt=source,candidate_excerpt='sh:deactivated true',reason='The software source and explicit current contract establish the scope; the submitted deactivation disables it.',expected='Active enforcement in declared scope',suggestion='Remove only the supported deactivation; preserve all unrelated logic.',evidence_excerpt=json.dumps(ctx['contract'],sort_keys=True,ensure_ascii=False))],context_assessments=[dict(finding_key=f['finding_key'],disposition='REPAIRABLE_CODE',source_excerpt=source,candidate_excerpt='sh:deactivated true',evidence_excerpt=json.dumps(ctx['contract'],sort_keys=True,ensure_ascii=False),reason='Explicit source/contract for this software scope; no inferred eligibility.') for f in data['acceptance_blockers']]);return json.dumps(base.bind_review_response(request,o))
++  data=base.request_data(request);ctx=data['context'];source=next(x['text'] for x in ctx['source_documents'] if 'software scope applies' in x['text']);o=json.loads(base.review_response(request));o.update(decision='REJECT',issues=[dict(issue_id='deactivated-control',category='SOURCE_BACKED_LOGIC_ERROR',source_clause=ctx['requirement']['clause'],source_excerpt=source,candidate_excerpt='sh:deactivated true',reason='The software source and explicit current contract establish the scope; the submitted deactivation disables it.',expected='Active enforcement in declared scope',suggestion='Remove only the supported deactivation; preserve all unrelated logic.',evidence_excerpt=json.dumps(ctx['contract'],sort_keys=True,ensure_ascii=False))],context_assessments=[dict(finding_key=f['finding_key'],disposition='REPAIRABLE_CODE',source_excerpt=source,candidate_excerpt='sh:deactivated true',evidence_excerpt=json.dumps(ctx['contract'],sort_keys=True,ensure_ascii=False),reason='Explicit source/contract for this software scope; no inferred eligibility.') for f in data['acceptance_blockers']]);return json.dumps(base.bind_review_response(request,o))
+  def configured_scope(self):
+   self.document();self.add_reference();self.write('schema/representation_bindings.json',{'requirements':{'NOVEL-RULE':dict(terms=['bridgeWingsEnclosed'],owners={'bridgeWingsEnclosed':'ship'},target_owner='ship')}})
+  def test_resolvable_gap_proceeds_review_repair_full_latest(self):
+@@ -68,8 +68,8 @@
+   def handler(req,i):
+    if req['route']=='generation':return base.wrap(INACTIVE)
+    if req['route'].endswith('repair'):
+-    self.assertEqual(req['payload']['previous_candidate'],INACTIVE);self.assertEqual(req['payload']['candidate_sha256'],digest(INACTIVE));self.assertTrue(req['payload']['retrieval_evidence']);return base.wrap(base.GOOD)
+-   return self.repair_review(req) if json.loads(req['user'])['candidate_version']==1 else base.review_response(req)
++    self.assertEqual(req['payload']['previous_candidate'],INACTIVE);self.assertEqual(req['payload']['candidate_sha256'],digest(INACTIVE));self.assertTrue(base.request_data(req)['context']['retrieval_evidence']);return base.wrap(base.GOOD)
++   return self.repair_review(req) if base.request_data(req)['candidate_version']==1 else base.review_response(req)
+   r,t,out=self.run_local(handler);self.assertEqual(r['accepted_version'],2,json.dumps(r));self.assertEqual(r['repair_calls'],1);states=[x['state'] for x in json.loads((out/'controller_transitions.json').read_text())];self.assertTrue((out/'retrieved_input_hashes.json').is_file());self.assertIn('RETRIEVE_CONTEXT',states);self.assertIn('REPAIR_PROPOSED',states);self.assertEqual(states[-1],'ACCEPTED')
+   if __import__('os').environ.get('NLTL_TEST_OUTPUT'):
+    __import__('shutil').copytree(out,pathlib.Path(__import__('os').environ['NLTL_TEST_OUTPUT'])/'resolvable_context_control')
+@@ -99,7 +99,7 @@
+   self.document()
+   def handler(req,i):
+    if req['route']=='generation':return base.wrap(base.GOOD)
+-   self.assertEqual(json.loads(req['user'])['full_candidate'],base.GOOD)
++   self.assertEqual(base.request_data(req)['full_candidate'],base.GOOD)
+    return evidence_request(req,[dict(kind='source',reference='UR B2',revision=1,section=None,query='Application',reason='Scope')]) if i==2 else base.review_response(req)
+   r,t,out=self.run_local(handler);self.assertEqual(r['accepted_version'],1);self.assertEqual(len(t.calls),3);self.assertEqual(r['repair_calls'],0)
+  def test_no_evaluation_or_witness_in_context_resolution(self):
+@@ -134,7 +134,7 @@
+   self.add_reference('UR Z9')
+   def handler(req,i):
+    if req['route']=='generation':return base.wrap(base.GOOD)
+-   data=json.loads(req['user']);data=data.get('original_request',data);self.assertTrue(data['context']['retrieval_gaps']);return base.review_response(req)
++   data=base.request_data(req);data=data.get('original_request',data);self.assertTrue(data['context']['retrieval_gaps']);return base.review_response(req)
+   r,t,_=self.run_local(handler);self.assertIsNone(r['accepted_version']);self.assertEqual(r['status'],'REVIEWER_FORMAT_FAILURE')
+ 
+  def test_cyclic_retrieval_metadata_roundtrips_full_repair_payload(self):
+--- before/tests/test_v090.py
++++ after/tests/test_v090.py
+@@ -23,8 +23,8 @@
+  def test_admission_full_latest_candidate_reaches_review_retry_and_repair(self):
+   bad=base.GOOD.replace('sh:hasValue true','sh:hasValue true; sh:maxCount 1');seen=[]
+   def handler(r,i):
+-   if r['route']=='generation':seen.append(json.loads(r['user'])['context']['admission']);return base.wrap(bad)
+-   body=json.loads(r['user']);body=body.get('original_request',body);ad=body.get('context',{}).get('admission') if r['route'].startswith('review') else body['admission'];self.assertEqual(ad,seen[0]);seen.append(ad)
++   if r['route']=='generation':seen.append(base.request_data(r)['context']['admission']);return base.wrap(bad)
++   body=base.request_data(r);body=body.get('original_request',body);ad=body.get('context',{}).get('admission') if r['route'].startswith('review') else body['admission'];self.assertEqual(ad,seen[0]);seen.append(ad)
+    if r['route'].endswith('repair'):self.assertEqual(body['previous_candidate'],bad);self.assertEqual(body['candidate_sha256'],hashlib.sha256(bad.encode()).hexdigest());return base.wrap(base.GOOD)
+    if i==2:return '{broken'
+    return base.review_response(r,'REJECT',base.issue_for(r)) if body['candidate_version']==1 else base.review_response(r)
+@@ -49,7 +49,7 @@
+   from nltlv2.requests import repair_request
+   original=repair_request
+   def tamper(*a,**k):
+-   r=original(*a,**k);r['payload']['admission']=None;r['user']=json.dumps(r['payload']);return r
++   r=original(*a,**k);r['payload']['admission_sha256']='tampered';r['user']=json.dumps(r['payload']);return r
+   def handler(r,i):return base.wrap(base.BAD_EXTRA) if r['route']=='generation' else base.review_response(r,'REJECT',base.issue_for(r))
+   with patch('nltlv2.runner.repair_request',side_effect=tamper):result,t,_=self.run_local(handler)
+   self.assertEqual(result['status'],'REQUEST_INTEGRITY_FAILURE');self.assertEqual(len(t.calls),2)
+@@ -101,8 +101,8 @@
+   def handler(r,i):
+    if r['route']=='generation':return base.wrap(inactive)
+    if r['route'].endswith('repair'):
+-    self.assertEqual(r['payload']['previous_candidate'],inactive);self.assertEqual(r['payload']['admission']['declaration']['eligibility_assertion'],'ASSUMED_EXTERNAL_RESEARCH_ELIGIBILITY');return base.wrap(base.GOOD)
+-   body=json.loads(r['user'])
++    self.assertEqual(r['payload']['previous_candidate'],inactive);self.assertEqual(base.request_data(r)['admission']['declaration']['eligibility_assertion'],'ASSUMED_EXTERNAL_RESEARCH_ELIGIBILITY');return base.wrap(base.GOOD)
++   body=base.request_data(r)
+    if body['candidate_version']==1:
+     issue=base.issue_for(r);issue.update(issue_id='inactive-root',candidate_excerpt='sh:deactivated true',reason='The represented source obligation is disabled despite explicit caller population admission',expected='Active constraint inside the supplied population',suggestion='Remove deactivation only after source-grounded review; preserve full query obligations',evidence_excerpt='ASSUMED_EXTERNAL_RESEARCH_ELIGIBILITY');issue.pop('evidence_id',None)
+     obj=json.loads(base.review_response(r,'REJECT',issue));obj['context_assessments']=[dict(finding_key=f['finding_key'],disposition='REPAIRABLE_CODE',source_excerpt=body['context']['source_documents'][0]['text'],candidate_excerpt='sh:deactivated true',evidence_excerpt='ASSUMED_EXTERNAL_RESEARCH_ELIGIBILITY',reason='Caller has supplied external eligibility; declared class supplies representation identity, not legal qualification') for f in body['acceptance_blockers']];return json.dumps(base.bind_review_response(r,obj))
+--- before/tests/test_focused_simplification.py
++++ after/tests/test_focused_simplification.py
+@@ -0,0 +1,104 @@
++"""General software controls only. No regulatory compliance witnesses or model calls."""
++import copy,hashlib,importlib.util,json,pathlib,unittest,os
++import test_general_pipeline as base
++from nltlv2.core import Candidate,digest,offline_network_guard
++from nltlv2.evidence import evidence_catalog,code_location,extract_location,assert_review_packet
++from nltlv2.requests import parse_review,review_conflicts,assert_integrity,review_base
++from nltlv2.review_validation import validate_review
++from nltlv2.checks import check,sparql_checks
++from nltlv2.schema import Schema,N,Q
++from nltlv2.tracking import Tracker
++from rdflib import Graph
++
++class FocusedControls(unittest.TestCase):
++ setUp=base.GeneralPipelineTests.setUp;tearDown=base.GeneralPipelineTests.tearDown;write=base.GeneralPipelineTests.write;run_local=base.GeneralPipelineTests.run_local;accepting=base.GeneralPipelineTests.accepting
++ def test_local_ids_bind_immutable_provenance(self):
++  ctx=self.s.context('NOVEL-RULE');catalog=evidence_catalog(ctx)
++  self.assertEqual([e['evidence_id'] for e in catalog['entries']],['E'+str(i) for i in range(1,len(catalog['entries'])+1)])
++  for e in catalog['entries']:
++   self.assertEqual(e['text_sha256'],digest(e['text']));self.assertEqual(len(e['evidence_sha256']),64);self.assertEqual(len(e['provenance_sha256']),64)
++  changed=copy.deepcopy(ctx);changed['source_documents'][0]['sha256']='different';self.assertNotEqual(catalog['catalog_sha256'],evidence_catalog(changed)['catalog_sha256'])
++ def test_ranges_extract_indented_unicode_literal_exactly(self):
++  c=Candidate(3,'α\n    "7.0"^^<urn:decimal>\n','');loc=code_location(c,2,2,unit='lines');self.assertEqual(extract_location(loc,c),'    "7.0"^^<urn:decimal>\n');self.assertEqual(extract_location(code_location(c,2,len(c.code)),c),c.code[2:])
++ def test_stale_bool_out_of_bounds_and_changed_code_rejected(self):
++  c=Candidate(1,base.GOOD,'');loc=code_location(c,1,2)
++  for key,val in [('candidate_version',2),('candidate_version',True),('candidate_sha256','0'*64),('start',-1),('end',len(c.code)+1),('start',True),('unit','bytes')]:
++   bad=dict(loc,**{key:val})
++   with self.assertRaises(ValueError):extract_location(bad,c)
++  with self.assertRaises(ValueError):extract_location(loc,Candidate(1,c.code+' ',''))
++ def test_span_only_review_repair_recheck_and_immutable_retry(self):
++  first=[]
++  def handler(r,i):
++   wire=json.loads(r['user'])
++   if r['route']=='generation':return base.wrap(base.BAD_EXTRA)
++   if r['route'].endswith('repair'):
++    self.assertEqual(r['payload']['previous_candidate'],base.BAD_EXTRA);assert_integrity(r,Candidate(1,base.BAD_EXTRA,''),None)
++    self.assertEqual(json.dumps(wire).count(json.dumps(base.BAD_EXTRA)[1:-1]),1)
++    return base.wrap(base.GOOD)
++   self.assertNotIn('source_documents',wire['context']);self.assertNotIn('original_request',wire);self.assertNotIn('static_warnings',wire);self.assertNotIn('acceptance_blockers',wire)
++   self.assertEqual(json.dumps(wire).count(json.dumps(wire['full_candidate'])[1:-1]),1)
++   if wire['candidate_version']==1:
++    if r['route']=='review':first.append(copy.deepcopy(wire))
++    else:self.assertEqual(review_base(wire),first[0]);self.assertNotIn('raw_previous_response',wire);self.assertEqual(wire['prior_issues'],[])
++    obj=json.loads(base.review_response(r,'REJECT',base.issue_for(r)))
++    self.assertNotIn('candidate_excerpt',obj['issues'][0]);self.assertIn('candidate_location',obj['issues'][0])
++    if r['route']=='review':obj['issues'][0]['evidence_id']='UNKNOWN'
++    return json.dumps(obj)
++   obj=json.loads(base.review_response(r));self.assertTrue(obj['change_assessments']);self.assertNotIn('removal_assessments',obj['change_assessments'][0]);return json.dumps(obj)
++  result,t,out=self.run_local(handler);self.assertEqual(result['accepted_version'],2,result);self.assertEqual(result['repair_calls'],1);self.assertEqual(result['auxiliary_format_retries'],1)
++  self.assertEqual(len(result['history'][0]['findings']),2) # one nonblocking representation notice, one validated interpretation
++  if os.environ.get('NLTL_TEST_OUTPUT'):
++   import shutil;shutil.copytree(out,pathlib.Path(os.environ['NLTL_TEST_OUTPUT'])/'complete_review_retry_repair_recheck')
++ def test_unknown_evidence_and_altered_asserted_source_do_not_authorize_repair(self):
++  def handler(r,i):
++   if r['route']=='generation':return base.wrap(base.BAD_EXTRA)
++   obj=json.loads(base.review_response(r,'REJECT',base.issue_for(r)));obj['issues'][0]['source_excerpt']='Invented legal claim';obj['issues'][0]['evidence_id']='E999999';return json.dumps(obj)
++  result,t,out=self.run_local(handler);self.assertEqual(result['status'],'REVIEWER_FORMAT_FAILURE');self.assertEqual(result['repair_calls'],0);self.assertIsNone(result['history'][0]['review'])
++ def test_no_model_code_indentation_is_required(self):
++  def handler(r,i):
++   if r['route']=='generation':return base.wrap(base.BAD_EXTRA)
++   obj=json.loads(base.review_response(r,'REJECT',base.issue_for(r)));self.assertNotIn('candidate_excerpt',obj['issues'][0]);return json.dumps(obj)
++  cfg=self.p.config('configs/nltl.json');cfg['maximum_candidate_attempts']=1
++  result,t,out=self.run_local(handler,cfg=cfg);self.assertEqual(result['status'],'ATTEMPT_LIMIT_EXHAUSTED');self.assertIsNotNone(result['history'][0]['review'])
++ def test_meta_shacl_rejects_unreachable_malformed_shape(self):
++  code=base.GOOD+'<urn:orphan> a sh:PropertyShape; sh:path n:bridgeWingsEnclosed; sh:minCount "oops".'
++  findings=check(Candidate(1,code,''),self.s,'NOVEL-RULE');struct=[f for f in findings if f.category=='SHACL_STRUCTURE_ERROR'];self.assertEqual(len(struct),1);self.assertTrue(struct[0].blocking);self.assertIn('sh:minCount',struct[0].diagnostic);self.assertIn('oops',struct[0].diagnostic)
++ def test_standard_property_constraint_does_not_invent_value_prebinding(self):
++  q='SELECT $this WHERE { { SELECT ?this WHERE { ?this <urn:p> ?v } } }'
++  code=base.GOOD+'<urn:property> a sh:PropertyShape; sh:path n:bridgeWingsEnclosed; sh:sparql [sh:select """'+q+'"""].'
++  self.assertFalse(any('nested_prebound' in f.check_id for f in check(Candidate(1,code,''),self.s,'NOVEL-RULE')))
++ def test_custom_validator_value_and_supplied_parameter_prebinding(self):
++  q='SELECT $this WHERE { { SELECT ?this WHERE { ?this <urn:p> ?v } } }'
++  code=base.GOOD+'<urn:component> a sh:ConstraintComponent; sh:parameter [ sh:path <urn:threshold> ]; sh:validator <urn:validator>. <urn:validator> a sh:SPARQLSelectValidator; sh:select """'+q+'""". <urn:shape> <urn:threshold> 1.'
++  findings=check(Candidate(1,code,''),self.s,'NOVEL-RULE');nested=[f for f in findings if 'nested_prebound' in f.check_id];self.assertTrue(nested);self.assertIn('value',nested[0].message);self.assertIn('threshold',nested[0].message)
++ def test_ask_has_no_outer_select_projection_requirement(self):
++  self.assertFalse(any('outer_projection' in f.check_id for f in sparql_checks(Candidate(1,'',''),'ASK { $this <urn:p> ?v }',value_prebound=True)))
++ def test_property_and_operand_path_roles(self):
++  self.write('schema/representation_bindings.json',{'requirements':{'NOVEL-RULE':{'terms':['probeLength'],'owners':{'probeLength':'ship'},'target_owner':'ship','model_paths':[]}}});schema=Schema(self.p);prop=str(N.probeLength);operand=[prop,schema.quantity_profile['numeric_predicate']]
++  def conflicts(path,role):return review_conflicts({'issues':[dict(property=prop,proposed_path=path,proposed_path_role=role)]},schema,'NOVEL-RULE')
++  self.assertFalse(conflicts([prop],'PROPERTY'));self.assertFalse(conflicts(operand,'NUMERIC_OPERAND'));self.assertTrue(conflicts(operand,'PROPERTY'));self.assertTrue(conflicts(operand+['urn:wrong'],'NUMERIC_OPERAND'))
++ def test_uncertain_binding_remains_warning(self):
++  fs=sparql_checks(Candidate(1,'',''),'SELECT $this WHERE { $this <urn:p> ?v . FILTER(?missing>0) }');self.assertTrue(fs);self.assertTrue(all(not f.blocking and not f.confirmed for f in fs))
++ def test_retry_packet_tampering_detected(self):
++  def handler(r,i):
++   if r['route']=='generation':return base.wrap(base.GOOD)
++   wire=json.loads(r['user']);bad=copy.deepcopy(wire);bad['full_candidate']+=' '
++   with self.assertRaises(ValueError):assert_review_packet(bad,Candidate(1,base.GOOD,''))
++   return base.review_response(r)
++  result,t,out=self.run_local(handler);self.assertEqual(result['accepted_version'],1)
++ def test_dispatch_closure_is_bound_to_selection_and_candidates(self):
++  file=pathlib.Path(__file__).resolve().parents[1]/'evaluation/independent.py';spec=importlib.util.spec_from_file_location('focused_evaluation',file);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
++  selection={'workflows':{'NLTL':{'NOVEL-RULE':{'shape':'candidate.ttl'}}}};self.write('selection.json',selection);(self.root/'candidate.ttl').write_text(base.GOOD)
++  with self.assertRaisesRegex(ValueError,'DISPATCH_CLOSURE_REQUIRED'):module.require_dispatch_closure(self.p,'selection.json')
++  selection['dispatch_closure']='closed.json';self.write('selection.json',selection);receipt={'dispatch_closed':True,'selection_manifest_sha256':hashlib.sha256((self.root/'selection.json').read_bytes()).hexdigest(),'candidate_sha256':{'NLTL':{'NOVEL-RULE':digest(base.GOOD)}}};self.write('closed.json',receipt)
++  self.assertEqual(module.require_dispatch_closure(self.p,'selection.json'),selection)
++  (self.root/'candidate.ttl').write_text(base.GOOD+' ')
++  with self.assertRaisesRegex(ValueError,'CANDIDATE_INTEGRITY'):module.require_dispatch_closure(self.p,'selection.json')
++
++ def test_meta_stage_never_executes_submitted_queries(self):
++  from unittest.mock import patch
++  query='SELECT $this WHERE { SERVICE <https://example.invalid/data> { $this <urn:p> ?v } }'
++  code=base.PREFIX+'<urn:s> a sh:NodeShape; sh:targetNode <urn:focus>; sh:sparql [sh:select """'+query+'"""].'
++  with patch('rdflib.Graph.query',side_effect=AssertionError('Submitted query must not execute during Meta-SHACL')):
++   findings=check(Candidate(1,code,''),self.s,'NOVEL-RULE')
++  self.assertFalse(any(f.category=='SHACL_STRUCTURE_ERROR' for f in findings));self.assertTrue(any('External dataset' in f.message for f in findings))
+--- before/tests/test_v070.py
++++ after/tests/test_v070.py
+@@ -58,7 +58,7 @@
+    if req['route']=='generation':return base.wrap(base.GOOD)
+    if req['route']=='review':
+     o=json.loads(base.review_response(req));o['decision']='REJECT';x=base.issue_for(req);x['source_excerpt']='not supplied';o['issues']=[x];return json.dumps(o)
+-   p=json.loads(req['user']);self.assertEqual(p['format_error']['path'],'$.issues[0].source_excerpt');self.assertIn('properties',p['expected_structure']);return base.review_response(req)
++   p=base.request_data(req);self.assertEqual(p['format_error']['path'],'$.issues[0].source_excerpt');self.assertIn('properties',p['expected_structure']);return base.review_response(req)
+   r,t,out=self.run_local(handler);self.assertEqual(r['accepted_version'],1);self.assertTrue((out/'reviewer_normalized_002.json').is_file());self.assertTrue((out/'reviewer_normalized_003.json').is_file())
+  def test_structured_output_requires_capability_evidence(self):
+   with self.assertRaisesRegex(ValueError,'NOT_VERIFIED'):response_format({'review_output_mode':'json_schema'})
+--- before/tests/test_v092.py
++++ after/tests/test_v092.py
+@@ -55,24 +55,24 @@
+   observed=[]
+   def handler(r,i):
+    if r['route']=='generation':return base.wrap(base.GOOD)
+-   body=json.loads(r['user'])
++   body=base.request_data(r)
+    if r['route']=='review':
+-    observed.append(copy.deepcopy(body));obj=json.loads(base.review_response(r));issue=base.issue_for(r);obj['decision']='REJECT';obj['issues']=[issue];obj['issues'][0]['evidence_excerpt']='invented unsupported fact';return json.dumps(obj)
+-   self.assertEqual(body['original_request'],observed[0]);self.assertEqual(body['allowed_reconciliation_ids'],[]);self.assertTrue(body['failed_review_is_not_prior_state']);self.assertTrue(body['validation_errors']);self.assertIn('source_evidence_id',body['citation_format']['source']);return base.review_response(r)
++    observed.append(copy.deepcopy(json.loads(r['user'])));obj=json.loads(base.review_response(r));issue=base.issue_for(r);obj['decision']='REJECT';obj['issues']=[issue];obj['issues'][0]['evidence_excerpt']='invented unsupported fact';return json.dumps(obj)
++   self.assertEqual({k:v for k,v in json.loads(r['user']).items() if k!='format_feedback'},observed[0]);self.assertEqual(body['allowed_reconciliation_ids'],[]);self.assertTrue(body['failed_review_is_not_prior_state']);self.assertTrue(body['validation_errors']);self.assertIn('source_evidence_id',body['citation_format']['source']);return base.review_response(r)
+   result,t,out=self.run_local(handler);self.assertEqual(result['accepted_version'],1,result);self.assertEqual(result['auxiliary_format_retries'],1);self.assertEqual(result['repair_calls'],0);self.assertEqual(result['history'][0]['review']['reconciliations'],[])
+   if os.environ.get('NLTL_TEST_OUTPUT'):
+    import shutil;shutil.copytree(out,pathlib.Path(os.environ['NLTL_TEST_OUTPUT'])/'review_and_retry_complete_packets')
+  def test_retry_invented_reconciliation_rejected_after_serialization_fix(self):
+   def handler(r,i):
+    if r['route']=='generation':return base.wrap(base.GOOD)
+-   obj=json.loads(base.review_response(r));data=json.loads(r['user']);data=data.get('original_request',data)
++   obj=json.loads(base.review_response(r));data=base.request_data(r);data=data.get('original_request',data)
+    if r['route']=='review':obj['review_request_id']='stale';return json.dumps(obj)
+    source=next(e for e in data['evidence_catalog']['entries'] if e['kind']=='SOURCE');obj['reconciliations']=[dict(issue_id='failed-review-issue',state='PERSISTENT',source_evidence_id=source['evidence_id'],source_excerpt=source['text'],candidate_excerpt=data['full_candidate'],reason='Not an actual prior issue')];return json.dumps(obj)
+   result,t,out=self.run_local(handler);self.assertEqual(result['status'],'REVIEWER_FORMAT_FAILURE');self.assertIsNone(result['accepted_version']);self.assertIsNone(result['history'][0]['review']);self.assertEqual(result['history'][0]['persistent_failure_summary']['persistent_or_regressed'],[])
+  def test_probe_summary_sent_and_not_regulatory_proof(self):
+   def handler(r,i):
+    if r['route']=='generation':return base.wrap(base.GOOD)
+-   body=json.loads(r['user']);probe=body['execution_probe'];self.assertEqual(probe['candidate_sha256'],digest(base.GOOD));self.assertEqual(probe['candidate_version'],1);self.assertEqual(probe['engine_outcome'],'COMPLETED_NO_ENGINE_ERROR');self.assertEqual(probe['exact_diagnostics'],{'stdout':'','stderr':''});self.assertFalse(probe['regulatory_correctness_established']);self.assertNotIn('witness',probe);self.assertTrue(any(e['kind']=='EXECUTION_OBSERVATION' for e in body['evidence_catalog']['entries']));return base.review_response(r)
++   body=base.request_data(r);probe=body['execution_probe'];self.assertEqual(probe['candidate_sha256'],digest(base.GOOD));self.assertEqual(probe['candidate_version'],1);self.assertEqual(probe['engine_outcome'],'COMPLETED_NO_ENGINE_ERROR');self.assertEqual(set(probe['diagnostics']),{'stdout','stderr'});self.assertEqual(probe['diagnostics']['stdout']['sha256'],digest(''));self.assertFalse(probe['regulatory_correctness_established']);self.assertNotIn('witness',probe);self.assertFalse(any(e['kind']=='EXECUTION_OBSERVATION' for e in body['evidence_catalog']['entries']));return base.review_response(r)
+   result,t,out=self.run_local(handler);self.assertEqual(result['accepted_version'],1,result)
+  def test_stale_or_unsupplied_execution_observation_rejected(self):
+   c,ctx,r,obj=self.control()
+--- before/tests/test_general_pipeline.py
++++ after/tests/test_general_pipeline.py
+@@ -15,9 +15,26 @@
+ BAD_EXTRA=GOOD.replace('sh:hasValue true]','sh:hasValue true; sh:maxCount 1]')
+ SOURCE='Ships shall record that bridge wings are enclosed. This source imposes no maximum count for the recorded property. Length values use metres.'
+ def wrap(code):return '<BEGIN_SHACL>\n'+code+'<END_SHACL>\n'
++def request_data(request):
++ """Test-only view of the compact wire; does not add anything to model requests."""
++ data=json.loads(request['user']);data=data.get('original_request',data)
++ if data.get('protocol_version')!=2:return data
++ data=copy.deepcopy(data);ctx=data['context'];ctx['source_documents']=[];ctx['ontology_evidence']=[];ctx['schema_terms']=[]
++ for entry in data['evidence_catalog']['entries']:
++  origin=entry.get('origin',{});field=origin.get('context_field')
++  if entry['kind']=='SOURCE':ctx['source_documents'].append(dict(origin,text=entry['text']))
++  elif entry['kind']=='RDF_FACT':ctx['ontology_evidence'].append([t.n3() for t in __import__('nltlv2.evidence',fromlist=['ground_fact']).ground_fact(entry['text'])])
++  elif field=='schema_terms':ctx['schema_terms'].append(json.loads(entry['text']))
++  elif field:ctx[field]=json.loads(entry['text'])
++ ctx['termOwners']=ctx.get('contract',{}).get('owners',{});ctx['modelPaths']=ctx.get('contract',{}).get('modelPaths',[])
++ data['admission']=ctx.get('admission');data['deterministic_findings']=data.get('findings',[]);data['acceptance_blockers']=[x for x in data.get('findings',[]) if x['blocking']]
++ if data.get('format_feedback'):
++  feedback=data['format_feedback'];data.update(feedback);data['format_error']=feedback['validation_errors'][0];data['expected_structure']=data['expected_response_schema']
++ return data
++
+ def bind_review_response(request,obj):
+- data=json.loads(request['user']);data=data.get('original_request',data);code=data['full_candidate'];change=data.get('change_manifest',{});version=data.get('candidate_version',change.get('current_version',1));c=Candidate(version,code,'');prev=data.get('previous_candidate');previous=None if prev is None else Candidate(prev.get('version',version-1),prev['full_code'],'');context=data['context'];catalog=data.get('evidence_catalog',evidence_catalog(context,data.get('execution_probe')))
+- binding=review_binding(c,context,data.get('prior_issues',[]),previous,change,data.get('execution_probe'));obj.update(binding)
++ data=request_data(request);code=data['full_candidate'];change=data.get('change_manifest',{});version=data.get('candidate_version',change.get('current_version',1));c=Candidate(version,code,'');prev=data.get('previous_candidate');previous=None if prev is None else Candidate(prev.get('version',version-1),prev['full_code'],'');context=data['context'];catalog=data.get('evidence_catalog',evidence_catalog(context,data.get('execution_probe')))
++ binding={k:data[k] for k in ['candidate_version','candidate_sha256','review_request_id']} if 'review_request_id' in data else review_binding(c,context,data.get('prior_issues',[]),previous,change,data.get('execution_probe'));obj.update(binding)
+  def visit(x):
+   if isinstance(x,dict):
+    for source,key,quote in [(True,'source_evidence_id','source_excerpt'),(False,'evidence_id','evidence_excerpt')]:
+@@ -27,12 +44,27 @@
+    for v in list(x.values()):visit(v)
+   elif isinstance(x,list):
+    for v in x:visit(v)
+- visit(obj);return obj
++ visit(obj)
++ if data.get('protocol_version')==2:
++  from nltlv2.evidence import code_location
++  def spans(x):
++   if isinstance(x,dict):
++    for key,target,field in [('candidate_excerpt',c,'candidate_location'),('previous_excerpt',previous,'previous_location')]:
++     quote=x.get(key) or (x.get('insertion_context') if key=='candidate_excerpt' else None)
++     if target is not None and isinstance(quote,str) and quote and quote in target.code:
++      start=target.code.index(quote);x[field]=code_location(target,start,start+len(quote));x.pop(key,None);x.pop('insertion_context',None)
++    if 'removal_assessments' in x:
++     removals=x.pop('removal_assessments');x['removal_disposition']=removals[0]['disposition'] if removals else ('SUPPORTED_REMOVAL' if any(g.get('change_id')==x.get('change_id') and g.get('removal_required') for g in change.get('changes',[])) else None)
++    for value in list(x.values()):spans(value)
++   elif isinstance(x,list):
++    for v in x:spans(v)
++  spans(obj)
++ return obj
+ def review_response(request,decision='ACCEPT',issue=None,prior_state=None,change_state='SUPPORTED'):
+- data=json.loads(request['user']);data=data.get('original_request',data);context=data['context'];code=data['full_candidate'];source=context['source_documents'][0]['text'];previous=data['previous_candidate'];changes=data['change_manifest']['changes']
++ data=request_data(request);context=data['context'];code=data['full_candidate'];source=context['source_documents'][0]['text'];previous=data['previous_candidate'];changes=data['change_manifest']['changes']
+  return json.dumps(bind_review_response(request,dict(decision=decision,issues=[] if issue is None else [issue],change_assessments=[dict(change_id=c['change_id'],disposition=change_state,source_excerpt=source,previous_excerpt=previous['full_code'],candidate_excerpt=code,reason='Compared actual source and candidates; removal is source-supported.',removal_assessments=[dict(alert_id=a['alert_id'],disposition='SUPPORTED_REMOVAL',source_excerpt=source,previous_excerpt=previous['full_code'],candidate_excerpt=code,reason='The synthetic source explicitly imposes no maximum count; all other constraints retained.') for a in c.get('removal_alerts',[])]) for c in changes],reconciliations=[dict(issue_id=x['issue_id'],state=prior_state or ('RESOLVED' if decision=='ACCEPT' else 'PERSISTENT'),source_excerpt=source,candidate_excerpt=code,reason='Source and current candidate compared explicitly.') for x in data['prior_issues']],unchecked=[dict(scope='Independent correctness proof',material=False,reason='Methodological limitation, not unverified implementation scope.')])))
+ def issue_for(request,category='SOURCE_BACKED_LOGIC_ERROR',**extra):
+- data=json.loads(request['user']);data=data.get('original_request',data)
++ data=request_data(request)
+  return bind_review_response(request,{'issues':[dict(issue_id='unsupported-cardinality',category=category,source_clause='A.1',source_excerpt=SOURCE,candidate_excerpt='sh:maxCount 1' if 'sh:maxCount 1' in data['full_candidate'] else data['full_candidate'],reason='The source explicitly supplies no maximum count.',expected='No source-unsupported maximum count',suggestion='Remove only the unsupported maximum count and preserve the boolean recording obligation.',evidence_excerpt=SOURCE,**extra)]})['issues'][0]
+ class LocalTransport:
+  def __init__(self,handler):self.handler=handler;self.calls=[]
+--- before/evaluation/independent.py
++++ after/evaluation/independent.py
+@@ -130,9 +130,23 @@
+  if sets and any(v!=next(iter(sets.values())) for v in sets.values()):raise ValueError('EXCLUSIONS_DIFFER_ACROSS_WORKFLOWS')
+  return sorted(next(iter(sets.values()))) if sets else []
+ 
++def require_dispatch_closure(project,shape_manifest):
++ manifest_path=project.path(shape_manifest);manifest=load(manifest_path)
++ receipt_path=manifest.get('dispatch_closure')
++ if not receipt_path:raise ValueError('DISPATCH_CLOSURE_REQUIRED')
++ receipt=load(project.path(receipt_path))
++ if receipt.get('dispatch_closed') is not True or receipt.get('selection_manifest_sha256')!=hashlib.sha256(manifest_path.read_bytes()).hexdigest():raise ValueError('DISPATCH_CLOSURE_SELECTION_INTEGRITY_FAILURE')
++ for workflow,entries in manifest.get('workflows',{}).items():
++  for rid,entry in entries.items():
++   if entry and entry.get('shape'):
++    actual=hashlib.sha256(project.path(entry['shape']).read_bytes()).hexdigest()
++    if receipt.get('candidate_sha256',{}).get(workflow,{}).get(rid)!=actual:raise ValueError('DISPATCH_CLOSURE_CANDIDATE_INTEGRITY_FAILURE')
++ return manifest
++
+ def evaluate(project,shape_manifest,out):
+  """Evaluate unchanged submitted shapes; unseen violation semantics remain unresolved."""
+- schema=Schema(project);core=load(project.path('evaluation/selections/regression_core.json'));manifest=load(project.path(shape_manifest))
++ manifest=require_dispatch_closure(project,shape_manifest)
++ schema=Schema(project);core=load(project.path('evaluation/selections/regression_core.json'))
+  if set(manifest['workflows'])!={'NLTL','Single-shot'}:raise ValueError('Exactly the same two workflows required')
+  exclusions=check_exclusions(manifest.get('excluded_case_ids',{'NLTL':[],'Single-shot':[]}))
+  if exclusions:raise ValueError('The certified 37-case core has no established invalid-test exclusions. Supply a separately reviewed versioned selection to change it.')
+--- before/prompts/reviewer.txt
++++ after/prompts/reviewer.txt
+@@ -1,27 +1,15 @@
+-Compare the full candidate directly with the supplied original source and schema. There is no handwritten compliance solution or expected verdict. Your interpretations are MODEL_INTERPRETATION, not independently verified facts. Cite the supplied evidence_catalog by stable evidence IDs and exact text, and quote the complete current candidate precisely. RDFS domains do not establish exclusive placement. Unspecified applicability/ownership/qualitative adequacy stays UNRESOLVED when material; do not invent facts. Source may require numeric value equality rather than exact RDF-term identity, closed-set membership rather than class/range alone, conditional rather than universal obligations, and datatype/unit-aware arithmetic. Derive those judgments from the source, not identifiers or examples.
++Review the complete supplied SHACL against source, schema and declared research scope. Return one JSON object matching expected_response_schema. Review every query/branch and all represented source obligations. No fixtures, labels, counterpart records, expected verdicts or known solution are supplied. Never request them. Shape messages and execution success are not proofs of correct logic.
+ 
+-Return one bounded JSON object following expected_response_schema. Echo candidate_version, candidate_sha256 and review_request_id exactly. Include decision, issues, change_assessments, reconciliations and unchecked; evidence_requests/context_assessments are bounded protocol arrays. decision is ACCEPT, REJECT, UNRESOLVED or REQUEST_EVIDENCE. Every issue: issue_id (stable across edits), category SOURCE_BACKED_LOGIC_ERROR or UNRESOLVED_CONTEXT, source_clause matching context.requirement.clause, source_evidence_id with exact source_excerpt from that SOURCE entry, exact candidate_excerpt (or empty plus exact insertion_context for a missing constraint), reason, expected, suggestion, evidence_id with evidence_excerpt citing that exact supplied catalog entry. Optional property/proposed_path/proposed_unit/proposed_datatype must respect explicit schema mappings. Generic incorrect-logic feedback is invalid. List unassessed scope as {scope, material, reason} entries in unchecked; ACCEPT is not complete correctness certification.
++The packet supplies full_candidate once. Use candidate_location rather than quoting code: {candidate_version, candidate_sha256, unit: "lines" or "characters", start, end}. Lines are one-based inclusive; character offsets are zero-based half-open Unicode positions. The server extracts exact code. Reference previous_location against previous_candidate when assessing changes. For missing code, locate a real insertion anchor. Never invent ranges or stale hashes.
+ 
+-For every change_manifest.changes entry supply one change_assessments object: change_id, disposition SUPPORTED|REGRESSION|UNRESOLVED, exact source_excerpt, previous_excerpt from previous_candidate.full_code, candidate_excerpt or insertion_context, reason. Compare both full candidates and the textual diff; RDF blank-node alignment can include unchanged surrounding structure. A deletion may be supported if the prior constraint was not required or was excessive. Do not demand restoration solely because it existed before. Do not silently accept changed thresholds, targets, paths, applicability or lost obligations. A REGRESSION or UNRESOLVED disposition must have a corresponding issue with the same change_id; UNRESOLVED also requires an UNRESOLVED_CONTEXT issue and UNRESOLVED decision; ACCEPT permits only SUPPORTED changes.
++Evidence uses concise request-local E IDs. The server binds each to immutable content and provenance hashes. Use only IDs in this packet. source_evidence_id must identify a SOURCE entry; source_excerpt, when asserted, must be an exact nonempty substring preserving source whitespace. evidence_id/evidence_excerpt must match supplied text; RDF_FACT permits only one equivalent explicit ground triple with identical RDF terms, lexical forms, datatype and language. No inference, numeric coercion, blank-node equivalence or ontology-wide lookup. A valid reference does not prove the interpretation. Caller admission is an experimental assumption with provenance, not a legal-source quotation or independently certified eligibility.
+ 
+-For every prior_issues entry supply one reconciliations object: issue_id, state RESOLVED|PERSISTENT|REGRESSED|UNASSESSABLE, exact source_excerpt, candidate_excerpt or insertion_context, reason. A text change or absent issue is not evidence of resolution. ACCEPT requires every prior issue resolved, no current issues, and no unassessed material change. Initial review has empty change_assessments/reconciliations. Keep issues within max_issues. Preserve uncertainty and distinguish a grounded quotation from a verified interpretation.
++Decisions: ACCEPT (no issues, all changes supported and prior issues resolved); REJECT (actionable source/schema-backed code issue); UNRESOLVED (material missing information); REQUEST_EVIDENCE (up to three bounded catalog source/schema requests). Unsupported claims, uncertainty and absent evidence must remain explicit. For every material retrieval gap include unchecked {scope: gap_id, material, reason}. Material unchecked scope prevents ACCEPT. Activation/deactivation and full query correctness are separate obligations; resolving scope proves neither arithmetic nor compliance.
+ 
++For each functional change_id return ONE change_assessments entry, with source support, current/previous locations and reason. If removal_required is true, removal_disposition must be SUPPORTED_REMOVAL, REPLACED, REGRESSION or UNRESOLVED and the reason must assess lost numeric/unit/query/target obligations and any replacement. There is no separate removal response list or pre-issued repair permission. Source-supported removal of an excessive old restriction is allowed; checker silence alone is not support. REGRESSION/UNRESOLVED requires a corresponding issue/change_id; UNRESOLVED requires an unresolved-context issue and decision.
+ 
+-Protocol v0.7: Use exactly the field names source_excerpt and candidate_excerpt (not exact_source_excerpt or exact_candidate_excerpt). source_excerpt must be a literal substring of its SOURCE entry with original whitespace. For SCHEMA_TEXT/CALLER_DECLARATION, evidence_excerpt must be a literal substring of the referenced evidence text. For RDF_FACT only, equivalent single-ground-fact Turtle/N-Triples serialization is supported, but subject/predicate/object must be exactly those supplied RDF terms; no inference, blank-node equivalence, numeric-value coercion, arbitrary ontology lookup or additional facts. Use only evidence IDs in this exact packet. A missing constraint uses candidate_excerpt="" and an exact insertion_context substring. Each change assessment must contain removal_assessments: one entry for every change.removal_alerts ID, containing alert_id, disposition SUPPORTED_REMOVAL|REPLACED|REGRESSION|UNRESOLVED, exact source_excerpt/previous_excerpt/current candidate_excerpt or insertion_context, and a reason that explicitly accounts for numeric, unit and query constraints lost or replaced. Do not declare a loss supported merely because it silences a checker. There are no pre-authorized per-requirement edits.
++Reconcile exactly the original prior_issues IDs; code edits alone do not resolve an issue. Empty prior_issues requires empty reconciliations. Format feedback does not create accepted issues or authorize repair; the original candidate/prior state and request binding remain unchanged. Echo candidate_version, candidate_sha256 and review_request_id. Correct all listed format errors in a complete response.
+ 
+-unchecked is an array of {"scope": "specific unassessed scope", "material": true or false, "reason": "why this affects source enforcement or is outside scope"}. Any material unresolved target/application, deactivated enforcement or source scope PREVENTS ACCEPT. Nonmaterial methodological limits may remain explicitly marked false. Never ACCEPT a graph that has no supported root activation or no active reachable constraints. Nested/library shapes need no own target if reachable from an active root. Do not invent targeting. The full expected protocol schema is supplied with review/retry requests; optional provider structured output does not waive quotation checks. Model interpretations remain unverified.
++Use proposed_path_role PROPERTY for a path ending at the named property, NUMERIC_OPERAND for traversal through that quantity property to the declared numeric predicate. Do not concatenate unrelated owner branches or relabel units as conversion. Vocabulary/domain/range facts do not alone establish ownership or legal eligibility.
+ 
+-
+-v0.8 context resolution: Explicit cross-document source references may have missing, ambiguous or unverified editions. Source/schema retrieval adds evidence, never an approved eligibility predicate. Vocabulary/domain/range existence is not a regulatory representation binding. Do not infer applicability from absent data or tests. Never automatically activate/deactivate a shape or invent its target.
+-
+-You may return decision REQUEST_EVIDENCE with evidence_requests (at most three): {kind: "source" or "schema", reference: registered source identifier or null, section: clause identifier or null, revision: integer or null, query: short evidence question, reason: why needed}. Sources must be registered in the authoritative catalog; no arbitrary paths/URLs. REQUEST_EVIDENCE is not a regulatory rejection. Otherwise preserve the complete issues/change/reconciliation/unchecked protocol. For each static activation/context blocker, context_assessments may state {finding_key, disposition: REPAIRABLE_CODE|MISSING_INFORMATION|UNRESOLVED, source_excerpt, candidate_excerpt or insertion_context, evidence_excerpt, reason}. REPAIRABLE_CODE needs exact supplied source and schema/caller-admission grounds (caller evidence is not legal eligibility certification); it proposes a bounded repair, not an independently verified permission. Missing information remains unresolved. Review the FULL code, including all queries and branches, against supplied source. Resolving applicability does not establish arithmetic/equality correctness. Do not rely on shape messages as logic. No test fixtures, expected verdicts or historical diagnostic solution is supplied.
+-
+-When context.retrieval_gaps is nonempty, ACCEPT requires an explicit unchecked entry for each gap with scope exactly its gap_id, material true/false, and a specific reason. Do not silently ignore a missing or edition-unconfirmed dependency. Material missing information prevents acceptance. context_assessments are model-proposed code/information classifications, never independently verified permissions.
+-
+-SHARED CALLER ADMISSION (interpretation A): Read the supplied admission declaration as an explicit caller attestation, not as independently verified law or eligibility. The caller supplies eligible population and source-edition provenance. Do not re-certify Polar Class or construction-date eligibility or invent selectors. The common population is synthetic design records assumed externally eligible for the represented calculation, using the declared owner_class. Input identities are deliberately absent. The independent evaluator alone binds exact nodes/input hashes per graph and verifies the complete population under RDFS. Never request evaluation node IDs, case IDs, labels or counterpart records; do not target fixture identities. Preserve visible regulatory applicability text. Distinguish external admission from conditions the represented constraint must still enforce. A scoped class target is permitted only with that mandatory input guard; never assume unrestricted fleet admission. Missing/ambiguous admission remains unresolved. Effective activation and full query/logic correctness are separate obligations; resolving admission or removing deactivation proves neither query correctness nor compliance. Reviewer evidence from admission is caller provenance, not a regulatory-source quotation.
+-
+-Reviewer interface v0.9.2: Every source quotation in issues, change/removal assessments, reconciliations and context assessments requires source_evidence_id. Schema/context support requires evidence_id. Copy evidence_catalog.entries[].text or use the explicitly supported RDF_FACT equivalence. Evidence IDs identify supplied observations, not a proof of regulatory interpretation. The caller declaration is not a legal source.
+-
+-execution_probe supplies the actual hash/version-bound engine outcome and exact captured diagnostics. Distinguish static translation warnings from the reported execution observation. A successful execution-only probe is not evidence of complete branch coverage, compliance, arithmetic correctness or regulatory adequacy. NOT_RUN and missing legacy logs stay explicit; never invent execution.
+-
+-Format retries preserve the same original_request, candidate, evidence catalog and original prior_issues. raw_previous_response is failed, unvalidated output, not accepted issue state. Do not add its issue IDs to reconciliations. If original prior_issues is empty, reconciliations MUST be empty. Correct every validation_errors field, and echo the same request binding. A response is usable only if every protocol/grounding check passes.
++execution_probe is an actual candidate-bound engine observation, with full logs preserved in server artifacts. A static translation/binding warning is not a confirmed engine failure. Successful execution does not establish complete branch coverage or regulatory adequacy. Nested/library shapes need no target if reachable from an active root. Material unsupported activation, deactivation or unknown bindings prevent acceptance. Never invent selectors, target fixture identities, infer eligibility from missing data or weaken source obligations to silence diagnostics.
+--- before/prompts/repair.txt
++++ after/prompts/repair.txt
+@@ -1,10 +1,5 @@
+-Repair the full immediately preceding candidate in this packet; its version/hash and exact diagnostics identify the code being repaired. Return the entire revised code in one <BEGIN_SHACL> ... <END_SHACL> block. No regeneration. Preserve the source obligations rather than accidental restrictions in old code. Tie each functional correction to the actual diagnostic and source/schema evidence; preserve unrelated obligations, units, types, thresholds, targets and conditional branches. A model finding is an interpretation, not an independently verified fact or a change permission. Do not use old-code presence as proof that a constraint is required. Do not relabel a unit in place of converting a number. If source needs numeric value equality, exact RDF-term matching can reject equal decimal spellings; decide from the source, not a supplied answer. Missing source/schema facts remain unresolved. The next source review will inspect the full diff and reconcile prior issues.
++Repair previous_candidate, the complete immediately preceding candidate bound to candidate_version and candidate_sha256. Return the entire revision in one <BEGIN_SHACL> ... <END_SHACL> block. No fresh regeneration. Use current_findings and the supplied evidence catalog. Deterministic diagnostics are preserved exactly; full model-review responses remain artifacts, not independent proof or repair permissions.
+ 
+-Canonical serialization findings name supported replacements and exact declaration evidence. Correct qudt:value to the declared numeric-value predicate where evidenced; do not delete numeric, datatype, unit or comparison constraints to make identifiers disappear. Such deletions are tracked and require explicit source-grounded loss assessment. No unit identifier change authorizes a numeric conversion. Unknown activation must be resolved from evidence, never guessed.
++Correct supported defects while preserving source obligations, numeric comparisons, units, datatypes, targets, paths and conditional branches. Correct identifiers from explicit declarations; never remove constraints merely to silence a canonical-identifier error. Unit renaming is not numeric conversion. An old constraint may be excessive: supported removal is allowed but will require source-grounded change/removal assessment and prior-issue reconciliation on recheck.
+ 
+-
+-v0.8 context resolution: Explicit cross-document source references may have missing, ambiguous or unverified editions. Source/schema retrieval adds evidence, never an approved eligibility predicate. Vocabulary/domain/range existence is not a regulatory representation binding. Do not infer applicability from absent data or tests. Never automatically activate/deactivate a shape or invent its target.
+-
+-Keep the complete current code and all independent obligations. Evidence retrieval does not establish query correctness or authorize changing unrelated constraints. A proposed activation change requires exact source evidence plus an explicit representation binding or the valid shared caller admission boundary. Caller-admitted eligibility needs no separate RDF eligibility selector. Missing within-requirement bindings remain unresolved; do not invent them.
+-
+-SHARED CALLER ADMISSION (interpretation A): Read the supplied admission declaration as an explicit caller attestation, not as independently verified law or eligibility. The caller supplies eligible population and source-edition provenance. Do not re-certify Polar Class or construction-date eligibility or invent selectors. The common population is synthetic design records assumed externally eligible for the represented calculation, using the declared owner_class. Input identities are deliberately absent. The independent evaluator alone binds exact nodes/input hashes per graph and verifies the complete population under RDFS. Never request evaluation node IDs, case IDs, labels or counterpart records; do not target fixture identities. Preserve visible regulatory applicability text. Distinguish external admission from conditions the represented constraint must still enforce. A scoped class target is permitted only with that mandatory input guard; never assume unrestricted fleet admission. Missing/ambiguous admission remains unresolved. Effective activation and full query/logic correctness are separate obligations; resolving admission or removing deactivation proves neither query correctness nor compliance. Reviewer evidence from admission is caller provenance, not a regulatory-source quotation.
++Source/schema evidence is supplied once with local IDs mapped to immutable provenance. Missing references, unknown ownership or material uncertainty must remain unresolved; do not invent facts, conversions or applicability. Ontology domain/range does not establish exclusive ownership or legal eligibility. The common caller declaration states the research population and selected editions, not certified real-vessel eligibility. Never request evaluation identities, labels, counterparts or reference solutions. Conditions within the represented requirement remain in scope. A successful execution-only probe does not establish regulatory correctness or full branch coverage.
+--- before/pyproject.toml
++++ after/pyproject.toml
+@@ -3,7 +3,7 @@
+ build-backend = "setuptools.build_meta"
+ [project]
+ name = "nltlv2-refined"
+-version = "0.9.2"
++version = "0.10.0"
+ description = "General source-grounded NLTL; independent offline evaluation"
+ requires-python = ">=3.11"
+ dependencies = ["rdflib==7.6.0", "pyshacl==0.31.0", "owlrl==7.6.2", "requests==2.32.5", "python-dotenv==1.2.2"]
+--- before/README.md
++++ after/README.md
+@@ -1,22 +1,18 @@
+-# NLTLv2.0 v0.9.2 — supplied evidence citations and immutable review retries
++# NLTLv2.0 v0.10.0 — focused source-grounded review and repair
+ 
+-Generation/review/repair uses only source/schema and an explicitly approved common experimental scope. The common declaration contains no evaluation node IDs, case IDs, labels or counterpart records. Exact per-input node/hash bindings stay in independent evaluation. The v0.9.0 node-bearing generation interface is rejected. See `docs/v091_scope_decision.md` and the exact unapproved proposal in `data/admissions/i2_004_research_scope.proposed.json`.
++The production route retains source/schema-only inputs, approved common research scope, canonical quantity/type/unit/path context, activation checks, immutable latest candidates and bounded review/retrieval/repair. Single-shot uses the identical initial context/settings and makes one generation call. Evaluation stays separate and now requires dispatch closure bound to frozen selection and candidate hashes.
+ 
+-Single-shot makes exactly one generation call; NLTL receives identical initial context/settings, then adds deterministic parsing/canonical/type/unit/path/SPARQL checks, execution-only probes and bounded source-grounded review/repair. Examples: none. No handwritten regulatory solutions, compliance witnesses, expected verdicts or bespoke permissions enter production. Missing/unapproved common scope stops before credentials/dispatch. Root activation and full query correctness remain independent obligations; resolving admission proves neither. Every repair receives the complete immediately preceding candidate/hash, exact diagnostics and source evidence. The tracker is unchanged.
++Review protocol 2 uses concise request-local evidence IDs and candidate-bound line/character ranges. The server maps evidence to immutable content/provenance hashes and extracts exact code. Source quotations remain exact when asserted; valid citations do not prove a model interpretation. Packets carry code and relevant evidence once. Format retries add feedback to the unchanged packet and never register failed-review issues. One change-group assessment covers removal/replacement.
+ 
+-Independent evaluation happens after generation; its per-input admission guard checks byte hashes, scope meaning and exact class population under RDFS. It never feeds data/labels/counterparts back into repair. Historical fixtures, classifications, scores and experiments are preserved. The 37-case/20-counterpart mathematical reference controls are conditional software/development evidence, not admission-certified workflow results.
++Generic Meta-SHACL validates the submitted graph against built-in structural shapes without executing submitted queries. SPARQL checks use actual standard/custom-validator pre-binding context. Property paths and numeric-operand traversals have distinct roles. No requirement-specific solution, compliance witness, bespoke repair permission or regeneration was introduced.
+ 
+-Offline commands from this folder:
++See [implementation, 17-item ledger, packet sizes and limitations](outputs/audits/20261124_FOCUSED_SIMPLIFICATION/REPORT.txt), [machine-readable verification](outputs/audits/20261124_FOCUSED_SIMPLIFICATION/verification.json), and [complete representative packets](outputs/audits/20261124_FOCUSED_SIMPLIFICATION/software_packets/complete_review_retry_repair_recheck/). This is offline software evidence, not new model or comparative-performance evidence. Historical candidates, runs, scores, fixtures, ontology, approved scope and tracker remain unchanged.
++
++Offline checks from this directory:
+ 
+ ```sh
+-PYTHONDONTWRITEBYTECODE=1 ../NLTLv2-env/bin/python -m nltlv2 --project . check
+-PYTHONDONTWRITEBYTECODE=1 ../NLTLv2-env/bin/python -m nltlv2 --project . smoke
++PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src ../NLTLv2-env/bin/python -B -m nltlv2 --project . check
++PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src ../NLTLv2-env/bin/python -B -m nltlv2 --project . smoke --skip-core
+ ```
+ 
+-Tests block network/model calls; credentials remain external. Existing bounded candidate, retrieval/review/format retry limits, precise evidence checks and no-regeneration policy remain. Sources are retained edition-pinned material; missing material dependencies remain explicit. No full correctness or real-vessel certification is claimed.
+-
+-The latest prepared two-candidate operational check is `configs/v091_bounded_live_check.json`. It is NOT dispatched and deliberately blocked pending actual scope approval/provenance. All earlier versioned configurations, reports and evidence remain historical; they do not select an older runtime mode. No batch or 50-requirement study was started.
+-
+-Current reviewer protocol: `docs/v092_reviewer_evidence.md`. Source/schema evidence has content-addressed IDs and exact rendered text; supported RDF citations match only supplied ground facts. Reviews receive actual execution-probe summaries, with no correctness claim. Format retries preserve candidate and original prior issues, report all independent errors, and never promote failed output into state. No known regulatory solution was added to prompts.
+-
+-`configs/v092_review_continuation.json` prepares an offline-only development continuation from the exact v0.9.1 candidate; normal generation CLI rejects it. No continuation model call was dispatched. Historical v0.9.1 outcome remains NO_VERDICT.
++The prepared exact-seed development continuation is [offline-only and undispatched](outputs/audits/20261124_FOCUSED_SIMPLIFICATION/prepared_continuation/continuation_config.json): zero initial generations, at most one repair/two candidates, four primary reviews, one format retry per review, two retrieval rounds and early acceptance. Normal generation CLI rejects this offline specification. No new live continuation executor was added. Future authorization is separate; all preparation uses existing production routes with no model transport.
+--- before/docs/focused_simplification.txt
++++ after/docs/focused_simplification.txt
+@@ -0,0 +1,33 @@
++v0.10.0 focused simplification — 24 November 2026
++
++The complete report and updated 17-item KEEP/SIMPLIFY/FIX/REMOVE ledger are in
++outputs/audits/20261124_FOCUSED_SIMPLIFICATION/REPORT.txt and retention_ledger.json.
++Exact code/function/line references, dependencies and offline evidence are included.
++
++Flow: frozen common context/settings -> one generation per arm. Single-shot closes.
++NLTL checks generic SHACL structure, identifiers/types/units/paths, actual query
++pre-bindings and activation; execution-only probe -> bounded grounded review /
++retrieval -> validated targeted repair -> complete recheck. Accept early or explicit
++bounded NO_VERDICT. Freeze selection and close dispatch before independent evaluation.
++
++Wire evidence uses local E IDs with immutable internal hash/provenance mapping.
++Code locations bind candidate/version/SHA to one-based inclusive lines or zero-based
++half-open Unicode character spans. Server extracts exact code. Source quotation
++whitespace and exact RDF literal terms remain protected. A reference is not proof
++of interpretation. One functional change assessment includes removal disposition.
++No failed review creates accepted issues. Tracker implementation is unchanged.
++
++Source-only resource boundaries remain. No handwritten regulatory profile,
++compliance witness, bespoke permission, fixture identity or known I2-004 solution
++enters production. No ontology, approved scope, fixture, historical score/run or
++MVP artifact is changed. Existing exact saved seed is copied byte-for-byte into
++prepared_continuation. No model/API call, historical evaluation rerun or live
++continuation occurred. The artifact builder is offline-only and has no model
++transport. Its saved-response projections explicitly retain substantive claims.
++
++Limitations: controls are scripted, not a real-model quality demonstration;
++citations do not prove completeness/entailment; lexical retrieval and static branch
++analysis are bounded/conservative; execution probes do not establish regulatory
++correctness or all arithmetic/branches. Large initial source passages remain whole,
++with no silent truncation. Local engine execution has no hard process sandbox.
++All original diagnostics and prior full response artifacts remain available.
+--- before/scripts/verify_focused_simplification.py
++++ after/scripts/verify_focused_simplification.py
+@@ -0,0 +1,237 @@
++"""Offline software verification, interface replay and packet preparation. Never imports a live transport.
++This is an audit artifact builder, not another workflow or a live continuation executor.
++"""
++from pathlib import Path
++import argparse,copy,dataclasses,hashlib,importlib.util,io,json,re,sys,unittest,contextlib
++from nltlv2.core import Project,Candidate,Finding,digest,offline_network_guard,write
++from nltlv2.runner import Runner
++from nltlv2.tracking import Tracker
++from nltlv2.schema import Schema
++from nltlv2.admission import load_admission
++from nltlv2.checks import check,runtime_probe
++from nltlv2.evidence import evidence_catalog,citation_error,code_location,probe_summary
++from nltlv2.requests import parse_review,review_conflicts,repair_request,compact_review,review_base
++from nltlv2.review_validation import validate_review
++from nltlv2.prompt_accounting import measure
++
++SEED='d8986fa2c5186ae5d619696650e5f56328480bc5c3430465c4fdbc1ef9d94f9a'
++V091='outputs/experiments/20261123T120732989561Z_V091_I2_004_BOUNDED_OPERATIONAL_CHECK'
++V092='outputs/experiments/20261123T144916393610Z_V092_I2_004_DEVELOPMENT_CONTINUATION'
++
++class PreparedBoundary(Exception):pass
++class CaptureOnly:
++ is_live=False
++ def dispatch(self,request,*args):
++  self.request=copy.deepcopy(request)
++  raise PreparedBoundary('PREPARED_UNDISPATCHED: no model transport exists')
++
++def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
++def short(path,root):return str(path.relative_to(root))
++def internal_packet(root,c,ctx,probe,findings,out,config):
++ runner=Runner(Project(root),config,CaptureOnly(),out);runner.admission_context=ctx['admission'];runner.execution_summaries[c.version]=probe_summary(c,probe)
++ (out/f'candidate_{c.version:02d}.ttl').write_text(c.code)
++ try:runner.review(c,ctx,None,{'status':'INITIAL_CANDIDATE','changes':[]},Tracker(),findings)
++ except PreparedBoundary:pass
++ else:raise AssertionError('Preparation must stop before any transport')
++ request=runner.transport.request;body=json.loads((out/'review_state_001.json').read_text());return request,body
++
++def adapt_response(raw,body,c):
++ """Interface-only projection; no reason/decision/path/uncertainty edits. Never production normalization."""
++ obj=json.loads(raw['text']);original=copy.deepcopy(obj);actions=[];unmapped=[];catalog=body['evidence_catalog']
++ obj.update({k:body[k] for k in ['candidate_version','candidate_sha256','review_request_id']})
++ def location(quote):
++  if not isinstance(quote,str) or not quote.strip():return None
++  start=c.code.find(quote)
++  if start>=0:return code_location(c,start,start+len(quote))
++  # Only the saved indentation discrepancy may be projected to an exact span.
++  needle=' '.join(quote.split());tokens=list(re.finditer(r'\S+',c.code));matches=[]
++  for i in range(len(tokens)):
++   value=[]
++   for j in range(i,len(tokens)):
++    value.append(tokens[j].group());joined=' '.join(value)
++    if joined==needle:matches.append((tokens[i].start(),tokens[j].end()));break
++    if len(joined)>=len(needle):break
++  if len(matches)==1:
++   a,b=matches[0];actions.append(dict(kind='CODE_WHITESPACE_TO_SPAN',asserted_original=quote,extracted_exact=c.code[a:b]));return code_location(c,a,b)
++  return None
++ def visit(x,path='$'):
++  if isinstance(x,list):
++   for i,v in enumerate(x):visit(v,path+'['+str(i)+']')
++  elif isinstance(x,dict):
++   for source,key,quote in [(True,'source_evidence_id','source_excerpt'),(False,'evidence_id','evidence_excerpt')]:
++    if quote in x:
++     matches=[e for e in catalog['entries'] if citation_error(catalog,e['evidence_id'],x[quote],source=source) is None]
++     if len(matches)==1:
++      old=x.get(key);x[key]=matches[0]['evidence_id'];actions.append(dict(path=path+'.'+key,kind='SUPPLIED_EVIDENCE_ALIAS',original=old,new=x[key]))
++     else:unmapped.append(dict(path=path+'.'+key,matches=len(matches),original=x.get(key)))
++   if 'candidate_excerpt' in x or 'insertion_context' in x:
++    quote=x.get('candidate_excerpt') or x.get('insertion_context');loc=location(quote)
++    if loc:x['candidate_location']=loc;x.pop('candidate_excerpt',None);x.pop('insertion_context',None)
++    else:unmapped.append(dict(path=path+'.candidate_location',reason='No unique exact/token-equivalent code span; unchanged'))
++   # Historical proposals did not distinguish path roles. Make the field-role
++   # projection explicit only for an exact declared numeric tail. Never edit path.
++   if x.get('proposed_path') and x['proposed_path'][-1]==body['context']['quantityEncoding']['numeric_predicate']:
++    x['proposed_path_role']='NUMERIC_OPERAND';actions.append(dict(path=path+'.proposed_path_role',kind='EXPLICIT_NUMERIC_OPERAND_ROLE',original=None,new='NUMERIC_OPERAND'))
++   for k,v in list(x.items()):
++    if k not in ['candidate_location','previous_location']:visit(v,path+'.'+k)
++ visit(obj)
++ def substance(x):
++  if isinstance(x,list):return [substance(v) for v in x]
++  if isinstance(x,dict):return {k:substance(v) for k,v in x.items() if k not in ['candidate_version','candidate_sha256','review_request_id','source_evidence_id','evidence_id','candidate_excerpt','insertion_context','candidate_location','previous_location','proposed_path_role']}
++  return x
++ assert substance(original)==substance(obj),'SUBSTANTIVE_REPLAY_EDIT_FORBIDDEN'
++ return obj,dict(label='INTERFACE_ONLY_PROJECTION_NOT_HISTORICAL_CREDIT',actions=actions,unmapped=unmapped,substantive_claims_unchanged=True)
++
++def retention_ledger(root):
++ import ast
++ rows=[
++ ('KEEP','Full latest candidate and version/hash integrity','requests.py::repair_request,requests.py::assert_integrity,runner.py::Runner.dispatch','Stale/truncated repair risks; chained repairs, exact diagnostic and complete-latest delivery controls pass.','Frozen candidate/hash, latest findings, artifact bytes and dispatch validator.'),
++ ('FIX','Original parser/SHACL/SPARQL diagnostics','checks.py::check,checks.py::runtime_probe,sparql_analysis.py::analyze','Malformed unreachable minCount now fails generic Meta-SHACL. Full original diagnostic reports are retained; concise review findings reference artifacts.','Pinned parsers/engine, structural validation, raw logs and candidate-bound findings.'),
++ ('SIMPLIFY','Canonical vocabulary, quantities, units and datatypes','schema.py::Schema.context,checks.py::check,requests.py::repair_findings','One evidence collection replaces repeated context; canonical/type/unit declarations and no-conversion controls remain.','Unchanged ontology/registry/quantity encoding and representation mappings.'),
++ ('KEEP','Ontology individuals without registry rows','schema.py::Schema.__init__,schema.py::Schema.closure','Range/member controls retain registry-absent individuals without broad ancestor expansion.','Explicit ontology type/range/hierarchy and relevance seeds; no answer lists.'),
++ ('FIX','Nested SELECT actual pre-binding context','checks.py::check,checks.py::sparql_checks,sparql_analysis.py::analyze','Standard SPARQL constraints bind focus; custom validators also bind value and supplied parameters. Controls exercise missing projection and valid contexts.','Locked engine contract, validator attachment/parameter declarations and AST; uncertain bindings stay warnings.'),
++ ('KEEP','Activation, deactivation and reachable enforcement','activation.py::analyze,activation.py::checks,runner.py::Runner.assess_candidate','Existing root/nested/orphan/deactivated/material-scope controls still pass.','Supported SHACL graph semantics, explicit scope and uncertainty gate.'),
++ ('SIMPLIFY','Stable issues, regressions, repetition and oscillation','tracking.py::Tracker.observe,tracking.py::Tracker.stagnation_stop,requests.py::concise_prior','Tracker is byte-identical. Wire prior state is concise; explicit reconciliation and repetition/regression controls are preserved.','Stable obligation/check IDs, immutable event history and structural heuristics.'),
++ ('SIMPLIFY','Source/reference retrieval and provenance','context_resolution.py::Resolver.resolve,source_context.py::select_document,evidence.py::wire_catalog','Material context remains available through bounded retrieval. Wire aliases omit repeated internal hash maps; exact provenance stays in artifacts.','Pinned catalog, exact passages, internal content/provenance hashes and explicit gaps.'),
++ ('KEEP','Common research scope without evaluation IDs','admission.py::validate_declaration,runner.py::Runner.dispatch','Existing route-wide canary/admission integrity controls pass; approved declaration bytes preserved.','One common approved declaration and evaluation-only per-input node/hash bindings.'),
++ ('FIX','Grounded review with short IDs and code ranges','evidence.py::evidence_catalog,evidence.py::extract_location,evidence.py::resolve_locations,review_validation.py::validate_review','E aliases bind immutable evidence hashes. Server extracts exact code; unknown IDs, stale/invalid spans and altered asserted quotations fail.','Trusted supplied context, immutable candidate/request binding, exact source/fact identity; model interpretation remains unverified.'),
++ ('SIMPLIFY','Unified functional change and removal assessment','review_protocol.py::reviewer_schema,review_validation.py::validate_review,change_review.py::manifest','One change assessment includes removal disposition; no nested duplicate list on the wire. Missing/contradictory assessment controls remain.','Previous/current full code once, functional change IDs, source grounds and explicit obligation-loss disposition.'),
++ ('FIX','Property versus numeric-operand path roles','requests.py::review_conflicts,schema.py::Schema.allowed_paths','Declared quantity-tail traversals pass only with NUMERIC_OPERAND role; wrong owner branches/tails still conflict. Saved proposals stay unchanged.','Explicit role, owner/subclass mapping and declared numeric predicate; no inferred conversion.'),
++ ('KEEP','Immutable retries and bounded candidates/reviews/retrieval','requests.py::compact_review,requests.py::review_base,runner.py::Runner.review,core.py::Project.config','Retry adds feedback only; identical candidate/prior packet retained, failed review never enters tracker or authorizes repair.','Separate counters, deep-frozen request, all independent errors and explicit terminal outcomes.'),
++ ('KEEP','Identical initial inputs/settings for paired workflows','requests.py::initial_request,runner.py::Runner.run','Existing exact paired-request equality control passes; generator prompt/context route unchanged.','One frozen initial context/settings and provider renderer; cross-version contexts are not matched experiments.'),
++ ('KEEP','One-call Single-shot','runner.py::Runner.run,core.py::Project.config','Existing control prohibits checks/probe/review on the Single-shot path and verifies one generation dispatch.','Original raw response and one-call policy; no feedback from evaluation.'),
++ ('FIX','Evaluation isolation and mandatory dispatch closure','core.py::GenerationProject.path,../evaluation/independent.py::require_dispatch_closure','Closure is now mandatory and bound to selection manifest and candidate bytes. General guard controls run without scoring evaluation fixtures.','Separate evaluator/resources, closure receipt, frozen selection/NO_VERDICT and unchanged denominators.'),
++ ('REMOVE','Redundant wire copies and answer-bearing production machinery','requests.py::compact_review,evidence.py::wire_catalog,core.py::GenerationProject.path','Nested request/raw-response copies, duplicate execution-catalog entries and duplicated change/removal responses removed. Forbidden-resource controls remain.','Keep full logs/history as artifacts and source/representation metadata only; no profiles, permissions, witnesses, matcher framework or regeneration.')]
++ result=[]
++ for i,(rec,cap,refs,problem,deps) in enumerate(rows,1):
++  locations=[]
++  for ref in refs.split(','):
++   file,qual=ref.split('::');path=(root/'src/nltlv2'/file).resolve()
++   if file.startswith('../evaluation/'):path=root/'evaluation'/file.split('/')[-1]
++   tree=ast.parse(path.read_text());parts=qual.split('.');nodes=tree.body
++   for name in parts:
++    node=next(n for n in nodes if isinstance(n,(ast.FunctionDef,ast.ClassDef)) and n.name==name);nodes=getattr(node,'body',[])
++   locations.append(str(path.relative_to(root))+':'+str(node.lineno)+' :: '+qual)
++  result.append(dict(item=i,recommendation=rec,capability=cap,references=locations,problem_and_evidence=problem,verification='OFFLINE/SCRIPTED: full software suite and representative packets; saved-response projections are labelled, no new live verification.',dependencies=deps))
++ return result
++
++def main():
++ parser=argparse.ArgumentParser();parser.add_argument('--project',required=True);parser.add_argument('--output',required=True);args=parser.parse_args();root=Path(args.project).resolve();out=root/args.output
++ if out.exists():raise ValueError('New offline audit destination required; never overwrite historical evidence')
++ out.mkdir(parents=True);project=Project(root)
++ # No sockets or model/API calls anywhere in this audit, including tests.
++ with offline_network_guard():
++  sys.path.insert(0,str(root/'tests'));import os
++  os.environ['NLTL_TEST_OUTPUT']=str(out/'software_packets');os.environ['NLTL_TEST_PROJECT']=str(root);(out/'software_packets').mkdir()
++  suite=unittest.defaultTestLoader.discover(str(root/'tests'));stream=io.StringIO();result=unittest.TextTestRunner(stream=stream,verbosity=2).run(suite);(out/'software_tests.txt').write_text(stream.getvalue());write(out/'software_summary.json',dict(tests=result.testsRun,failures=len(result.failures),errors=len(result.errors),network='BLOCKED',model_calls=0,evaluation_scores_rerun=False))
++  if not result.wasSuccessful():raise RuntimeError('Software controls failed; see software_tests.txt')
++  saved=root/V092/'I2-004/nltl';old_request=json.loads((saved/'request_001.json').read_text());old_body=json.loads(old_request['user']);seed=(saved/'candidate_01.ttl').read_bytes();assert hashlib.sha256(seed).hexdigest()==SEED;c=Candidate(1,seed.decode(),'')
++  ctx=copy.deepcopy(old_body['context']);config=project.config('configs/nltl.json');ad=load_admission(project,dict(config,admission_file='data/admissions/i2_004_research_scope.approved.json'),Schema(project),'I2-004');assert ad['valid'] and ctx['admission']==ad['context']
++  # Verify every supplied historical source span against unchanged retained bytes.
++  for d in ctx['source_documents']:
++   raw=project.path(d['file']).read_bytes();assert hashlib.sha256(raw).hexdigest()==d['sha256'];text=raw.decode();span=d.get('selection');assert d['text']==(text[span['start']:span['end']] if span else text)
++  for name in ['nltl','single_shot','offline_smoke','evaluation']:project.config('configs/'+name+'.json')
++  schema=Schema(project);fs=check(c,schema,'I2-004',admission=ctx['admission']);probe_findings,probe=runtime_probe(c,schema);fs+=probe_findings
++  prep=out/'prepared_continuation';prep.mkdir();(prep/'candidate_01.ttl').write_bytes(seed);write(prep/'source_schema_context.json',ctx);write(prep/'findings.json',[f.asdict() for f in fs]);write(prep/'execution_only_probe.json',probe)
++  request,body=internal_packet(root,c,ctx,probe,fs,prep,config);write(prep/'review_request.json',request);(prep/'review_request.rendered.txt').write_text(request['system']+'\n\n'+request['user']);assert sha(prep/'candidate_01.ttl')==SEED
++  cont=copy.deepcopy(project.config('configs/v092_review_continuation.json'));cont.update(method='offline',network_enabled=False,proposal_only=True,pipeline_version='0.10.0');cont['continuation'].update(seed_file=short(prep/'candidate_01.ttl',root),source_context=short(prep/'source_schema_context.json',root),seed_sha256=SEED,initial_generation_calls=0,max_repair_calls=1,max_total_candidates_including_seed=2,prior_issue_ids=[],dispatch_prepared_only=True,requires_separate_model_authorization=True,main_run_cli_must_reject=True);write(prep/'continuation_config.json',cont)
++  write(prep/'PREPARED_UNDISPATCHED.json',dict(seed_sha256=SEED,initial_generations=0,max_repairs=1,max_total_candidates=2,max_primary_reviews=4,max_reviews_per_candidate=3,max_format_retries_per_review=1,max_retrieval_rounds=2,max_provider_calls=9,early_acceptance=True,regeneration=False,production_routes=['Runner.assess_candidate','Runner.review','repair_request','Runner.dispatch','check','runtime_probe'],transport='NONE; CaptureOnly stops before provider boundary',model_calls=0,history_failed_issues_loaded=False,prepared_only=True))
++  replay=out/'saved_response_replay';replay.mkdir();replays=[]
++  cases=[('v091_review',root/'outputs/audits/20261123T141223Z_V092_REVIEW_EVIDENCE/saved_review_replay/original_response_002.json'),('v091_retry',root/'outputs/audits/20261123T141223Z_V092_REVIEW_EVIDENCE/saved_review_replay/original_response_003.json'),('v092_review',saved/'response_001.json'),('v092_retry',saved/'response_002.json')]
++  for label,file in cases:
++   raw=json.loads(file.read_text());raw=raw if 'text' in raw else {'text':json.dumps(raw)}
++   # Each saved response is replayed against the context actually supplied then,
++   # not against facts only available in a later review.
++   if label.startswith('v091'):
++    historical=json.loads((root/'outputs/audits/20261123T141223Z_V092_REVIEW_EVIDENCE/saved_review_replay/review_request.json').read_text());hbody=json.loads(historical['user']);context=hbody['context']
++   else:context=ctx
++   b=copy.deepcopy(body);b['context']=copy.deepcopy(context);b['evidence_catalog']=evidence_catalog(context)
++   from nltlv2.evidence import review_binding
++   b.update(review_binding(c,context,[],None,b['change_manifest'],b['execution_probe']))
++   adapted,receipt=adapt_response(raw,b,c);_,_,errors=validate_review({'text':json.dumps(adapted)},c,context,previous=None,changes=b['change_manifest'],prior_issues=[],request_body=b);conflicts=review_conflicts(adapted,schema,'I2-004')
++   record=dict(label=label,original_path=short(file,root),original_sha256=sha(file),projection=receipt,validation_errors=errors,schema_conflicts=conflicts,workflow_usable=not errors and not conflicts,claims_are_model_interpretations=True,decision_unchanged=json.loads(raw['text']).get('decision')==adapted.get('decision'))
++   write(replay/(label+'_adapted.json'),adapted);write(replay/(label+'_assessment.json'),record);replays.append(record)
++  write(replay/'summary.json',replays)
++  # Exact bytes, not fabricated token estimates. Same code/context comparison.
++  old_retry=json.loads((saved/'request_002.json').read_text());new_retry=copy.deepcopy(request);retry_body=json.loads(new_retry['user']);retry_body['format_feedback']=dict(validation_errors=[dict(code='MISSING_OR_UNSUPPLIED_EVIDENCE_ID',path='$.issues[0].evidence_id',expected='Use a supplied E ID')],allowed_reconciliation_ids=[],failed_review_is_not_prior_state=True);new_retry['route']='review_format_retry';new_retry['user']=json.dumps(retry_body,ensure_ascii=False);write(prep/'representative_format_retry.json',new_retry)
++  pairs={'saved_context_review':(old_request,request),'saved_context_retry':(old_retry,new_retry)}
++  # Counterfactual old/new repair rendering on the same generic software control,
++  # never an invented finding or solution applied to the saved regulatory seed.
++  sample=out/'software_packets/complete_review_retry_repair_recheck';new_repair=next(json.loads(f.read_text()) for f in sorted(sample.glob('request_[0-9][0-9][0-9].json')) if json.loads(f.read_text())['route']=='targeted_repair');history=json.loads((sample/'history.json').read_text());latest=Candidate(1,(sample/'candidate_01.ttl').read_text(),'');context=json.loads((sample/'context.json').read_text());findings=[Finding(**f) for f in history[0]['findings']]
++  old_module=root/V092/'snapshot/src/nltlv2/requests.py';spec=importlib.util.spec_from_file_location('nltlv2.legacy_audit_renderer',old_module);legacy=importlib.util.module_from_spec(spec);spec.loader.exec_module(legacy);old_repair=legacy.repair_request(Project(root),context,latest,findings,history[0]['persistent_failure_summary']);old_repair.update(model=new_repair['model'],max_output_tokens=new_repair['max_output_tokens']);old_repair['system']=(root/V092/'snapshot/prompts/repair.txt').read_text();pairs['same_software_candidate_repair']=(old_repair,new_repair)
++  sizes={}
++  for name,(before,after) in pairs.items():
++   sizes[name]=dict(before=measure(before),after=measure(after),reduction_bytes=measure(before)['rendered_bytes']-measure(after)['rendered_bytes'],same_candidate=True,scope='Renderer comparison only; not a workflow rerun or provider token measurement');sizes[name]['reduction_percent']=round(100*sizes[name]['reduction_bytes']/sizes[name]['before']['rendered_bytes'],2)
++   write(out/(name+'_before.json'),before);write(out/(name+'_after.json'),after)
++  write(out/'request_size_accounting.json',sizes)
++  write(out/'verification.json',dict(version='0.10.0',software_tests=result.testsRun,software_success=True,config_schema_check='Source schema audit and active configs parsed',schema=schema.audit(),new_model_calls=0,new_evaluation_runs=0,prepared_seed_sha256=SEED,replays=len(replays),replay_workflow_usable=sum(r['workflow_usable'] for r in replays),size_comparisons={k:{f:v[f] for f in ['reduction_bytes','reduction_percent']} for k,v in sizes.items()},limitations='Scripted software controls and interface projections do not establish real-model interpretation quality, legal correctness or fresh workflow performance.'))
++  ledger=retention_ledger(root)
++  write(out/'retention_ledger.json',ledger)
++  lines=['Focused source-grounded simplification — v0.10.0 — 24 November 2026','',
++   'Implemented inside NLTLv2.0 only. MVP and historical evidence were preserved.',
++   'Offline scripted verification; no models/APIs, evaluation-score reruns or candidate edits.',
++   '', 'Control flow: identical frozen initial context/settings -> generation. Single-shot closes.',
++   'NLTL: generic structural/vocabulary/type/unit/path/SPARQL/activation checks -> execution-only probe',
++   '-> bounded source-grounded review/retrieval -> validated targeted repair -> complete recheck.',
++   'Accept early only after checks and complete grounded review; otherwise bounded NO_VERDICT.',
++   'Freeze selection and dispatch closure before separate independent evaluation.',
++   '', 'Interface: local E IDs map internally to immutable content/provenance hashes. Candidate-bound',
++   'Unicode character spans or inclusive line ranges are extracted server-side. Asserted source',
++   'quotations remain exact. Unknown IDs/stale spans/unsupported supplied-evidence claims fail.',
++   'Interpretation is still a model judgment, not proved by a citation.',
++   '', 'Wire packets contain current code once, one evidence collection and concise findings/probe.',
++   'Full original logs and internal hash/state maps are retained as artifacts. Retry adds only',
++   'format_feedback to the same immutable packet; failed responses never become prior issues.',
++   'One change-group assessment includes removal disposition instead of a nested duplicate list.',
++   'Tracker implementation and stable reconciliation/regression/repetition behavior are retained.',
++   '', 'Exact rendered UTF-8 bytes (system + user), not provider token estimates:']
++  for name,data in sizes.items():lines.append(f"  {name}: {data['before']['rendered_bytes']:,} -> {data['after']['rendered_bytes']:,} ({data['reduction_percent']}% smaller)")
++  lines+=['Review/retry use the unchanged saved seed/context. Repair uses the same generic software',
++   'candidate/context/findings rendered by old and new code, not a regulatory repair or live run.',
++   '',f'Verification: {result.testsRun} software controls pass with sockets blocked; active config/schema checks pass.',
++   'General controls cover exact literals, IDs, stale ranges, actual validator pre-binding, path roles,',
++   'orphan Meta-SHACL, immutable retries, complete repair delivery and dispatch-closure integrity.',
++   '', 'Saved-response interface projections retain reasons, decisions, paths, reconciliations and',
++   'uncertainty. ID/range binding and explicit numeric-operand role are labelled adaptations.',
++   'Original files remain unchanged; projections earn no historical workflow credit.']
++  for record in replays:
++   lines.append('  '+record['label']+': '+str(len(record['validation_errors']))+' protocol failures, '+str(len(record['schema_conflicts']))+' schema conflicts; '+str(len(record['projection']['unmapped']))+' unmapped references.')
++   for conflict in record['schema_conflicts']:lines.append('    '+conflict['reason']+'; proposed='+str(conflict['reviewer_issue'].get('proposed_path')))
++   for error in record['validation_errors']:lines.append('    '+error['code']+' '+error['path'])
++  lines+=['The later saved responses still assert a one-sided comparison concern and a material',
++   'waterline-set adequacy uncertainty. These are not repaired, independently proved or given',
++   'workflow credit. No candidate was patched, no known solution entered prompts and no new',
++   'compliance witnesses were made. Valid REJECT/UNRESOLVED is not acceptance or repair success.',
++   '', 'Remaining limitations: real-model usability remains untested for this interface; exact',
++   'source quotes can still fail. Citation checks do not prove entailment/completeness. Retrieval',
++   'is bounded, lexical and edition-qualified, not guaranteed complete. Static branch analysis',
++   'and structural repeat detection are conservative; custom validators depend on engine context.',
++   'Execution-only probes do not cover every branch or prove arithmetic/regulatory correctness.',
++   'Initial complete context is not silently truncated; large single-source passages may still',
++   'produce large requests. Existing local engine resource limits are not a hard process sandbox.',
++   '', 'Prepared continuation: exact seed SHA '+SEED,
++   'zero initial generations; <=1 repair; <=2 candidates including seed; <=4 primary reviews;',
++   '<=3 reviews/candidate; <=1 format retry/review; <=2 retrieval rounds; early acceptance;',
++   'no regeneration; max 9 provider calls if separately authorized later. No live executor is',
++   'added. Offline preparation captures existing production review packets at a no-transport',
++   'boundary. Normal run CLI rejects method=offline. Use Runner.assess_candidate/review,',
++   'repair_request/dispatch and check/runtime_probe for any separately authorized continuation.',
++   'Prior issues are empty; failed historical reviews are not imported as accepted state.',
++   '', 'Representative complete packets:',
++   'software_packets/complete_review_retry_repair_recheck/ contains synthetic full requests,',
++   'responses, rendered text, original diagnostics, code versions, diffs and reconciliations.',
++   'prepared_continuation/ contains full seed, source/schema, execution probe, review/retry',
++   'packets, offline config and explicit PREPARED_UNDISPATCHED.json bounds.',
++   'request_size_accounting.json and *_before/after.json contain complete size evidence.',
++   'saved_response_replay/ preserves projections, original file hashes and every remaining failure.',
++   '', 'Updated 17-item KEEP/SIMPLIFY/FIX/REMOVE ledger (all current verification offline):']
++  for item in ledger:
++   lines += ['',str(item['item'])+'. '+item['recommendation']+' — '+item['capability'],
++    '  Exact: '+'; '.join(item['references']),
++    '  Problem/evidence: '+item['problem_and_evidence'],
++    '  Verification: '+item['verification'],
++    '  Dependencies: '+item['dependencies']]
++  (out/'REPORT.txt').write_text('\n'.join(lines)+'\n')
++
++ print(json.dumps(dict(output=str(out),tests=result.testsRun,model_calls=0,prepared_only=True)))
++if __name__=='__main__':main()
+--- before/configs/nltl.json
++++ after/configs/nltl.json
+@@ -26,7 +26,7 @@
+   "network_enabled": false,
+   "source_grounding": "Original source plus ontology/representation only; model judgments remain interpretations",
+   "candidate_attempt_definition": "Initial generation plus every code revision. Reviewer format retries are separate.",
+-  "pipeline_version": "0.9.2",
++  "pipeline_version": "0.10.0",
+   "review_output_mode": "bounded_json",
+   "provider_capabilities": {
+     "responses_text_json_schema": false,
+--- before/configs/single_shot.json
++++ after/configs/single_shot.json
+@@ -26,7 +26,7 @@
+   "network_enabled": false,
+   "source_grounding": "Original source plus ontology/representation only; model judgments remain interpretations",
+   "candidate_attempt_definition": "Initial generation plus every code revision. Reviewer format retries are separate.",
+-  "pipeline_version": "0.9.2",
++  "pipeline_version": "0.10.0",
+   "review_output_mode": "bounded_json",
+   "provider_capabilities": {
+     "responses_text_json_schema": false,
+--- before/configs/offline_smoke.json
++++ after/configs/offline_smoke.json
+@@ -1,5 +1,5 @@
+ {
+   "method": "offline",
+   "network_enabled": false,
+-  "pipeline_version": "0.9.2"
++  "pipeline_version": "0.10.0"
+ }
+--- before/configs/evaluation.json
++++ after/configs/evaluation.json
+@@ -3,5 +3,5 @@
+   "driver": "evaluation/run_reference_controls.py",
+   "network_enabled": false,
+   "feedback_to_generation_or_repair": false,
+-  "pipeline_version": "0.9.2"
++  "pipeline_version": "0.10.0"
+ }

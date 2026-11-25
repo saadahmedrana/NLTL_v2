@@ -1,0 +1,253 @@
+--- v0.11.0/pyproject.toml
++++ v0.11.1/pyproject.toml
+@@ -3,10 +3,10 @@
+ build-backend = "setuptools.build_meta"
+ [project]
+ name = "nltlv2-refined"
+-version = "0.11.0"
++version = "0.11.1"
+ description = "General source-grounded NLTL; independent offline evaluation"
+ requires-python = ">=3.11"
+-dependencies = ["rdflib==7.6.0", "pyshacl==0.31.0", "owlrl==7.6.2", "requests==2.32.5", "python-dotenv==1.2.2"]
++dependencies = ["rdflib==7.6.0", "pyshacl==0.31.0", "owlrl==7.6.2", "requests==2.32.5", "python-dotenv==1.2.2", "tiktoken==0.12.0", "regex==2025.11.3"]
+ [project.scripts]
+ nltl = "nltlv2.cli:main"
+ [tool.setuptools.packages.find]
+--- v0.11.0/tests/test_hosted_shared_start.py
++++ v0.11.1/tests/test_hosted_shared_start.py
+@@ -13,7 +13,7 @@
+   obj=dict(model=HOSTED_MODEL,status='completed',output=[dict(type='reasoning',content=[dict(type='output_text',text='PRIVATE REASONING')]),dict(type='message',role='assistant',content=[dict(type='output_text',text='FINAL')])],usage=dict(input_tokens=17,output_tokens=5));obj.update(kw);return obj
+  def transport(self,root,max_calls=2):
+   env=root/'external.env';env.write_text('AALTO_AI_API_KEY=FAKE_ONLY\nAALTO_AI_RESPONSES_URL=https://ai-api-v2.aalto.fi/v1/responses\n')
+-  return HostedResponsesTransport(enabled=True,project_root=root/'project',output=root/'provider',max_calls=max_calls,max_seconds=100,max_output_tokens_total=200,max_request_bytes=110000,env_file=env)
++  return HostedResponsesTransport(enabled=True,project_root=root/'project',output=root/'provider',max_calls=max_calls,max_seconds=100,max_output_tokens_total=200,env_file=env)
+  def request(self):return dict(route='generation',system='system',user='source only',model=HOSTED_MODEL,max_output_tokens=50)
+  def test_typed_final_excludes_reasoning_and_nonfinal(self):
+   obj=self.response();obj['output'].append(dict(type='message',role='assistant',channel='analysis',content=[dict(type='output_text',text='BAD')]))
+@@ -43,12 +43,11 @@
+    t.close()
+    with self.assertRaisesRegex(RuntimeError,'DISPATCH_CLOSED'):t.dispatch(self.request())
+  @patch.dict(os.environ,{'NLTL_ALLOW_MODEL_CALLS':'YES'})
+- def test_context_limit_no_silent_truncation(self):
++ def test_large_complete_packet_is_not_blocked_by_bytes(self):
+   with tempfile.TemporaryDirectory() as td:
+-   t=self.transport(pathlib.Path(td));q=self.request();q['user']='x'*110001
+-   with patch.object(t.session,'post') as post:
+-    with self.assertRaisesRegex(RuntimeError,'NO_TRUNCATION'):t.dispatch(q)
+-    post.assert_not_called();self.assertEqual(t.calls,0)
++   t=self.transport(pathlib.Path(td));q=self.request();q['user']='x '*110001
++   with patch.object(t.session,'post',return_value=Mock(status_code=200,content=json.dumps(self.response()).encode())) as post:
++    t.dispatch(q);self.assertEqual(json.loads(post.call_args.kwargs['data'])['input'][1]['content'][0]['text'],q['user']);self.assertEqual(t.calls,1)
+  @patch.dict(os.environ,{'NLTL_ALLOW_MODEL_CALLS':'YES'})
+  def test_refusal_or_reasoning_only_never_candidate(self):
+   with tempfile.TemporaryDirectory() as td:
+--- v0.11.0/tests/test_general_pipeline.py
++++ v0.11.1/tests/test_general_pipeline.py
+@@ -119,7 +119,7 @@
+   a,ta,_=self.run_local(self.accepting);b,tb,_=self.run_local(self.accepting,'Single-shot');self.assertEqual(ta.calls[0],tb.calls[0]);self.assertEqual(len(tb.calls),1);self.assertEqual(b['status'],'SINGLE_SHOT_COMPLETE')
+  def test_single_shot_never_checks_or_reviews(self):
+   with patch('nltlv2.runner.check',side_effect=AssertionError('checker called')),patch('nltlv2.runner.runtime_probe',side_effect=AssertionError('probe called')):r,t,_=self.run_local(lambda r,i:'malformed original response','Single-shot')
+-  self.assertEqual(len(t.calls),1);self.assertIsNone(r['evaluation_candidate']);self.assertEqual(r['history'][0]['status'],'FORMAT_ERROR')
++  self.assertEqual(len(t.calls),1);self.assertEqual(r['evaluation_candidate'],1);self.assertEqual(r['history'][0]['status'],'FORMAT_ERROR')  # Preserve original for identical external parse/execution diagnostics.
+  def test_source_grounded_removal_without_permissions(self):
+   def handler(r,i):
+    if r['route']=='generation':return wrap(BAD_EXTRA)
+--- v0.11.0/evaluation/evaluate_hosted_shared_start.py
++++ v0.11.1/evaluation/evaluate_hosted_shared_start.py
+@@ -1,5 +1,5 @@
+ """Independent post-closure evaluation. Never imported by production dispatch."""
+-import argparse,json,pathlib,hashlib,time,collections,importlib.util,sys
++import argparse,json,pathlib,hashlib,time,collections,importlib.util,sys,types
+ from rdflib import Graph,URIRef
+ from rdflib.namespace import SH
+ from nltlv2.core import Project,load,write,offline_network_guard,Candidate
+@@ -8,6 +8,22 @@
+ from nltlv2.evidence import literal_identity
+ 
+ def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
++def execute_unchanged(data,shape,schema,evaluator,scope_findings=(),parse_error=None):
++ """Same execution for both arms. Scope violations block admitted credit, not diagnostics."""
++ if shape is None:behavior=dict(conforms=None,status='CANDIDATE_PARSE_ERROR',error=parse_error);report=None
++ else:
++  # pySHACL can add ontology axioms to an in-memory shapes graph despite inplace=False.
++  # Execute disposable exact graph copies so cached source/input graphs remain identical.
++  def clone(graph):
++   out=Graph()
++   for triple in graph:out.add(triple)
++   for prefix,namespace in graph.namespaces():out.bind(prefix,namespace)
++   return out
++  behavior,report=evaluator.validate_pair_graph(clone(data),clone(shape),types.SimpleNamespace(graph=clone(schema.graph)))
++ findings=[f.asdict() if hasattr(f,'asdict') else f for f in scope_findings]
++ admitted=dict(conforms=None,status='UNRESOLVED_SHAPE_SCOPE',findings=findings) if findings else dict(behavior)
++ return dict(behavior=behavior,admitted=admitted,scope_findings=findings,scope_qualified=shape is not None and not findings),report
++
+ def main():
+  p=argparse.ArgumentParser();p.add_argument('--project',required=True);p.add_argument('--run-id',required=True);a=p.parse_args();project=Project(a.project);R=project.root;B=project.path('outputs/experiments/'+a.run_id);E=B/'evaluation';start=time.monotonic()
+  receipt=load(B/'dispatch_closed.json')
+@@ -51,17 +67,20 @@
+    for c in cases:
+     if c['requirement_id']!=item['requirement_id']:continue
+     row=dict(**item,case_id=c['case_id'],expected=c['expected'],candidate_label='DELIVERED' if item['selected'] else 'UNSELECTED_CANDIDATE_DIAGNOSTIC')
+-    verdicts={};meanings=[]
++    verdicts={};admitted_verdicts={};meanings=[]
+     for kind in ['fixture','counterfactual']:
+      if not c.get(kind):continue
+-     verdict=dict(conforms=None,error=parse_error or 'UNRESOLVED_SHAPE_SCOPE') if shape is None or boundary else ev.validate_pair_graph(inputs[(c['case_id'],kind)][0],shape,s)[0]
+-     verdicts[kind]=verdict
++     execution,report=execute_unchanged(inputs[(c['case_id'],kind)][0],shape,s,ev,boundary,parse_error)
++     verdict=execution['behavior'];verdicts[kind]=verdict;admitted_verdicts[kind]=execution['admitted']
++     if report is not None:
++      d=E/item['workflow']/item['requirement_id']/('candidate_'+str(item['version']).zfill(2))/c['case_id'];d.mkdir(parents=True,exist_ok=True);report.serialize(d/(kind+'_report.ttl'),format='turtle')
+      if kind=='fixture' and shape is not None:
+       for v in verdict.get('violations',[]):
+        qs=list(shape.objects(URIRef(v['source_shape']),SH.sparql));found=[known.get(str(shape.value(q,SH.select))) for q in qs];meanings.append(found[0] if len(found)==1 else None)
+-    neg=verdicts['fixture']['conforms'];row.update(verdicts=verdicts,conforms=neg,ordinary_agreement=None if neg is None else neg==(c['expected']=='PASS'))
++    neg=verdicts['fixture']['conforms'];row.update(scope_findings=[f.asdict() for f in boundary],scope_qualified=shape is not None and not boundary,verdicts=verdicts,admitted_verdicts=admitted_verdicts,admitted_conforms=admitted_verdicts['fixture']['conforms'],conforms=neg,ordinary_agreement=None if neg is None else neg==(c['expected']=='PASS'))
+     if c.get('counterfactual'):
+      rep=verdicts['counterfactual']['conforms'];oracle=inputs[(c['case_id'],'fixture')][1];row.update(counterpart_conforms=rep,paired_observation=neg is False and rep is True,strict_status=ev.strict_status(neg,rep,bool(meanings),any(x not in oracle['issues'] for x in meanings if x is not None),attribution_resolved=all(x is not None for x in meanings)),attribution='Conservative unchanged exact-query matching; unmatched constraints remain unresolved, not credited')
++    if c.get('counterfactual'):row['admitted_strict_status']='INADMISSIBLE_SCOPE' if boundary else row['strict_status']
+     rows.append(row)
+   write(E/'all_candidate_diagnostics.json',rows)
+   selected_rows=[];summary={}
+@@ -70,14 +89,14 @@
+     entry=selected['workflows'][wf][c['requirement_id']]
+     found=next((r for r in rows if r['workflow']==wf and r['case_id']==c['case_id'] and r['version']==entry.get('version')),None)
+     row=dict(found) if found else dict(workflow=wf,requirement_id=c['requirement_id'],case_id=c['case_id'],expected=c['expected'],conforms=None,ordinary_agreement=None,strict_status='NO_VERDICT' if c['expected']=='FAIL' else None)
+-    row['delivery_status']=entry['status'];row['final_review']=entry.get('final_review');selected_rows.append(row)
+-   rs=[r for r in selected_rows if r['workflow']==wf];summary[wf]=dict(cases=len(rs),correct=sum(r['ordinary_agreement'] is True for r in rs),wrong=sum(r['ordinary_agreement'] is False for r in rs),no_verdict=sum(r['conforms'] is None for r in rs),delivered=sum(r['conforms'] is not None for r in rs),negative_denominator=sum(r['expected']=='FAIL' for r in rs),strict_statuses=dict(collections.Counter(r.get('strict_status') for r in rs if r['expected']=='FAIL')),counterpart_denominator=sum(bool(c.get('counterfactual')) for c in cases),counterparts_accepted=sum(r.get('counterpart_conforms') is True for r in rs),approval_by_requirement={rid:selected['workflows'][wf][rid] for rid in m['requirements']})
++    row['delivery_status']=entry['status'];row['final_review']=entry.get('final_review');row['execution_status']='NOT_RUN' if entry['terminal_reason']=='NOT_RUN' else 'NO_VERDICT' if row['conforms'] is None else 'EVALUATED_UNCHANGED';selected_rows.append(row)
++   rs=[r for r in selected_rows if r['workflow']==wf];summary[wf]=dict(cases=len(rs),correct=sum(r['ordinary_agreement'] is True for r in rs),wrong=sum(r['ordinary_agreement'] is False for r in rs),no_verdict=sum(r['conforms'] is None and r['execution_status']!='NOT_RUN' for r in rs),not_run=sum(r['execution_status']=='NOT_RUN' for r in rs),scope_violation_cases=sum(bool(r.get('scope_findings')) for r in rs),admitted_correct=sum(r.get('admitted_conforms') is not None and r['ordinary_agreement'] is True for r in rs),admitted_no_verdict=sum(r.get('admitted_conforms') is None and r['execution_status']!='NOT_RUN' for r in rs),admitted_strict_statuses=dict(collections.Counter(r.get('admitted_strict_status') for r in rs if r['expected']=='FAIL')),delivered=sum(r['conforms'] is not None for r in rs),negative_denominator=sum(r['expected']=='FAIL' for r in rs),strict_statuses=dict(collections.Counter(r.get('strict_status') for r in rs if r['expected']=='FAIL')),counterpart_denominator=sum(bool(c.get('counterfactual')) for c in cases),counterparts_accepted=sum(r.get('counterpart_conforms') is True for r in rs),approval_by_requirement={rid:selected['workflows'][wf][rid] for rid in m['requirements']})
+   changes=[]
+   for rid in m['requirements']:
+    initial={r['case_id']:r for r in rows if r['workflow']=='NLTL' and r['requirement_id']==rid and r['version']==1}
+    for r in rows:
+     if r['workflow']!='NLTL' or r['requirement_id']!=rid or r['version']==1:continue
+-    prev=initial[r['case_id']];changes.append(dict(requirement_id=rid,version=r['version'],case_id=r['case_id'],before=prev['conforms'],after=r['conforms'],change='RECOVERY' if prev['ordinary_agreement'] is False and r['ordinary_agreement'] is True else 'REGRESSION' if prev['ordinary_agreement'] is True and r['ordinary_agreement'] is False else 'UNCHANGED' if prev['conforms']==r['conforms'] else 'UNRESOLVED'))
+-  write(E/'selected_results.json',dict(summary=summary,rows=selected_rows));write(E/'recoveries_regressions.json',changes);write(E/'evaluation_complete.json',dict(status='COMPLETE',elapsed_seconds=time.monotonic()-start,model_calls=0,summary=summary,held_out=False,dispatch_closed_sha256=sha(B/'dispatch_closed.json')))
++    prev=initial[r['case_id']];changes.append(dict(requirement_id=rid,version=r['version'],case_id=r['case_id'],before=prev['conforms'],after=r['conforms'],scope_before=prev['scope_qualified'],scope_after=r['scope_qualified'],admitted_before=prev['admitted_conforms'],admitted_after=r['admitted_conforms'],change='RECOVERY' if prev['ordinary_agreement'] is False and r['ordinary_agreement'] is True else 'REGRESSION' if prev['ordinary_agreement'] is True and r['ordinary_agreement'] is False else 'UNCHANGED' if prev['conforms']==r['conforms'] else 'UNRESOLVED'))
++  write(E/'selected_results.json',dict(summary=summary,rows=selected_rows));write(E/'recoveries_regressions.json',changes);write(E/'evaluation_complete.json',dict(status='COMPLETE',elapsed_seconds=time.monotonic()-start,model_calls=0,summary=summary,held_out=False,evaluation_policy='Identical unchanged-shape execution for both arms; raw behavior and scope-qualified credit reported separately; NOT_RUN is not a model failure',dispatch_closed_sha256=sha(B/'dispatch_closed.json')))
+  print(json.dumps(dict(output=str(E),elapsed_seconds=time.monotonic()-start,summary=summary)),flush=True)
+ if __name__=='__main__':main()
+--- v0.11.0/src/nltlv2/runner.py
++++ v0.11.1/src/nltlv2/runner.py
+@@ -14,7 +14,7 @@
+ from .requests import initial_request,repair_request,assert_integrity,parse_review,ReviewerFormatError,review_conflicts
+ class Runner:
+  def __init__(self,project,config,transport,output):
+-  self.p=GenerationProject(project.root);self.cfg=copy.deepcopy(config);self.transport=transport;self.output=output;self.schema=Schema(self.p);self.sequence=0;self.latest_findings=();self.calls=[];self.response_metrics=[];self.input_hashes={};self.resolver=Resolver(self.schema,self.cfg);self.controller_transitions=[];self.execution_summaries={};self.active_review_body=None
++  self.p=GenerationProject(project.root);self.cfg=copy.deepcopy(config);self.transport=transport;self.output=output;self.schema=Schema(self.p);self.sequence=0;self.latest_findings=();self.calls=[];self.response_metrics=[];self.input_hashes={};self.resolver=Resolver(self.schema,self.cfg);self.controller_transitions=[];self.execution_summaries={};self.active_review_body=None;self.physical_calls_start=getattr(transport,'calls',None) if isinstance(getattr(transport,'calls',None),int) else None
+   if config.get('seed_candidate') or config.get('fresh_regeneration'):raise ValueError('LEGACY_MODE_FORBIDDEN')
+   if config['method']=='NLTL' and not config.get('semantic_review'):raise ValueError('SOURCE_REVIEW_REQUIRED')
+  def verify_inputs(self):
+@@ -134,7 +134,7 @@
+   settings={k:self.cfg[k] for k in ['model','generation_max_tokens','review_max_tokens']};request=initial_request(self.p,context,settings);maximum=1 if self.cfg['method']=='Single-shot' else self.cfg['maximum_candidate_attempts']
+   start=time.monotonic();history=[];old=None;tracker=Tracker();operational=None;status='ATTEMPT_LIMIT_EXHAUSTED'
+   for attempt in range(1,maximum+1):
+-   attempt_start=time.monotonic();metrics_start=len(self.response_metrics)
++   attempt_start=time.monotonic();metrics_start=len(self.response_metrics);c=None;technical=None;fs=[];changes=None
+    try:
+     if attempt==1 and shared_start is not None:
+      expected=dict(request,model=self.cfg['model'],max_output_tokens=self.cfg['generation_max_tokens'])
+@@ -177,11 +177,15 @@
+     status='ATTEMPT_LIMIT_EXHAUSTED'
+    except Exception as e:
+     text=str(e);integrity=any(w in text for w in ['STALE','INTEGRITY','ABSENT','FEEDBACK','TRUNCATED_PREVIOUS','RENDERED_REQUEST'])
+-    status='PROVIDER_CALL_LIMIT_EXHAUSTED' if text=='PROVIDER_CALL_LIMIT_EXHAUSTED' else 'REQUEST_INTEGRITY_FAILURE' if integrity else 'RESOURCE_ATTRIBUTION_UNCERTAIN' if isinstance(e,(TimeoutError,MemoryError,RecursionError)) or 'timeout' in type(e).__name__.lower() else 'INFRASTRUCTURE_FAILURE';operational=dict(status=status,type=type(e).__name__,diagnostic=text,attempt=attempt,no_automatic_retry=True);write(self.output/'operational_failure.json',operational);break
++    status='PROVIDER_CALL_LIMIT_EXHAUSTED' if text=='PROVIDER_CALL_LIMIT_EXHAUSTED' else 'REQUEST_INTEGRITY_FAILURE' if integrity else 'RESOURCE_ATTRIBUTION_UNCERTAIN' if isinstance(e,(TimeoutError,MemoryError,RecursionError)) or 'timeout' in type(e).__name__.lower() else 'INFRASTRUCTURE_FAILURE';operational=dict(status=status,type=type(e).__name__,diagnostic=text,attempt=attempt,no_automatic_retry=True);write(self.output/'operational_failure.json',operational)
++    if c is not None and not any(h['version']==c.version for h in history):
++     row=dict(attempt=attempt,version=c.version,sha256=c.sha256,status=status,accepted=False,technical=technical or {},findings=[f.asdict() for f in fs],review=None,interrupted=True,terminal_reason=operational,structural_change_manifest=changes,elapsed_seconds=time.monotonic()-attempt_start,request_metrics=self.response_metrics[metrics_start:])
++     history.append(row);write(self.output/'history.json',history);write(self.output/f'findings_{attempt:02d}.json',row['findings']);self.transition(c,status,operational_failure=operational)
++    break
+   try:self.verify_inputs()
+   except Exception as e:
+    status='REQUEST_INTEGRITY_FAILURE';operational=dict(status=status,diagnostic=str(e),no_automatic_retry=True);write(self.output/'operational_failure.json',operational)
+-  result=dict(version='0.11.0',admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=len(self.calls) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(history),dispatch_attempts=len(self.calls),generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history and history[0]['status']!='FORMAT_ERROR' else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
++  result=dict(version='0.11.1',admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=(self.transport.calls-self.physical_calls_start if self.physical_calls_start is not None else len(self.calls)) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(list(self.output.glob('candidate_*.ttl'))),dispatch_attempts=len(self.calls),generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
+   if self.cfg.get('delivery_policy')=='latest_technical':
+    from .delivery import finalize
+    result['delivery']=finalize(self.output,history,status)
+--- v0.11.0/src/nltlv2/transport.py
++++ v0.11.1/src/nltlv2/transport.py
+@@ -62,7 +62,7 @@
+ 
+ class HostedResponsesTransport:
+  is_live=True
+- def __init__(self,*,enabled=False,project_root,output,max_calls,max_seconds,max_output_tokens_total,max_request_bytes=110000,timeout=180,env_file=None):
++ def __init__(self,*,enabled=False,project_root,output,max_calls,max_seconds,max_output_tokens_total,timeout=180,env_file=None,token_limits=None,token_counter=None):
+   if not enabled or os.environ.get('NLTL_ALLOW_MODEL_CALLS')!='YES':raise RuntimeError('LIVE_MODEL_CALLS_DISABLED')
+   import dotenv,requests
+   p=pathlib.Path(env_file or os.environ.get('NLTL_ENV_FILE','')).expanduser().resolve()
+@@ -73,7 +73,11 @@
+   configured=env.get('AALTO_AI_RESPONSES_URL')
+   if configured and configured.rstrip('/')!=HOSTED_URL:raise ValueError('HOSTED_ENDPOINT_CONFIGURATION_MISMATCH')
+   self.output=pathlib.Path(output);self.output.mkdir(parents=True,exist_ok=False)
+-  self.max_calls=max_calls;self.max_seconds=max_seconds;self.max_output_tokens_total=max_output_tokens_total;self.max_request_bytes=max_request_bytes;self.timeout=timeout
++  self.max_calls=max_calls;self.max_seconds=max_seconds;self.max_output_tokens_total=max_output_tokens_total;self.timeout=timeout
++  self.token_limits=token_limits or {};self.token_counter=token_counter;self.dispatch_attempts=0
++  if self.token_counter is None and self.token_limits.get('tokenizer_cache'):
++   from .token_budget import load_counter
++   self.token_counter=load_counter(project_root,self.token_limits)
+   self.calls=0;self.reserved_output_tokens=0;self.started=time.monotonic();self.disabled=False
+   self.session=requests.Session();self.session.mount('https://',requests.adapters.HTTPAdapter(max_retries=0))
+  def close(self):
+@@ -88,7 +92,15 @@
+   payload['input']=[dict(role='developer' if x['role']=='system' else x['role'],content=[dict(type='input_text',text=x['content'])]) for x in payload['input']]
+   payload.update(truncation='disabled',store=False)
+   encoded=json.dumps(payload,ensure_ascii=False).encode('utf-8')
+-  if len(encoded)>self.max_request_bytes:raise RuntimeError('REQUEST_CONTEXT_BYTE_LIMIT_EXCEEDED_NO_TRUNCATION')
++  from .token_budget import preflight
++  self.dispatch_attempts+=1
++  budget=preflight(payload,self.token_limits,self.token_counter);budget.update(request_bytes=len(encoded),route=request['route'],logical_dispatch_attempt=self.dispatch_attempts)
++  write(self.output/f'attempt_{self.dispatch_attempts:03d}_token_budget.json',budget)
++  (self.output/f'attempt_{self.dispatch_attempts:03d}_request.body').write_bytes(encoded)
++  if latest is not None and request['route'].startswith('review'):
++   from .evidence import assert_review_packet
++   data=json.loads(payload['input'][1]['content'][0]['text']);assert_review_packet(data.get('original_request',data),latest)
++  if budget['exceeds_known_token_limit']:raise RuntimeError('MODEL_CONTEXT_TOKEN_LIMIT_EXCEEDED_NO_TRUNCATION')
+   if self.calls>=self.max_calls:raise RuntimeError('PROVIDER_CALL_LIMIT_EXHAUSTED')
+   remaining=self.max_seconds-(time.monotonic()-self.started)
+   if remaining<=0:raise RuntimeError('WORKFLOW_TIME_LIMIT_EXHAUSTED')
+@@ -113,7 +125,10 @@
+   try:obj=json.loads(raw)
+   except Exception:raise RuntimeError('HOSTED_INVALID_JSON') from None
+   returned=obj.get('model');text=final_assistant_text(obj)
+-  response=dict(text=text,status=obj.get('status'),finish_reason=(obj.get('incomplete_details') or {}).get('reason') or obj.get('finish_reason'),usage=obj.get('usage'),provider_response=obj,returned_model=returned,identity_status='UNKNOWN' if returned is None else 'MATCH' if returned==HOSTED_MODEL else 'MISMATCH',elapsed_seconds=elapsed,physical_call=n,final_output_present=bool(text))
++  response=dict(text=text,status=obj.get('status'),finish_reason=(obj.get('incomplete_details') or {}).get('reason') or obj.get('finish_reason'),usage=obj.get('usage'),provider_response=obj,returned_model=returned,identity_status='UNKNOWN' if returned is None else 'MATCH' if returned==HOSTED_MODEL else 'MISMATCH',elapsed_seconds=elapsed,physical_call=n,final_output_present=bool(text),token_budget=budget)
++  actual_input=(obj.get('usage') or {}).get('input_tokens')
++  response['token_budget']['actual_provider_input_tokens']=actual_input
++  response['token_budget']['actual_input_minus_content_tokens']=None if actual_input is None or budget['supplied_text_tokens'] is None else actual_input-budget['supplied_text_tokens']
+   write(self.output/f'call_{n:03d}_response.json',response)
+   if returned is not None and returned!=HOSTED_MODEL:raise ValueError('PROVIDER_MODEL_INTEGRITY_FAILURE')
+   if obj.get('error') or obj.get('status') in ['failed','cancelled','queued','in_progress']:raise RuntimeError('HOSTED_RESPONSE_NOT_COMPLETED')
+--- v0.11.0/src/nltlv2/__init__.py
++++ v0.11.1/src/nltlv2/__init__.py
+@@ -1,2 +1,2 @@
+ """General source-grounded NLTL pipeline. No credentials loaded on import."""
+-__version__ = "0.11.0"
++__version__ = "0.11.1"
+--- v0.11.0/src/nltlv2/hosted_pilot.py
++++ v0.11.1/src/nltlv2/hosted_pilot.py
+@@ -28,12 +28,13 @@
+ def main():
+  p=argparse.ArgumentParser();p.add_argument('--project',required=True);p.add_argument('--manifest',required=True);p.add_argument('--run-id',required=True);p.add_argument('--allow-model-calls',action='store_true');a=p.parse_args()
+  project=Project(a.project);m=load(project.path(a.manifest));lock=load(project.path(m['freeze_lock']));verify(project.root,lock)
++ if m.get('dispatch_ready') is not True:raise ValueError('EXPERIMENT_NOT_READY')
+  if not a.allow_model_calls:raise ValueError('EXPLICIT_MODEL_AUTHORIZATION_REQUIRED')
+  if m['label'] not in ['HOSTED_GPT_OSS_SHARED_START_SMOKE','HOSTED_GPT_OSS_SHARED_START_DEVELOPMENT']:raise ValueError('UNSUPPORTED_EXPERIMENT_LABEL')
+  out=project.output('experiments',a.run_id);write(out/'manifest.frozen.json',m);write(out/'freeze_lock.json',lock)
+  start=time.monotonic();transport=None;pairs=[];errors=[];inventory=[];workflows={w:{} for w in ['Single-shot','NLTL']};queue=[]
+  try:
+-  transport=HostedResponsesTransport(enabled=True,project_root=project.root,output=out/'provider',max_calls=m['max_physical_calls'],max_seconds=m['max_execution_seconds'],max_output_tokens_total=m['max_reserved_output_tokens'],max_request_bytes=m['max_request_bytes'],timeout=m['request_timeout_seconds'])
++  transport=HostedResponsesTransport(enabled=True,project_root=project.root,output=out/'provider',max_calls=m['max_physical_calls'],max_seconds=m['max_execution_seconds'],max_output_tokens_total=m['max_reserved_output_tokens'],token_limits=m['token_limits'],timeout=m['request_timeout_seconds'])
+   dispatch=transport.dispatch
+   def guarded(*args,**kwargs):verify(project.root,lock);return dispatch(*args,**kwargs)
+   transport.dispatch=guarded
+@@ -59,7 +60,7 @@
+     d=out/rid/wf
+     result=load(d/'run.json') if (d/'run.json').exists() else {}
+     selected=result.get('evaluation_candidate');delivery=result.get('delivery',{})
+-    entry=dict(shape=None,original_no_verdict=True,version=None,status=delivery.get('status','NO_VERDICT'),terminal_reason=result.get('status','NOT_RUN'),final_review=delivery.get('final_review'))
++    entry=dict(shape=None,original_no_verdict=True,version=None,status=delivery.get('status','NOT_RUN' if not result else 'NO_VERDICT'),terminal_reason=result.get('status','NOT_RUN'),final_review=delivery.get('final_review'))
+     for f in sorted(d.glob('candidate_*.ttl')):
+      v=int(f.stem.split('_')[1]);item=dict(workflow=wf,requirement_id=rid,version=v,shape=str(f.relative_to(project.root)),sha256=sha(f),selected=v==selected)
+      inventory.append(item)

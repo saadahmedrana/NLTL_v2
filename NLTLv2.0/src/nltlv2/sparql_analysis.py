@@ -42,7 +42,7 @@ def bound(node):
  if 'p' in node:return bound(node['p'])
  return set()
 
-def analyze(c,query,*,scope='SHACL-SPARQL',slot='query',value_prebound=False):
+def analyze(c,query,*,scope='SHACL-SPARQL',slot='query',value_prebound=False,extravars=()):
  out=[];query_hash=digest(query);report=dict(query_sha256=query_hash,slot=slot,nested_selects=[],binding_warnings=[],limits=['Conservative RDFLib algebra analysis; OPTIONAL/EXISTS/aggregates/correlation are not fully proven.','Engine legality check mirrors pySHACL 0.31.0; its regex coverage limits are retained alongside parsed nested-SELECT inspection.'])
  def emit(check_id,message,expected,suggestion,diagnostic,*,warning=False,path='query',excerpt=None):
   out.append(finding(c,'SPARQL_STATIC_WARNING' if warning else 'SPARQL_ERROR',message,query if excerpt is None else excerpt,expected=expected,evidence='Parsed RDFLib SPARQL structure and locked pySHACL 0.31.0 SHACL pre-binding contract',suggestion=suggestion,location='sh:select '+slot+' '+path,diagnostic=diagnostic,contract_id=scope,obligation_id='sparql-execution',check_id=check_id+':'+slot,query_sha256=query_hash,assessment='STATIC_WARNING' if warning else 'CONFIRMED_CANDIDATE_QUERY_ERROR',confirmed=not warning,blocking=not warning))
@@ -57,15 +57,15 @@ def analyze(c,query,*,scope='SHACL-SPARQL',slot='query',value_prebound=False):
   emit('translation_context','Standalone algebra translation needs unresolved query context','Resolve explicit SHACL prefix/environment evidence before judging the query','Check the supplied SHACL prefix declarations or unsupported translation context. Do not invent a namespace or binding.',report['unresolved_static_context'],warning=True)
   return out,report
  projected={str(v) for v in algebra.get('PV',[])}
- if 'this' not in projected:emit('outer_projection','SHACL SELECT must project ?this','SELECT $this ...','Project the existing pre-bound focus variable; $this and ?this are equivalent.','Outer projected variables: '+str(sorted(projected)))
+ if algebra.name=='SelectQuery' and 'this' not in projected:emit('outer_projection','SHACL SELECT must project ?this','SELECT $this ...','Project the existing pre-bound focus variable; $this and ?this are equivalent.','Outer projected variables: '+str(sorted(projected)))
  # Use the actual locked engine implementation to preserve its diagnostic verbatim.
  engine_error=None
- try:SPARQLQueryHelper.__new__(SPARQLQueryHelper).check_invalid_sparql(query,valuenode=object() if value_prebound else None)
+ try:SPARQLQueryHelper.__new__(SPARQLQueryHelper).check_invalid_sparql(query,valuenode=object() if value_prebound else None,extravars=set(extravars))
  except Exception as e:engine_error=str(e)
  nested=[(path,node) for path,node in walk(tree) if node.name=='SubSelect']
  for subquery_index,(path,node) in enumerate(nested):
   projection=node.get('projection',[]);names={str(x['var'] if 'var' in x else x['evar']) for x in projection if 'var' in x or 'evar' in x}
-  missing={'this'}-names
+  missing=({'this'}|set(extravars))-names
   if value_prebound:missing|={'value'}-names
   report['nested_selects'].append(dict(ast_path=path,projected=sorted(names),missing_prebound=sorted(missing),explicit_projection=bool(projection)))
   if missing:

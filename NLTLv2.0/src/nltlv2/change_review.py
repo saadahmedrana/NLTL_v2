@@ -22,5 +22,6 @@ def manifest(previous,current):
   for s,p,o in g:groups.setdefault(group(p),{'removed':[],'added':[]})[label].append(s.n3()+' '+p.n3()+' '+o.n3()+' .')
  for kind,values in sorted(groups.items()):
   for k in values:values[k].sort()
-  out['changes'].append(dict(change_id=digest(kind+str(values)),kind=kind,**values))
+  alerts=[dict(alert_id=digest(kind+'removal'+str(values['removed'])),kind=kind,removed_triples=values['removed'],reason='Removed functional constraints/operands. Explicitly assess numeric/unit/query loss and any replacement against source, not against a handwritten solution.') ] if values['removed'] else []
+  out['changes'].append(dict(change_id=digest(kind+str(values)),kind=kind,removal_alerts=alerts,**values))
  return dict(out,status='STRUCTURAL_CHANGES_RECORDED',isomorphic_functional_graph=not out['changes'],note='Blank-node graph alignment can group surrounding structure; inspect full code and textual diff. No equivalence or regression claim is inferred from this diff alone.')

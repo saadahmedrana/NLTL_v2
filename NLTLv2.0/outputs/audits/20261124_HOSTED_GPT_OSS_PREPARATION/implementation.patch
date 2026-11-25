@@ -1,0 +1,165 @@
+--- v0.10.1/pyproject.toml
++++ v0.11.0/pyproject.toml
+@@ -3,7 +3,7 @@
+ build-backend = "setuptools.build_meta"
+ [project]
+ name = "nltlv2-refined"
+-version = "0.10.1"
++version = "0.11.0"
+ description = "General source-grounded NLTL; independent offline evaluation"
+ requires-python = ">=3.11"
+ dependencies = ["rdflib==7.6.0", "pyshacl==0.31.0", "owlrl==7.6.2", "requests==2.32.5", "python-dotenv==1.2.2"]
+--- v0.10.1/src/nltlv2/runner.py
++++ v0.11.0/src/nltlv2/runner.py
+@@ -123,7 +123,7 @@
+    self.transition(c,'REPAIR_PROPOSED',assessment='Source-grounded model interpretation, not verified authorization; code remains unchanged until a bounded repair call')
+    return context,base+semantic,obj,None,[],'REJECTED'
+   self.transition(c,'REVIEW_LIMIT_EXHAUSTED');return context,base+semantic,obj,error,conflicts,'CONTEXT_LIMIT_EXHAUSTED'
+- def run(self,rid):
++ def run(self,rid,*,shared_start=None):
+   admission=load_admission(self.p,self.cfg,self.schema,rid);write(self.output/'admission_validation.json',admission)
+   if not admission['valid']:
+    result=blocked_result(self.cfg,rid,admission);write(self.output/'run.json',result);return result
+@@ -136,7 +136,15 @@
+   for attempt in range(1,maximum+1):
+    attempt_start=time.monotonic();metrics_start=len(self.response_metrics)
+    try:
+-    response=self.dispatch(request,old);raw=response['text'];fmt=None;normalization=None
++    if attempt==1 and shared_start is not None:
++     expected=dict(request,model=self.cfg['model'],max_output_tokens=self.cfg['generation_max_tokens'])
++     if shared_start['request']!=expected:raise ValueError('SHARED_START_REQUEST_INTEGRITY_FAILURE')
++     response=copy.deepcopy(shared_start['response'])
++     if hashlib.sha256(json.dumps(response,sort_keys=True).encode()).hexdigest()!=shared_start['response_sha256']:raise ValueError('SHARED_START_RESPONSE_INTEGRITY_FAILURE')
++     write(self.output/'shared_start.json',dict(request=expected,response=response,response_sha256=shared_start['response_sha256'],physical_call=False))
++    else:response=self.dispatch(request,old)
++    raw=response['text'];fmt=None;normalization=None
++    if response.get('status')=='incomplete' or response.get('finish_reason') in ['length','max_tokens','max_output_tokens']:fmt='Provider output incomplete'
+     try:code,normalization=normalize(raw)
+     except WrapperError as e:code=raw;fmt=str(e)
+     c=Candidate(attempt,code,raw);(self.output/f'candidate_{attempt:02d}.ttl').write_text(code);write(self.output/f'candidate_{attempt:02d}.json',dict(version=attempt,sha256=c.sha256,normalization=normalization,origin='RESPONSE'))
+@@ -150,6 +158,8 @@
+     parsed=not fmt and not any(f.category=='PARSE_ERROR' for f in fs);runtime_complete=False
+     if not any(f.blocking for f in fs):
+      execution,probe=runtime_probe(c,self.schema);self.execution_summaries[c.version]=probe_summary(c,probe);fs+=execution;runtime_complete=not execution;write(self.output/f'runtime_probe_{attempt:02d}.json',probe)
++    technical=dict(candidate_version=c.version,candidate_sha256=c.sha256,qualifies=not fmt and runtime_complete and not any(f.blocking and f.category!='UNRESOLVED_CONTEXT' for f in fs),runtime_complete=runtime_complete,findings=[f.asdict() for f in fs],check_seconds=time.monotonic()-check_start)
++    write(self.output/f'technical_{attempt:02d}.json',technical)
+     check_seconds=time.monotonic()-check_start
+     context,fs,obj,review_error,conflicts,controller_status=self.assess_candidate(c,context,old,changes,tracker,fs,rid)
+     reconciled,persistent=tracker.observe(c,fs,static_complete=parsed,review=obj,runtime_complete=runtime_complete)
+@@ -158,7 +168,7 @@
+     status='ACCEPTED' if accepted else 'RESOURCE_ATTRIBUTION_UNCERTAIN' if resource else 'INFRASTRUCTURE_FAILURE' if infra else controller_status if review_error else 'CONFLICT' if conflicts else controller_status if controller_status in ['UNRESOLVED_CONTEXT','CONTEXT_LIMIT_EXHAUSTED','REPEATED_EVIDENCE_REQUEST'] else 'REJECTED'
+     stagnation=tracker.stagnation_stop(self.cfg.get('stagnation',{})) if not accepted else None
+     if stagnation and status=='REJECTED':status='STAGNATION_STOP'
+-    row=dict(attempt=attempt,version=attempt,sha256=c.sha256,status=status,accepted=accepted,findings=[f.asdict() for f in fs],review=obj,reviewer_format_failure=review_error,conflicts=conflicts,changes=reconciled,structural_change_manifest=changes,persistent_failure_summary=persistent,elapsed_seconds=time.monotonic()-attempt_start,deterministic_check_seconds=check_seconds,request_metrics=self.response_metrics[metrics_start:],acceptance_scope='Static/execution checks and grounded model review only. No independent regulatory correctness certification; no behavioral gold or expected verdict was consulted.')
++    row=dict(technical=technical,attempt=attempt,version=attempt,sha256=c.sha256,status=status,accepted=accepted,findings=[f.asdict() for f in fs],review=obj,reviewer_format_failure=review_error,conflicts=conflicts,changes=reconciled,structural_change_manifest=changes,persistent_failure_summary=persistent,elapsed_seconds=time.monotonic()-attempt_start,deterministic_check_seconds=check_seconds,request_metrics=self.response_metrics[metrics_start:],acceptance_scope='Static/execution checks and grounded model review only. No independent regulatory correctness certification; no behavioral gold or expected verdict was consulted.')
+     history.append(row);write(self.output/'history.json',history);write(self.output/f'findings_{attempt:02d}.json',row['findings']);write(self.output/f'reconciliation_{attempt:02d}.json',reconciled);self.latest_findings=tuple(fs)
+     if accepted or status in ['RESOURCE_ATTRIBUTION_UNCERTAIN','INFRASTRUCTURE_FAILURE','REVIEWER_FORMAT_FAILURE','REVIEWER_PROPOSAL_CORRECTION_EXHAUSTED','REQUEST_INTEGRITY_FAILURE','CONFLICT','UNRESOLVED_CONTEXT','CONTEXT_LIMIT_EXHAUSTED','REPEATED_EVIDENCE_REQUEST','STAGNATION_STOP']:break
+     old=c
+@@ -171,5 +181,12 @@
+   try:self.verify_inputs()
+   except Exception as e:
+    status='REQUEST_INTEGRITY_FAILURE';operational=dict(status=status,diagnostic=str(e),no_automatic_retry=True);write(self.output/'operational_failure.json',operational)
+-  result=dict(version='0.10.1',admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=len(self.calls) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(history),dispatch_attempts=len(self.calls),generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history and history[0]['status']!='FORMAT_ERROR' else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
++  result=dict(version='0.11.0',admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=len(self.calls) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(history),dispatch_attempts=len(self.calls),generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history and history[0]['status']!='FORMAT_ERROR' else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
++  if self.cfg.get('delivery_policy')=='latest_technical':
++   from .delivery import finalize
++   result['delivery']=finalize(self.output,history,status)
++   result['accepted_only_evaluation_candidate']=result['evaluation_candidate']
++   result['evaluation_candidate']=result['delivery']['version']
++   result['exhaustion_policy']='Latest technically qualifying candidate; ACCEPTED requires unchanged grounded acceptance. UNVERIFIED is not correctness approval.'
++  result['shared_start']=shared_start is not None
+   write(self.output/'run.json',result);return result
+--- v0.10.1/src/nltlv2/transport.py
++++ v0.11.0/src/nltlv2/transport.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ import json,os,pathlib,time
+ from .requests import assert_integrity
++from .core import write
+ def provider_payload(request):
+  payload=dict(model=request['model'],input=[dict(role='system',content=request['system']),dict(role='user',content=request['user'])],max_output_tokens=request['max_output_tokens'])
+  if request.get('response_format'):
+@@ -44,3 +45,77 @@
+   start=time.monotonic();r=requests.post(self.url,json=rendered,headers={'Ocp-Apim-Subscription-Key':self.key},timeout=180);r.raise_for_status();obj=r.json()
+   text=obj.get('output_text') or ''.join(part.get('text','') for output in obj.get('output',[]) for part in output.get('content',[]) if part.get('type')=='output_text')
+   return dict(text=text,status=obj.get('status'),finish_reason=(obj.get('incomplete_details') or {}).get('reason'),usage=obj.get('usage',{}),provider_response=obj,elapsed_seconds=time.monotonic()-start)
++
++
++HOSTED_URL='https://ai-api-v2.aalto.fi/v1/responses'
++HOSTED_MODEL='gpt-oss-120b'
++
++def final_assistant_text(obj):
++ """Typed assistant final text only. Never scrape reasoning or Harmony strings."""
++ parts=[]
++ for item in obj.get('output',[]):
++  if item.get('type')!='message' or item.get('role')!='assistant':continue
++  if item.get('channel') not in (None,'final'):continue
++  for part in item.get('content',[]):
++   if part.get('type')=='output_text' and isinstance(part.get('text'),str):parts.append(part['text'])
++ return ''.join(parts)
++
++class HostedResponsesTransport:
++ is_live=True
++ def __init__(self,*,enabled=False,project_root,output,max_calls,max_seconds,max_output_tokens_total,max_request_bytes=110000,timeout=180,env_file=None):
++  if not enabled or os.environ.get('NLTL_ALLOW_MODEL_CALLS')!='YES':raise RuntimeError('LIVE_MODEL_CALLS_DISABLED')
++  import dotenv,requests
++  p=pathlib.Path(env_file or os.environ.get('NLTL_ENV_FILE','')).expanduser().resolve()
++  if not p.is_file() or p.is_relative_to(pathlib.Path(project_root).resolve()):raise ValueError('EXTERNAL_CREDENTIAL_CONFIGURATION_REQUIRED')
++  env=dotenv.dotenv_values(p)
++  self._key=env.get('AALTO_AI_API_KEY')
++  if not self._key:raise ValueError('AALTO_AI_API_KEY_MISSING')
++  configured=env.get('AALTO_AI_RESPONSES_URL')
++  if configured and configured.rstrip('/')!=HOSTED_URL:raise ValueError('HOSTED_ENDPOINT_CONFIGURATION_MISMATCH')
++  self.output=pathlib.Path(output);self.output.mkdir(parents=True,exist_ok=False)
++  self.max_calls=max_calls;self.max_seconds=max_seconds;self.max_output_tokens_total=max_output_tokens_total;self.max_request_bytes=max_request_bytes;self.timeout=timeout
++  self.calls=0;self.reserved_output_tokens=0;self.started=time.monotonic();self.disabled=False
++  self.session=requests.Session();self.session.mount('https://',requests.adapters.HTTPAdapter(max_retries=0))
++ def close(self):
++  self.disabled=True;self.session.close()
++ def dispatch(self,request,latest=None,expected_findings=None):
++  if self.disabled:raise RuntimeError('DISPATCH_CLOSED')
++  if request['model']!=HOSTED_MODEL:raise ValueError('PROVIDER_MODEL_INTEGRITY_FAILURE')
++  if request['route']=='fresh_regeneration':raise ValueError('FRESH_REGENERATION_DISABLED')
++  if request['route'].endswith('repair'):assert_integrity(request,latest,expected_findings)
++  payload=provider_payload(request)
++  # Historical gateway protocol uses developer/user input_text blocks.
++  payload['input']=[dict(role='developer' if x['role']=='system' else x['role'],content=[dict(type='input_text',text=x['content'])]) for x in payload['input']]
++  payload.update(truncation='disabled',store=False)
++  encoded=json.dumps(payload,ensure_ascii=False).encode('utf-8')
++  if len(encoded)>self.max_request_bytes:raise RuntimeError('REQUEST_CONTEXT_BYTE_LIMIT_EXCEEDED_NO_TRUNCATION')
++  if self.calls>=self.max_calls:raise RuntimeError('PROVIDER_CALL_LIMIT_EXHAUSTED')
++  remaining=self.max_seconds-(time.monotonic()-self.started)
++  if remaining<=0:raise RuntimeError('WORKFLOW_TIME_LIMIT_EXHAUSTED')
++  if self.reserved_output_tokens+request['max_output_tokens']>self.max_output_tokens_total:raise RuntimeError('OUTPUT_TOKEN_LIMIT_EXHAUSTED')
++  self.calls+=1;self.reserved_output_tokens+=request['max_output_tokens'];n=self.calls
++  write(self.output/f'call_{n:03d}_request.json',dict(route=request['route'],payload=payload))
++  (self.output/f'call_{n:03d}_request.body').write_bytes(encoded)
++  write(self.output/'physical_calls.json',dict(started=self.calls,reserved_output_tokens=self.reserved_output_tokens,max_calls=self.max_calls))
++  start=time.monotonic()
++  try:
++   r=self.session.post(HOSTED_URL,data=encoded,headers={'Authorization':'Bearer '+self._key,'Content-Type':'application/json'},timeout=min(self.timeout,remaining),allow_redirects=False)
++  except Exception as e:
++   write(self.output/f'call_{n:03d}_failure.json',dict(type=type(e).__name__,elapsed_seconds=time.monotonic()-start,no_retry=True))
++   raise RuntimeError('HOSTED_TRANSPORT_FAILURE_'+type(e).__name__) from None
++  elapsed=time.monotonic()-start
++  # Never log auth/request headers. Scrub an echoed credential if a provider errs.
++  raw=r.content.replace(self._key.encode(),b'[REDACTED_CREDENTIAL]')
++  (self.output/f'call_{n:03d}_response.body').write_bytes(raw)
++  write(self.output/f'call_{n:03d}_http.json',dict(status_code=r.status_code,elapsed_seconds=elapsed,credential_echo_redacted=raw!=r.content))
++  if raw!=r.content:raise ValueError('PROVIDER_CREDENTIAL_ECHO_INTEGRITY_FAILURE')
++  if r.status_code!=200:raise RuntimeError('HOSTED_HTTP_'+str(r.status_code))
++  try:obj=json.loads(raw)
++  except Exception:raise RuntimeError('HOSTED_INVALID_JSON') from None
++  returned=obj.get('model');text=final_assistant_text(obj)
++  response=dict(text=text,status=obj.get('status'),finish_reason=(obj.get('incomplete_details') or {}).get('reason') or obj.get('finish_reason'),usage=obj.get('usage'),provider_response=obj,returned_model=returned,identity_status='UNKNOWN' if returned is None else 'MATCH' if returned==HOSTED_MODEL else 'MISMATCH',elapsed_seconds=elapsed,physical_call=n,final_output_present=bool(text))
++  write(self.output/f'call_{n:03d}_response.json',response)
++  if returned is not None and returned!=HOSTED_MODEL:raise ValueError('PROVIDER_MODEL_INTEGRITY_FAILURE')
++  if obj.get('error') or obj.get('status') in ['failed','cancelled','queued','in_progress']:raise RuntimeError('HOSTED_RESPONSE_NOT_COMPLETED')
++  if not text:raise RuntimeError('HOSTED_FINAL_OUTPUT_MISSING')
++  return response
+--- v0.10.1/src/nltlv2/__init__.py
++++ v0.11.0/src/nltlv2/__init__.py
+@@ -1,2 +1,2 @@
+ """General source-grounded NLTL pipeline. No credentials loaded on import."""
+-__version__ = "0.10.1"
++__version__ = "0.11.0"

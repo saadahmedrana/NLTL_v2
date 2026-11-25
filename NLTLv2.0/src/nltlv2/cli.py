@@ -5,27 +5,38 @@ from .schema import Schema
 
 def main():
  p=argparse.ArgumentParser();p.add_argument('--project',default='.');sub=p.add_subparsers(dest='command',required=True)
- sub.add_parser('check');sub.add_parser('schema-audit')
+ c=sub.add_parser('check');c.add_argument('--admission');c.add_argument('--requirement');sub.add_parser('schema-audit')
  s=sub.add_parser('smoke');s.add_argument('--run-id');s.add_argument('--skip-core',action='store_true')
  e=sub.add_parser('evaluate-core');e.add_argument('--run-id')
- g=sub.add_parser('run');g.add_argument('--config',required=True);g.add_argument('--requirement',required=True);g.add_argument('--experiment-id',required=True);g.add_argument('--script');g.add_argument('--allow-model-calls',action='store_true')
+ g=sub.add_parser('run');g.add_argument('--config',required=True);g.add_argument('--requirement',required=True);g.add_argument('--experiment-id',required=True);g.add_argument('--admission');g.add_argument('--script');g.add_argument('--allow-model-calls',action='store_true')
  a=sub.add_parser('analyze-budgets');a.add_argument('histories',nargs='+');a.add_argument('--run-id')
  args=p.parse_args();project=Project(args.project)
  if args.command in ['check','schema-audit']:
   with offline_network_guard():
    for f in project.path('configs').glob('*.json'):project.config(str(f.relative_to(project.root)))
-   result=Schema(project).audit()
+   schema=Schema(project);result=schema.audit()
+   if args.command=='check' and args.admission:
+    if not args.requirement:raise ValueError('--requirement needed with --admission')
+    from .admission import load_admission
+    result['admission']=load_admission(project,{'admission_file':args.admission},schema,args.requirement)
    lock=project.path('schema/runtime_lock.json')
    if lock.exists():
     for name,h in load(lock)['files'].items():
      if hashlib.sha256(project.path(name).read_bytes()).hexdigest()!=h:raise ValueError('Runtime lock mismatch '+name)
-  print(json.dumps(result,indent=2));return
+  print(json.dumps(result,indent=2))
+  if result.get('admission',{}).get('valid') is False:raise SystemExit(2)
+  return
  if args.command=='run':
   from .runner import Runner
   from .transport import ScriptedTransport,LiveTransport
   cfg=project.config(args.config)
   if cfg['method'] not in ['NLTL','Single-shot']:raise ValueError('Explicit generation workflow required')
   if not args.script and not args.allow_model_calls:raise ValueError('No model calls authorized')
+  if args.admission:cfg['admission_file']=args.admission
+  from .admission import load_admission,blocked_result
+  admission=load_admission(project,cfg,Schema(project),args.requirement)
+  if not admission['valid']:
+   out=project.output('experiments',args.experiment_id);write(out/'admission_validation.json',admission);result=blocked_result(cfg,args.requirement,admission);write(out/'run.json',result);print(json.dumps(result,indent=2));return
   transport=ScriptedTransport(load(project.path(args.script))) if args.script else LiveTransport(enabled=args.allow_model_calls,project_root=project.root)
   out=project.output('experiments',args.experiment_id)
   if args.script:
@@ -40,10 +51,10 @@ def main():
   os.environ['NLTL_TEST_PROJECT']=str(project.root);os.environ['NLTL_TEST_OUTPUT']=str(out)
   with offline_network_guard():
    suite=unittest.defaultTestLoader.discover(str(project.path('tests')),pattern='test_*.py');stream=io.StringIO();result=unittest.TextTestRunner(stream=stream,verbosity=2).run(suite);(out/'unit_tests.txt').write_text(stream.getvalue())
-  print(stream.getvalue());summary=dict(version='0.6.0',tests_run=result.testsRun,failures=len(result.failures),errors=len(result.errors),success=result.wasSuccessful(),model_calls=0,network='BLOCKED',external_core=None)
+  print(stream.getvalue());summary=dict(version='0.9.2',tests_run=result.testsRun,failures=len(result.failures),errors=len(result.errors),success=result.wasSuccessful(),model_calls=0,network='BLOCKED',external_core=None)
   write(out/'summary.json',summary)
   if not result.wasSuccessful():raise SystemExit(1)
- else:summary=dict(version='0.6.0',model_calls=0)
+ else:summary=dict(version='0.9.2',model_calls=0)
  if args.command=='evaluate-core' or not args.skip_core:
   # Separate process, after production tests finish. No evaluation imports in Runner.
   dest=str(out.relative_to(project.root)/'external_core');env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1')

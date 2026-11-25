@@ -1,7 +1,7 @@
 """External evaluation only. Nothing in this module is imported by generation/repair."""
 from __future__ import annotations
 from decimal import Decimal
-import json,collections
+import json,collections,hashlib
 from rdflib import Graph,Literal,RDF,XSD,URIRef
 from rdflib.namespace import SH
 from pyshacl import validate
@@ -67,6 +67,18 @@ def validate_pair_graph(data,shape,schema):
   return dict(conforms=bool(conforms),violations=violations),report
  except Exception as e:return dict(conforms=None,error=type(e).__name__+': '+str(e)),None
 
+def validate_admitted_graph(data,shape,schema,rid,declaration,binding=None,input_sha256=None):
+ """v0.9 independent input/shape boundary; no eligibility inferred or repair triggered."""
+ from nltlv2.admission import validate_declaration,validate_data_scope,target_findings
+ from nltlv2.core import Candidate
+ admission=validate_declaration(declaration,schema,rid)
+ if not admission['valid']:return dict(conforms=None,status='UNRESOLVED_ADMISSION',admission_errors=admission['errors']),None
+ scope=validate_data_scope(data,schema.graph,admission['context'],binding,input_sha256)
+ if not scope['valid']:return dict(conforms=None,status='UNRESOLVED_ADMISSION',scope=scope),None
+ code=shape.serialize(format='turtle');fs=target_findings(Candidate(1,code,code),admission['context'])
+ if fs:return dict(conforms=None,status='UNRESOLVED_SHAPE_SCOPE',findings=[f.asdict() for f in fs]),None
+ verdict,report=validate_pair_graph(data,shape,schema);verdict['admission_scope']=scope;return verdict,report
+
 def strict_status(negative,repaired,intended,unrelated,*,certified=True,original_no_verdict=False,attribution_resolved=True):
  if original_no_verdict or negative is None or repaired is None:return 'NO_VERDICT'
  if not certified:return 'UNRESOLVED_ATTRIBUTION'
@@ -118,9 +130,23 @@ def check_exclusions(by_workflow):
  if sets and any(v!=next(iter(sets.values())) for v in sets.values()):raise ValueError('EXCLUSIONS_DIFFER_ACROSS_WORKFLOWS')
  return sorted(next(iter(sets.values()))) if sets else []
 
+def require_dispatch_closure(project,shape_manifest):
+ manifest_path=project.path(shape_manifest);manifest=load(manifest_path)
+ receipt_path=manifest.get('dispatch_closure')
+ if not receipt_path:raise ValueError('DISPATCH_CLOSURE_REQUIRED')
+ receipt=load(project.path(receipt_path))
+ if receipt.get('dispatch_closed') is not True or receipt.get('selection_manifest_sha256')!=hashlib.sha256(manifest_path.read_bytes()).hexdigest():raise ValueError('DISPATCH_CLOSURE_SELECTION_INTEGRITY_FAILURE')
+ for workflow,entries in manifest.get('workflows',{}).items():
+  for rid,entry in entries.items():
+   if entry and entry.get('shape'):
+    actual=hashlib.sha256(project.path(entry['shape']).read_bytes()).hexdigest()
+    if receipt.get('candidate_sha256',{}).get(workflow,{}).get(rid)!=actual:raise ValueError('DISPATCH_CLOSURE_CANDIDATE_INTEGRITY_FAILURE')
+ return manifest
+
 def evaluate(project,shape_manifest,out):
  """Evaluate unchanged submitted shapes; unseen violation semantics remain unresolved."""
- schema=Schema(project);core=load(project.path('evaluation/selections/regression_core.json'));manifest=load(project.path(shape_manifest))
+ manifest=require_dispatch_closure(project,shape_manifest)
+ schema=Schema(project);core=load(project.path('evaluation/selections/regression_core.json'))
  if set(manifest['workflows'])!={'NLTL','Single-shot'}:raise ValueError('Exactly the same two workflows required')
  exclusions=check_exclusions(manifest.get('excluded_case_ids',{'NLTL':[],'Single-shot':[]}))
  if exclusions:raise ValueError('The certified 37-case core has no established invalid-test exclusions. Supply a separately reviewed versioned selection to change it.')
@@ -130,11 +156,15 @@ def evaluate(project,shape_manifest,out):
    entry=shapes.get(c['requirement_id']);dest=out/wf/c['case_id'];dest.mkdir(parents=True);g=Graph().parse(project.path(c['fixture']));oc=oracle(g,c['requirement_id'])
    if not entry or entry.get('original_no_verdict'):
     rows.append(dict(workflow=wf,case_id=c['case_id'],requirement_id=c['requirement_id'],expected=c['expected'],conforms=None,ordinary_agreement=None,strict='NO_VERDICT' if c['expected']=='FAIL' else None));continue
-   shape=Graph().parse(project.path(entry['shape']));verdict,report=validate_pair_graph(g,shape,schema)
+   shape=Graph().parse(project.path(entry['shape']))
+   admissions=manifest.get('admissions',{}).get(c['case_id'],{})
+   declaration=load(project.path(manifest['research_scope'])) if manifest.get('research_scope') else {}
+   binding=load(project.path(admissions['fixture'])) if admissions.get('fixture') else None
+   verdict,report=validate_admitted_graph(g,shape,schema,c['requirement_id'],declaration,binding,hashlib.sha256(project.path(c['fixture']).read_bytes()).hexdigest())
    if report is not None:report.serialize(dest/'negative_or_positive_report.ttl',format='turtle')
    row=dict(workflow=wf,case_id=c['case_id'],requirement_id=c['requirement_id'],expected=c['expected'],verdict=verdict,conforms=verdict['conforms'],ordinary_agreement=None if verdict['conforms'] is None else verdict['conforms']==(c['expected']=='PASS'))
    if c['expected']=='FAIL':
-    repair=Graph().parse(project.path(c['counterfactual']));repaired_oracle=oracle(repair,c['requirement_id']);rv,rr=validate_pair_graph(repair,shape,schema)
+    repair=Graph().parse(project.path(c['counterfactual']));repaired_oracle=oracle(repair,c['requirement_id']);binding=load(project.path(admissions['counterfactual'])) if admissions.get('counterfactual') else None;rv,rr=validate_admitted_graph(repair,shape,schema,c['requirement_id'],declaration,binding,hashlib.sha256(project.path(c['counterfactual']).read_bytes()).hexdigest())
     if rr is not None:rr.serialize(dest/'repaired_report.ttl',format='turtle')
     # Accept exact pre-reviewed source-authored query bodies only. Unknown wrappers/queries are unresolved.
     refs,semantics=reference_shape(c['requirement_id']);reviewed_queries={str(refs.value(q,SH.select)):semantics[str(s)] for s,q in refs.subject_objects(SH.sparql)}
@@ -150,4 +180,4 @@ def evaluate(project,shape_manifest,out):
   rs=[r for r in rows if r['workflow']==wf];negative=[r for r in rs if r['expected']=='FAIL'];positive=[r for r in rs if r['expected']=='PASS']
   summary[wf]=dict(total_denominator=len(rs),ordinary_agreement=sum(r['ordinary_agreement'] is True for r in rs),executable=sum(r['conforms'] is not None for r in rs),no_verdict=sum(r['conforms'] is None for r in rs),positive_denominator=len(positive),positive_acceptance=sum(r['conforms'] is True for r in positive),negative_denominator=len(negative),strict_counts=dict(collections.Counter(r['strict'] for r in negative)))
  common=[c['case_id'] for c in core['cases'] if c['expected']=='FAIL' and all(next(r for r in rows if r['case_id']==c['case_id'] and r['workflow']==w)['strict'] not in ['UNRESOLVED_ATTRIBUTION'] for w in manifest['workflows'])]
- result=dict(scope='37-case six-requirement development core only; unchanged shapes; not full-benchmark accuracy',summaries=summary,common_classified_negative_ids=common,common_negative_denominator=len(common),rows=rows,exclusions=exclusions);write(out/'independent_evaluation.json',result);return result
+ result=dict(scope='v0.9 admission-gated 37-case development evaluation; missing declarations retain all cases as no verdict; not full-benchmark accuracy',summaries=summary,common_classified_negative_ids=common,common_negative_denominator=len(common),rows=rows,exclusions=exclusions);write(out/'independent_evaluation.json',result);return result

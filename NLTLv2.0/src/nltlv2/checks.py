@@ -13,9 +13,9 @@ def iri_tokens(text):
  tokens=set(re.findall(r'<([A-Za-z][A-Za-z0-9+.-]*:[^<>\s]*)>',text))
  tokens|={prefixes[p]+local for p,local in re.findall(r'(?<![\w:/])([\w-]+):([A-Za-z_][\w.-]*)',text) if p in prefixes}
  return tokens-set(prefixes.values())
-def sparql_checks(c,query,evidence='Parsed SPARQL/SHACL analysis',*,scope='SHACL-SPARQL',slot='query'):
+def sparql_checks(c,query,evidence='Parsed SPARQL/SHACL analysis',*,scope='SHACL-SPARQL',slot='query',value_prebound=False,extravars=()):
  from .sparql_analysis import analyze
- out=analyze(c,query,scope=scope,slot=slot)[0]
+ out=analyze(c,query,scope=scope,slot=slot,value_prebound=value_prebound,extravars=extravars)[0]
  try:
   from .sparql_analysis import children
   from rdflib.plugins.sparql.parserutils import CompValue
@@ -28,7 +28,7 @@ def sparql_checks(c,query,evidence='Parsed SPARQL/SHACL analysis',*,scope='SHACL
  except Exception:pass
  return out
 
-def check(c,schema,rid):
+def check(c,schema,rid,admission=None):
  out=[]
  for issue in schema.context_issues.get(rid,[]):out.append(finding(c,'UNRESOLVED_CONTEXT','Source context requires reconciliation',issue['excerpt'],expected=issue['disposition'],evidence=json.dumps(issue),suggestion='Resolve the source/contract exception before judging or repairing code.',location='source '+issue['source_clause'],confirmed=False))
  try:g=Graph().parse(data=c.code,format='turtle')
@@ -36,6 +36,21 @@ def check(c,schema,rid):
   match=re.search(r'at line (\d+)',str(e));line=int(match.group(1)) if match else None
   excerpt=c.code.splitlines()[line-1] if line and line<=len(c.code.splitlines()) else c.code
   return [finding(c,'PARSE_ERROR','Turtle parse failed',excerpt,evidence='rdflib Turtle parser',suggestion='Correct only the reported syntax.',location='Turtle parser'+(' line '+str(line) if line else ''),diagnostic=str(e))]
+ from pyshacl.entrypoints import meta_validate
+ import io,contextlib
+ stdout,stderr=io.StringIO(),io.StringIO()
+ try:
+  with contextlib.redirect_stdout(stdout),contextlib.redirect_stderr(stderr):
+   conforms,report,text=meta_validate(g,inference='none',advanced=False,do_owl_imports=False)
+  if not conforms:raise ValueError(str(text))
+ except Exception as e:
+  out.append(finding(c,'SHACL_STRUCTURE_ERROR','Meta-SHACL structural validation failed','',expected='A structurally valid SHACL graph',evidence='Generic pySHACL Meta-SHACL, no regulatory expected outcome',suggestion='Correct the exact SHACL structural diagnostic, preserving unrelated obligations.',location='Meta-SHACL',diagnostic=type(e).__name__+': '+str(e)+'\nstdout:'+stdout.getvalue()+'\nstderr:'+stderr.getvalue(),contract_id='SHACL-structure',check_id='meta-shacl'))
+ if any(f.category=='SHACL_STRUCTURE_ERROR' for f in out):return out
+ from .activation import checks as activation_checks
+ out+=activation_checks(c,g)
+ if admission:
+  from .admission import target_findings
+  out+=target_findings(c,admission)
  ids={str(x) for triple in g for x in triple if isinstance(x,URIRef)}
  query_iris=set()
  for q in g.objects(None,SH.select):query_iris|=iri_tokens(str(q))
@@ -45,10 +60,11 @@ def check(c,schema,rid):
  regulatory_uses={p for _,p,_ in g}|query_iris
  for predicate in [SH.path,SH['class'],SH.targetClass,SH.datatype,SH.hasValue,RDF.first]:regulatory_uses.update(g.objects(None,predicate))
  ids-={str(x) for x in defined_shapes-regulatory_uses if isinstance(x,URIRef)}
+ ids-={str(x) for x in set(g.objects(None,SH.targetNode))-regulatory_uses if isinstance(x,URIRef)}
  for i in sorted(ids):
   if i.startswith(str(N)) and i not in schema.canonical or i.startswith(str(U)) and i not in schema.units or i.startswith(str(Q)) and i not in {str(Q.unit),str(Q.numericValue),str(Q.QuantityValue)}:
-   local=re.split(r'[/#]',i)[-1];matches=[u for u in schema.canonical if re.split(r'[/#]',u)[-1]==local]
-   out.append(finding(c,'CANONICAL_IDENTIFIER_ERROR','Identifier absent from locked canonical metadata',i,expected=matches[0] if len(matches)==1 else 'An evidenced canonical identifier; no inferred replacement',evidence='schema/term_registry.json exact iri/unitIri; schema/Schema_for_NLTL.ttl',suggestion=('Replace only the namespace/identifier with '+matches[0]+'; preserve values.') if len(matches)==1 else 'Resolve against source metadata; do not guess.',location='IRI '+i))
+   replacement,evidence=schema.identifier_correction(i)
+   out.append(finding(c,'CANONICAL_IDENTIFIER_ERROR','Identifier absent from locked canonical metadata',i,expected=replacement or 'An evidenced canonical identifier; no inferred replacement',evidence=json.dumps(evidence),suggestion=('Replace '+i+' with '+replacement+' at the reported path/query. Repair the constraint; do not delete numeric, datatype, unit or query obligations. Preserve values and unrelated constraints. This identifier correction performs no conversion.') if replacement else 'Resolve against source metadata; do not guess or remove an obligation to silence this diagnostic.',location='IRI '+i,contract_id='schema-identifiers',obligation_id=i,check_id='canonical-identifier',diagnostic='Identifier absent from locked canonical metadata: '+i))
  def pathitems(node):
   if isinstance(node,URIRef):return [str(node)]
   try:return [str(x) for x in Collection(g,node)] if (node,RDF.first,None) in g else None
@@ -61,8 +77,9 @@ def check(c,schema,rid):
    for value in values:
     iri=str(value)
     if iri not in schema.canonical and iri!=str(RDF.type):
-     local=re.split(r'[/#]',iri)[-1];matches=[x for x in schema.canonical if re.split(r'[/#]',x)[-1]==local]
-     out.append(finding(c,'CANONICAL_IDENTIFIER_ERROR','Constraint uses an undeclared schema identifier',iri,expected=matches[0] if len(matches)==1 else 'An explicitly declared schema term; mapping unresolved',evidence='Supplied ontology and canonical term metadata',suggestion='Use the unique evidenced identifier where available, or resolve the schema mapping without inventing a term.',location=str(position)))
+     if any(f.category=='CANONICAL_IDENTIFIER_ERROR' and f.excerpt==iri for f in out):continue
+     replacement,evidence=schema.identifier_correction(iri)
+     out.append(finding(c,'CANONICAL_IDENTIFIER_ERROR','Constraint uses an undeclared schema identifier',iri,expected=replacement or 'An explicitly declared schema term; mapping unresolved',evidence=json.dumps(evidence),suggestion=('Replace only the identifier with '+replacement+'; repair rather than delete this constraint. Preserve numeric values, units and other obligations.') if replacement else 'Resolve the schema mapping without inventing a term or silently deleting obligations.',location=str(position),contract_id='schema-identifiers',obligation_id=iri,check_id='canonical-identifier'))
  root,allowed=schema.allowed_paths(rid)
  owner_contract=schema.effective_owners(rid)
  def property_checks(ps,path):
@@ -112,6 +129,8 @@ def check(c,schema,rid):
     for child in Collection(g,head):visit(child,prefix,stack)
   for child in g.objects(node,SH['not']):visit(child,prefix,stack)
  targets=list(g.subject_objects(SH.targetClass))
+ if admission:
+  targets += [(s,URIRef(admission['declaration']['focus_set']['owner_class'])) for s in set(g.subjects(SH.targetNode,None))]
  for shape,cls in targets:
   if root and schema.subtype(cls,N[root]):visit(shape,[],set())
   elif root:
@@ -127,8 +146,16 @@ def check(c,schema,rid):
   valid={'string','boolean','decimal','integer','int','long','short','byte','nonNegativeInteger','positiveInteger','nonPositiveInteger','negativeInteger','unsignedLong','unsignedInt','unsignedShort','unsignedByte','double','float','date','dateTime','time','duration','dayTimeDuration','yearMonthDuration','anyURI','normalizedString','token','language','Name','NCName','NMTOKEN','hexBinary','base64Binary','gYear','gMonth','gDay','gYearMonth','gMonthDay'}
   if not isinstance(dtype,URIRef) or str(dtype).startswith(str(XSD)) and str(dtype).removeprefix(str(XSD)) not in valid:
    out.append(finding(c,'TERM_KIND_ERROR','Unsupported or invalid datatype IRI',str(dtype),expected='Valid declared XML Schema/RDF datatype',evidence='XML Schema datatype vocabulary and locked metadata',suggestion='Use the declared property datatype.',location='sh:datatype'))
- for qi,q in enumerate([v for predicate in [SH.select,SH.ask,SH.construct] for v in g.objects(None,predicate)]):
-  text=str(q);out+=sparql_checks(c,text,scope="SHACL-SPARQL:"+rid,slot="select["+str(qi)+"]")
+ for qi,(query_node,predicate,q) in enumerate([(s,p,v) for p in [SH.select,SH.ask,SH.construct] for s,v in g.subject_objects(p)]):
+  custom=any(g.subjects(SH.validator,query_node)) or any(g.subjects(SH.nodeValidator,query_node)) or any(g.subjects(SH.propertyValidator,query_node))
+  parameters=set()
+  if custom:
+   for component in set(s for relation in [SH.validator,SH.nodeValidator,SH.propertyValidator] for s in g.subjects(relation,query_node)):
+    for parameter in g.objects(component,SH.parameter):
+     path=g.value(parameter,SH.path)
+     if isinstance(path,URIRef) and any(g.subjects(path,None)):parameters.add(str(path).rsplit('#',1)[-1].rsplit('/',1)[-1])
+  text=str(q);out+=sparql_checks(c,text,scope="SHACL-SPARQL:"+rid,slot="select["+str(qi)+"]",value_prebound=custom,extravars=parameters)
+
   # Supported simple BGP path tracking. Complex branches are explicitly outside owner inference.
   prefixes={p:u for p,u in re.findall(r'(?i)\bPREFIX\s+(\w+):\s*<([^>]+)>',text)}
   def iri(x):return x[1:-1] if x.startswith('<') else prefixes.get(x.split(':')[0],'')+x.split(':',1)[-1]
@@ -166,12 +193,21 @@ def runtime_probe(c,schema):
  from pyshacl import validate
  from .sparql_extensions import register_math_functions
  register_math_functions();g=Graph().parse(data=c.code,format='turtle');witness=Graph()
+ from .activation import analyze
+ activation=analyze(g)
  for i,cls in enumerate(g.objects(None,SH.targetClass)):witness.add((URIRef('urn:nltlv2:approved-empty-target:'+str(i)),RDF.type,cls))
+ for i,p in enumerate(g.objects(None,SH.targetSubjectsOf)):witness.add((URIRef('urn:nltlv2:approved-subject:'+str(i)),p,URIRef('urn:nltlv2:probe-object')))
+ for i,p in enumerate(g.objects(None,SH.targetObjectsOf)):witness.add((URIRef('urn:nltlv2:probe-subject'),p,URIRef('urn:nltlv2:approved-object:'+str(i))))
+ for n in g.subjects(RDF.type,SH.NodeShape):
+  if (n,RDF.type,RDFS.Class) in g:witness.add((URIRef('urn:nltlv2:approved-implicit-target'),RDF.type,n))
+ import io,contextlib,importlib.metadata
+ engine_version=importlib.metadata.version('pyshacl')
+ stdout=io.StringIO();stderr=io.StringIO()
  try:
-  _,report,_=validate(witness,shacl_graph=g,ont_graph=schema.graph,inference='rdfs',advanced=True,abort_on_first=False,meta_shacl=False)
+  with contextlib.redirect_stdout(stdout),contextlib.redirect_stderr(stderr):_,report,_=validate(witness,shacl_graph=g,ont_graph=schema.graph,inference='rdfs',advanced=True,abort_on_first=False,meta_shacl=False)
   if not isinstance(report,Graph):raise RuntimeError(str(report))
-  return [],dict(policy='Schema-derived synthetic empty targets only; never evaluation fixtures',ignored_conformance=True,witness=witness.serialize(format='turtle'))
+  return [],dict(candidate_version=c.version,candidate_sha256=c.sha256,engine_version=engine_version,engine_outcome='COMPLETED_NO_ENGINE_ERROR',stdout=stdout.getvalue(),stderr=stderr.getvalue(),policy='Schema-derived synthetic empty targets only; never evaluation fixtures',ignored_conformance=True,activation=activation,witness=witness.serialize(format='turtle'))
  except Exception as e:
   from .execution_policy import classify,diagnostic
   kind=classify(e);candidate=kind=='CANDIDATE_ERROR'
-  return [finding(c,'SPARQL_ERROR' if candidate else 'RESOURCE_UNCERTAIN' if kind=='RESOURCE_UNCERTAIN' else 'INFRASTRUCTURE_ERROR','Local SHACL execution failed; not a conformance verdict',c.code,expected='Executable SHACL on approved synthetic development input',evidence='Schema-derived empty-target runtime probe',suggestion='Correct the attributable generated-query diagnostic without changing source obligations.' if candidate else 'Stop dispatch; investigate runtime/resources without blaming or automatically repairing code.',location='local runtime',diagnostic=diagnostic(e),confirmed=candidate,assessment='CONFIRMED_CANDIDATE_QUERY_ERROR' if candidate else kind,contract_id='SHACL-runtime',obligation_id='execution',check_id='engine.execution')],dict(error=diagnostic(e),failure_kind=kind,not_conformance=True)
+  return [finding(c,'SPARQL_ERROR' if candidate else 'RESOURCE_UNCERTAIN' if kind=='RESOURCE_UNCERTAIN' else 'INFRASTRUCTURE_ERROR','Local SHACL execution failed; not a conformance verdict',c.code,expected='Executable SHACL on approved synthetic development input',evidence='Schema-derived empty-target runtime probe',suggestion='Correct the attributable generated-query diagnostic without changing source obligations.' if candidate else 'Stop dispatch; investigate runtime/resources without blaming or automatically repairing code.',location='local runtime',diagnostic=diagnostic(e),confirmed=candidate,assessment='CONFIRMED_CANDIDATE_QUERY_ERROR' if candidate else kind,contract_id='SHACL-runtime',obligation_id='execution',check_id='engine.execution')],dict(candidate_version=c.version,candidate_sha256=c.sha256,engine_version=engine_version,engine_outcome='ENGINE_ERROR',stdout=stdout.getvalue(),stderr=stderr.getvalue(),error=diagnostic(e),failure_kind=kind,not_conformance=True)

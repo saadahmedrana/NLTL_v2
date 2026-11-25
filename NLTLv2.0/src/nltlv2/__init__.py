@@ -1,2 +1,2 @@
 """General source-grounded NLTL pipeline. No credentials loaded on import."""
-__version__ = "0.6.0"
+__version__ = "0.11.3"
