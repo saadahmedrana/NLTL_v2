@@ -1,8 +1,8 @@
 """Collect independent reviewer protocol failures. No partial review becomes repair state."""
-from .review_protocol import normalize_response,ReviewerFormatError,reviewer_schema,claim_basis,context_only,ISSUE_BASES,CLAIM_BASES,REVIEW_DECISIONS,TECHNICAL_EVIDENCE_KINDS,decision_contract_errors,COMMON_ISSUE_TEXT_FIELDS,CLAIM_REQUIRED_FIELDS
+from .review_protocol import normalize_response,ReviewerFormatError,reviewer_schema,claim_basis,context_only,ISSUE_BASES,CLAIM_BASES,REVIEW_DECISIONS,TECHNICAL_EVIDENCE_KINDS,decision_contract_errors,COMMON_ISSUE_TEXT_FIELDS,CLAIM_REQUIRED_FIELDS,legacy_reviewer_schema
 from .evidence import evidence_catalog,citation_error,review_binding
 
-def validate_review(response,c,context,max_issues=12,*,previous=None,changes=None,prior_issues=(),request_body=None):
+def validate_legacy_review(response,c,context,max_issues=12,*,previous=None,changes=None,prior_issues=(),request_body=None):
  errors=[]
  def error(code,path,expected,observed=None,category='MALFORMED_STRUCTURE'):errors.append(dict(code=code,path=path,category=category,expected=expected,observed=observed))
  try:normalized,audit=normalize_response(response)
@@ -54,7 +54,7 @@ def validate_review(response,c,context,max_issues=12,*,previous=None,changes=Non
   if (previous_required or not context_only(x)) and not (isinstance(excerpt,str) and excerpt.strip() and excerpt in c.code or not excerpt and isinstance(anchor,str) and anchor.strip() and anchor in c.code):error('ISSUE_EVIDENCE_NOT_IN_SOURCE_OR_CANDIDATE',path+'.candidate_excerpt','Verbatim current code excerpt or exact insertion_context',excerpt,'INVALID_CANDIDATE_QUOTATION')
   if previous_required and (previous is None or not isinstance(x.get('previous_excerpt'),str) or not x['previous_excerpt'].strip() or x['previous_excerpt'] not in previous.code):error('CHANGE_NOT_TIED_TO_PREVIOUS_CODE',path+'.previous_excerpt','Verbatim immediately preceding candidate',x.get('previous_excerpt'),'INVALID_PREVIOUS_QUOTATION')
   if not isinstance(x.get('reason'),str) or not x['reason'].strip():error('MISSING_REASON',path+'.reason','Specific source/code-based reason')
- schemas=reviewer_schema(max_issues)['properties']
+ schemas=legacy_reviewer_schema(max_issues)['properties']
  def fields(x,path,name):
   props=({k:{} for k in ['alert_id','disposition','source_evidence_id','source_excerpt','previous_excerpt','candidate_excerpt','insertion_context','reason','claim_basis','evidence_id','evidence_excerpt']} if name=='removal' else dict(schemas[name]['items']['properties']))
   props.update({k:{} for k in ['candidate_excerpt','previous_excerpt','insertion_context']})
@@ -160,3 +160,124 @@ def validate_review(response,c,context,max_issues=12,*,previous=None,changes=Non
   assessed.add(str(x.get('finding_key')))
  obj['evidence_requests']=requests;obj['context_assessments']=assessments;obj['material_unchecked']=material
  return obj,audit,errors
+
+def validate_compact_review(response,c,context,max_issues=12,*,previous=None,changes=None,prior_issues=(),request_body=None):
+ """Small production response -> server-owned, candidate-bound internal findings."""
+ import copy,json
+ from .core import digest
+ from .review_protocol import contract_shape_errors,reviewer_schema
+ from .evidence import canonical,extract_location,code_location
+ errors=[]
+ def error(code,path,expected,observed=None,category='MALFORMED_STRUCTURE'):errors.append(dict(code=code,path=path,expected=expected,observed=observed,category=category))
+ try:_,audit=normalize_response(response)
+ except ReviewerFormatError as e:return None,None,[e.details]
+ raw=audit['normalized_response'];groups=(changes or {}).get('changes',[]);change_map={'C'+str(i+1):g for i,g in enumerate(groups)};gap_map={'G'+str(i+1):g for i,g in enumerate(context.get('retrieval_gaps',[]))}
+ prior_questions=(request_body or {}).get('prior_context_questions',[])
+ prior_question_map={q['id']:q for q in prior_questions}
+ finding_map=(request_body or {}).get('finding_aliases',{})
+ schema=reviewer_schema(max_issues,changes=change_map,gaps=gap_map,findings=finding_map,questions=prior_question_map)
+ errors+=contract_shape_errors(raw,schema)
+ shape_invalid=bool(errors)
+ catalog=evidence_catalog(context,(request_body or {}).get('execution_probe'));entries={e['evidence_id']:e for e in catalog['entries']}
+ if request_body is not None:
+  expected=review_binding(c,context,prior_issues,previous,changes,request_body.get('execution_probe'),questions=prior_questions)
+  if request_body.get('question_snapshot_sha256')!=digest(canonical(prior_questions)):error('STALE_CONTEXT_QUESTION_STATE','$request.prior_context_questions','Original immutable question snapshot',category='REQUEST_VERSION_BINDING')
+  if any(request_body.get(k)!=v for k,v in expected.items()) or request_body.get('full_candidate')!=c.code or request_body.get('evidence_catalog')!=catalog:error('STALE_REVIEW_REQUEST','$request','Original immutable candidate/evidence/prior binding',category='REQUEST_VERSION_BINDING')
+ def references(refs,path,index_offset=0):
+  resolved=[]
+  for i,r in enumerate(refs):
+   at=path+'['+str(i+index_offset)+']';r={'id':r} if isinstance(r,str) else r;e=entries.get(r['id'])
+   if e is None:error('MISSING_OR_UNSUPPLIED_EVIDENCE_ID',at,'E ID in this exact packet',r['id']);continue
+   a,b=r.get('start',0),r.get('end',len(e['text']));valid_span=('start' in r)==('end' in r) and type(a) is int and type(b) is int and 0<=a<b<=len(e['text'])
+   if not valid_span:error('INVALID_EVIDENCE_SPAN',at,'Paired 0-based character offsets with start < end inside the supplied evidence entry',r)
+   whole_fact=e['kind']!='RDF_FACT' or a==0 and b==len(e['text'])
+   if not whole_fact:error('RDF_FACT_REFERENCE_MUST_BE_WHOLE_FACT',at,'Cite the complete explicit RDF fact, not a fragment',r)
+   text=e['text'][a:b] if valid_span else '';quote_ok=True
+   if isinstance(r.get('quote'),str):
+    problem=citation_error(catalog,r['id'],r['quote'],source=e['kind']=='SOURCE')
+    if problem:error(problem[0],at+'.quote',problem[1],r['quote']);quote_ok=False
+    elif valid_span and r['quote'] not in text and e['kind']!='RDF_FACT':error('ASSERTED_QUOTE_OUTSIDE_SPAN',at+'.quote','Asserted quotation inside cited span',r['quote']);quote_ok=False
+   if not valid_span or not whole_fact or not quote_ok:continue
+   resolved.append(dict(evidence_id=e['evidence_id'],kind=e['kind'],role='OBLIGATION' if e['kind']=='SOURCE' else 'POPULATION_ASSUMPTION' if e['kind']=='CALLER_DECLARATION' else 'REPRESENTATION' if e['kind'] in ['SCHEMA_TEXT','RDF_FACT'] else 'CONTEXT_STATUS',start=a,end=b,text=text,text_sha256=digest(text),evidence_sha256=e['evidence_sha256'],provenance_sha256=e['provenance_sha256']))
+  return resolved
+ if shape_invalid:
+  # Inspect well-typed reference fragments independently; never accept a malformed review.
+  if isinstance(raw,dict):
+   for field in ['issues','questions','question_review','change_review']:
+    items=raw.get(field,[])
+    if not isinstance(items,list):continue
+    for i,item in enumerate(items):
+     if not isinstance(item,dict) or not isinstance(item.get('evidence'),list):continue
+     for j,ref in enumerate(item['evidence']):
+      if isinstance(ref,str) or isinstance(ref,dict) and isinstance(ref.get('id'),str):references([ref],'$.'+field+'['+str(i)+'].evidence',index_offset=j)
+  return None,audit,errors
+ def location(x,path):
+  loc=code_location(c,x['start'],x['end'],unit=x.get('unit','lines'))
+  try:exact=extract_location(loc,c)
+  except ValueError as e:error(str(e),path,'Current candidate range',x);return loc,''
+  return loc,exact
+ issues=[]
+ for i,item in enumerate(raw['issues']):
+  path='$.issues['+str(i)+']';refs=references(item['evidence'],path+'.evidence');loc,exact=location(item['location'],path+'.location')
+  support=[r for r in refs if r['role'] in ['OBLIGATION','REPRESENTATION','POPULATION_ASSUMPTION']]
+  if not support:error('UNSUPPORTED_CODE_ASSERTION',path+'.evidence','Code issue needs obligation, schema/representation or approved scope evidence')
+  law=next((r for r in refs if r['kind']=='SOURCE'),None);first=next(iter(support),None)
+  stable='issue:'+digest(canonical([' '.join(item['description'].split()).casefold(),sorted(r['evidence_sha256'] for r in refs)]))
+  operands=[dict(operand_id='operand'+str(j+1),property=o['property'],proposed_path=o['path'],proposed_path_role=o['role'],proposed_unit=o.get('unit'),proposed_datatype=o.get('datatype')) for j,o in enumerate(item.get('operands',[]))]
+  issues.append(dict(issue_id=stable,category='SOURCE_BACKED_LOGIC_ERROR' if law else 'TECHNICAL_REPRESENTATION_ERROR',source_clause=context['requirement']['clause'] if law else None,source_evidence_id=law['evidence_id'] if law else None,source_excerpt=law['text'] if law else None,evidence_id=first['evidence_id'] if first else None,evidence_excerpt=first['text'] if first else None,reason=item['description'],expected=item['suggestion'],suggestion=item['suggestion'],candidate_excerpt=exact,candidate_location=loc,resolved_evidence=refs,operands=operands,addresses=item.get('addresses',[])))
+ questions=[];requests=[]
+ for i,q in enumerate(raw['questions']):
+  refs=references(q.get('evidence',[]),'$.questions['+str(i)+'].evidence');questions.append(dict(missing=q['missing'],why=q['why'],kind=q['kind'],reference=q.get('reference'),section=q.get('section'),resolved_evidence=refs));requests.append(dict(kind=q['kind'],reference=q.get('reference'),section=q.get('section'),query=q['missing'][:2000],reason=q['why']))
+ question_dispositions=[];question_ids=[];pending_questions=[]
+ from .context_resolution import question_key
+ new_question_keys={question_key(q['missing'],q['kind']) for q in questions}
+ for i,d in enumerate(raw.get('question_review',[])):
+  path='$.question_review['+str(i)+']';prior_q=prior_question_map[d['id']];question_ids.append(d['id']);refs=references(d.get('evidence',[]),path+'.evidence')
+  if d['disposition'] in ['RESOLVED','WITHDRAWN']:
+   if not refs or not any(r['role'] in ['OBLIGATION','REPRESENTATION','POPULATION_ASSUMPTION'] for r in refs):error('QUESTION_CLOSURE_NEEDS_EVIDENCE',path+'.evidence','Current supplied evidence supporting the explanation')
+   if question_key(prior_q['missing'],prior_q['kind']) in new_question_keys:error('CONTRADICTORY_QUESTION_DISPOSITION',path,'Cannot close a concern and simultaneously ask it as missing information',d['id'])
+  else:
+   pending_questions.append(prior_q)
+   requests.append(dict(kind=prior_q['kind'],reference=prior_q.get('reference'),section=prior_q.get('section'),query=prior_q['missing'][:2000],reason=prior_q['why']))
+  question_dispositions.append(dict(id=d['id'],disposition=d['disposition'],why=d['why'],resolved_evidence=refs))
+ if set(question_ids)!=set(prior_question_map) or len(question_ids)!=len(set(question_ids)):error('INCOMPLETE_QUESTION_REVIEW','$.question_review','Every prior material question exactly once')
+ if raw['assessment']=='APPROVE' and pending_questions:error('UNRESOLVED_QUESTION_APPROVAL','$.assessment','STILL_UNRESOLVED prior questions block APPROVE')
+ assessed=[];assessments=[]
+ for i,x in enumerate(raw.get('change_review',[])):
+  path='$.change_review['+str(i)+']';g=change_map[x['id']];refs=references(x['evidence'],path+'.evidence');assessed.append(x['id'])
+  if not any(r['role'] in ['OBLIGATION','REPRESENTATION','POPULATION_ASSUMPTION'] for r in refs):error('UNSUPPORTED_CHANGE_ASSESSMENT',path+'.evidence','Source/schema/scope evidence, not checker silence alone')
+  if x['disposition']=='REGRESSION':
+   idx=x.get('issue');valid=type(idx) is int and 0<=idx<len(issues)
+   if not valid:error('CHANGE_FAILURE_NEEDS_ACTIONABLE_ISSUE',path+'.issue','Zero-based index of actionable issue',idx)
+   else:issues[idx]['change_id']=g['change_id']
+  assessments.append(dict(change_id=g['change_id'],disposition=x['disposition'],reason=x['reason'],resolved_evidence=refs,removal_disposition='SUPPORTED_REMOVAL' if x['disposition']=='SUPPORTED' else x['disposition'],previous_excerpt=previous.code if previous else '',candidate_excerpt=c.code))
+ if set(assessed)!=set(change_map) or len(assessed)!=len(set(assessed)):error('INCOMPLETE_CHANGE_REVIEW','$.change_review','Every supplied C ID exactly once')
+ gap_seen=[];unchecked=[]
+ for i,g in enumerate(raw.get('gap_review',[])):
+  gap_seen.append(g['id']);unchecked.append(dict(scope=gap_map[g['id']]['gap_id'],material=g['material'],reason=g['why']))
+ if len(gap_seen)!=len(set(gap_seen)):error('DUPLICATE_GAP_ASSESSMENT','$.gap_review','Each gap at most once')
+ if any(g['material'] for g in raw.get('gap_review',[])) and not questions:error('MATERIAL_GAP_NEEDS_QUESTION','$.questions','Describe missing information and why it matters')
+ unresolved=any(x['disposition']=='UNRESOLVED' for x in assessments)
+ for q in pending_questions:unchecked.append(dict(scope=q['id'],material=True,reason=q['why']))
+ assessment=raw['assessment']
+ if assessment=='APPROVE':
+  if issues or questions or unresolved or any(x['disposition']!='SUPPORTED' for x in assessments):error('DECISION_ISSUE_CONTRADICTION','$.assessment','APPROVE requires no code issues, questions or unsupported changes')
+  if set(gap_seen)!=set(gap_map):error('UNASSESSED_RETRIEVAL_GAP','$.gap_review','Every supplied G ID explicitly assessed')
+  if any(x['material'] for x in unchecked):error('DECISION_ISSUE_CONTRADICTION','$.assessment','Material uncertainty prevents APPROVE')
+ if assessment=='REJECT' and not issues:error('DECISION_ISSUE_CONTRADICTION','$.assessment','REJECT requires an actionable code issue')
+ if assessment=='HUMAN_REVIEW_REQUIRED' and not (questions or unresolved or any(x['material'] for x in unchecked)):error('DECISION_ISSUE_CONTRADICTION','$.assessment','Describe a context question or unresolved change/gap; code-only issues use REJECT')
+ # Software-owned prior reconciliation. Stable IDs use description + immutable
+ # evidence identity, never mutable E aliases or model-supplied bookkeeping.
+ current={x['issue_id'] for x in issues};reconciliations=[dict(issue_id=x['issue_id'],state='PERSISTENT' if x['issue_id'] in current else 'RESOLVED' if assessment=='APPROVE' else 'UNASSESSABLE',reason='Derived from complete current review, not independent proof') for x in prior_issues]
+ context_assessments=[dict(finding_key=finding_map[a],disposition='REPAIRABLE_CODE',reason=x['reason']) for x in issues for a in x['addresses']]
+ for q in questions:unchecked.append(dict(scope=q['missing'],material=True,reason=q['why']))
+ if unresolved:unchecked.append(dict(scope='Unresolved change assessment',material=True,reason='Uncertainty is not code-repair permission'))
+ obj=dict(assessment=assessment,decision={'APPROVE':'ACCEPT','HUMAN_REVIEW_REQUIRED':'UNRESOLVED','REJECT':'REJECT'}[assessment],issues=issues,questions=questions,question_dispositions=question_dispositions,prior_context_questions=copy.deepcopy(prior_questions),change_assessments=assessments,reconciliations=reconciliations,unchecked=unchecked,material_unchecked=[x for x in unchecked if x['material']],evidence_requests=requests,context_assessments=context_assessments,candidate_version=c.version,candidate_sha256=c.sha256,review_request_id=(request_body or {}).get('review_request_id'),model_response=copy.deepcopy(raw),software_owned_metadata=True)
+ return obj,audit,errors
+
+# Legacy parsing is retained only to replay explicitly offline regression controls.
+# A production request identifies contract 4; old replies then fail the small schema.
+def validate_review(response,c,context,max_issues=12,*,previous=None,changes=None,prior_issues=(),request_body=None):
+ if (request_body or {}).get('review_contract_version')==4 or request_body is None and '"assessment"' in response.get('text',''):
+  return validate_compact_review(response,c,context,max_issues,previous=previous,changes=changes,prior_issues=prior_issues,request_body=request_body)
+ return validate_legacy_review(response,c,context,max_issues,previous=previous,changes=changes,prior_issues=prior_issues,request_body=request_body)

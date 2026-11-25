@@ -1,0 +1,65 @@
+--- before/src/nltlv2/requests.py
++++ current/src/nltlv2/requests.py
+@@ -146,8 +146,8 @@
+  return result
+ 
+ 
+-def review_proposal_routing(obj,schema,rid,context):
+- """Route failures without changing properties, paths, roles, evidence or issues.
++def review_proposal_routing(obj,schema,rid,context,*,candidate=None):
++ """Compare supplied identifier spellings without mutating model proposals.
+  Only a declared path belonging to a different declared property proves a
+  pairing inconsistency. Unknown mappings and actual representation conflicts
+  remain blocking; this function never manufactures a corrected proposal.
+@@ -156,6 +156,23 @@
+  supplied=context.get('contract',{})
+  bindings=schema.bindings.get(rid,{})
+  evidenced=(supplied.get('kind')=='REPRESENTATION_ONLY' and supplied.get('owners')==bindings.get('owners',{}) and supplied.get('modelPaths')==bindings.get('model_paths',[]) and supplied.get('target_owner')==bindings.get('target_owner') and context.get('quantityEncoding')==schema.quantity_profile)
++ # Identity resolution only: current-candidate namespace declarations and supplied mappings.
++ # Never infer a new property/path or rewrite a model claim or role.
++ namespaces={};resolutions=[]
++ if candidate is not None:
++  try:
++   from rdflib import Graph
++   namespaces={prefix:str(iri) for prefix,iri in Graph().parse(data=candidate.code,format='turtle').namespaces()}
++  except Exception:pass  # Unparseable code grants no extra identifier aliases.
++ path_terms={step for paths in allowed.values() for route in paths for step in route}|{schema.quantity_profile['numeric_predicate']}
++ def identity(value,permitted):
++  if not evidenced or not isinstance(value,str) or value in permitted:return value
++  if ':' in value:
++   prefix,local=value.split(':',1);expanded=namespaces.get(prefix,'')+local if prefix in namespaces else None
++   return expanded if expanded in permitted else value
++  matches=[iri for iri in permitted if schema.terms.get(iri,{}).get('localName')==value]
++  return matches[0] if len(matches)==1 else value
++
+  for index,issue in enumerate(obj.get('issues',[])):
+   base='$.issues['+str(index)+']';contradiction=issue.get('representation_disposition')=='UNRESOLVED_CONTRADICTION' or issue.get('category')=='UNRESOLVED_CONTEXT'
+   if issue.get('representation_disposition')=='UNRESOLVED_CONTRADICTION':
+@@ -164,7 +181,9 @@
+   for path,proposal in proposals:
+    fields=['proposed_path','proposed_unit','proposed_datatype']
+    if not any(proposal.get(k) is not None for k in fields):continue
+-   prop=proposal.get('property');proposed=proposal.get('proposed_path');role=proposal.get('proposed_path_role') or 'PROPERTY'
++   raw_proposal=proposal;prop=identity(proposal.get('property'),set(allowed));raw_path=proposal.get('proposed_path');proposed=[identity(step,path_terms) for step in raw_path] if isinstance(raw_path,list) else raw_path;role=proposal.get('proposed_path_role') or 'PROPERTY'
++   proposal=dict(proposal,property=prop,proposed_path=proposed)
++   if prop!=raw_proposal.get('property') or proposed!=raw_path:resolutions.append(dict(path=path,original_property=raw_proposal.get('property'),resolved_property=prop,original_path=raw_path,resolved_path=proposed,basis='Exact current-candidate namespace/unique supplied localName identity within evidenced mappings; no model claim changed'))
+    conflicts=review_conflicts({'issues':[proposal]},schema,rid)
+    if not allowed.get(prop):
+     blocking.append(dict(code='UNRESOLVED_PROPOSAL_MAPPING',path=path+'.property',reason='No explicit current-requirement property/path mapping; no correction inferred',property=prop,proposed_path=proposed,reviewer_issue=issue));continue
+@@ -180,4 +199,4 @@
+     error=dict(code='INCONSISTENT_REVIEWER_PROPERTY_PATH_PAIRING' if alternatives else 'UNRESOLVED_REPRESENTATION_CONFLICT',path=path+'.proposed_path' if is_path else path,category='REVIEWER_PROPOSAL_ERROR' if alternatives else 'REPRESENTATION_CONFLICT',expected='Correct or withdraw this inconsistent proposal; explicitly pair each operand with its declared property/path/role. Do not change candidate or invent a representation.' if alternatives else 'Resolve the source/schema contradiction without overriding declared representation',observed=dict(property=prop,proposed_path=proposed,proposed_path_role=role),reason=conflict['reason'],matching_declared_properties=alternatives,issue_id=issue['issue_id'])
+     (correctable if alternatives else blocking).append(error)
+  # A real contradiction is never hidden behind a response-correction opportunity.
+- return dict(correctable=correctable,blocking=blocking,route='CONFLICT' if blocking else 'CORRECT_RESPONSE' if correctable else 'VALID')
++ return dict(correctable=correctable,blocking=blocking,identifier_resolutions=resolutions,route='CONFLICT' if blocking else 'CORRECT_RESPONSE' if correctable else 'VALID')
+--- before/src/nltlv2/runner.py
++++ current/src/nltlv2/runner.py
+@@ -72,7 +72,7 @@
+    try:
+     _,normalization=normalize_response(response);write(self.output/f'reviewer_normalized_{self.sequence:03d}.json',{k:v for k,v in normalization.items() if k!='raw_text'})
+     obj,fs=parse_review(response,c,context,self.cfg['review_max_issues'],previous=previous,changes=changes,prior_issues=prior,request_body=body)
+-    routing=review_proposal_routing(obj,self.schema,context['requirement']['id'],context)
++    routing=review_proposal_routing(obj,self.schema,context['requirement']['id'],context,candidate=c)
+     write(self.output/f'reviewer_proposal_validation_{self.sequence:03d}.json',routing)
+     if routing['blocking']:
+      self.review_blocking_conflicts=routing['blocking'];return None,[],None

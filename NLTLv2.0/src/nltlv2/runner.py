@@ -6,15 +6,17 @@ from .admission import load_admission,blocked_result,target_findings
 from .checks import check,runtime_probe
 from .change_review import manifest
 from .tracking import Tracker
-from .context_resolution import Resolver
-from .review_protocol import normalize_response,response_format,reviewer_schema,contract_instructions
+from .context_resolution import Resolver,unresolved_questions,remember_question_review,record_question_retrieval
+from .review_protocol import normalize_response,response_format,reviewer_schema,contract_instructions,response_correction_instruction
 from .prompt_accounting import measure
 from .evidence import evidence_catalog,review_binding,assert_review_packet,probe_summary,CITATION_FORMAT
 from .requests import compact_review,review_base,concise_findings,review_proposal_routing
 from .requests import initial_request,repair_request,assert_integrity,parse_review,ReviewerFormatError,review_conflicts
 class Runner:
  def __init__(self,project,config,transport,output):
-  self.p=GenerationProject(project.root);self.cfg=copy.deepcopy(config);self.transport=transport;self.output=output;self.schema=Schema(self.p);self.sequence=0;self.latest_findings=();self.calls=[];self.response_metrics=[];self.input_hashes={};self.resolver=Resolver(self.schema,self.cfg);self.controller_transitions=[];self.execution_summaries={};self.active_review_body=None;self.physical_calls_start=getattr(transport,'calls',None) if isinstance(getattr(transport,'calls',None),int) else None
+  self.p=GenerationProject(project.root);self.cfg=copy.deepcopy(config);self.transport=transport;self.output=output;self.schema=Schema(self.p);self.sequence=0;self.latest_findings=();self.calls=[];self.response_metrics=[];self.input_hashes={};self.resolver=Resolver(self.schema,self.cfg);self.controller_transitions=[];self.execution_summaries={};self.active_review_body=None;self.context_questions={};self.physical_calls_start=getattr(transport,'calls',None) if isinstance(getattr(transport,'calls',None),int) else None
+  self.contract_version=config.get('review_contract_version',4)
+  if self.contract_version not in [3,4] or self.contract_version==3 and (getattr(transport,'is_live',False) or config.get('network_enabled')):raise ValueError('LEGACY_REVIEW_CONTRACT_OFFLINE_ONLY')
   if config.get('repair_limits',dict(technical=1,semantic=1,total=2))!=dict(technical=1,semantic=1,total=2):raise ValueError('INVALID_REPAIR_LIMITS')
   self.cfg['maximum_candidate_attempts']=min(self.cfg.get('maximum_candidate_attempts',3),3)
   self.cfg['review_format_retries']=min(self.cfg.get('review_format_retries',1),1)
@@ -51,26 +53,35 @@ class Runner:
   self.response_metrics.append(dict(sequence=self.sequence,route=request['route'],repair_type=request.get('repair_type'),usage=response.get('usage',{}),elapsed_seconds=response.get('elapsed_seconds',0)));return response
  def review(self,c,context,previous,changes,tracker,warnings,prior_override=None):
   self.review_failure_outcome='REVIEWER_FORMAT_FAILURE';self.review_blocking_conflicts=[];proposal_correction_seen=False
-  prior=copy.deepcopy(tracker.prior_semantic_issues() if prior_override is None else prior_override);body=dict(context=context,candidate_version=c.version,candidate_sha256=c.sha256,full_candidate=c.code,previous_candidate=None if previous is None else dict(version=previous.version,sha256=previous.sha256,full_code=previous.code),change_manifest=changes,prior_issues=prior,static_warnings=[f.asdict() for f in warnings if not f.blocking],deterministic_findings=[dict(f.asdict(),finding_key=f.key) for f in warnings],acceptance_blockers=[dict(f.asdict(),finding_key=f.key) for f in warnings if f.blocking],max_issues=self.cfg['review_max_issues'],expected_response_schema=reviewer_schema(self.cfg['review_max_issues'],primary_clause=context['requirement']['clause']))
+  prior=copy.deepcopy(tracker.prior_semantic_issues() if prior_override is None else prior_override);body=dict(context=context,candidate_version=c.version,candidate_sha256=c.sha256,full_candidate=c.code,previous_candidate=None if previous is None else dict(version=previous.version,sha256=previous.sha256,full_code=previous.code),change_manifest=changes,prior_issues=prior,static_warnings=[f.asdict() for f in warnings if not f.blocking],deterministic_findings=[dict(f.asdict(),finding_key=f.key) for f in warnings],acceptance_blockers=[dict(f.asdict(),finding_key=f.key) for f in warnings if f.blocking],max_issues=self.cfg['review_max_issues'],expected_response_schema={})
+  body['prior_context_questions']=unresolved_questions(self.context_questions,context) if self.contract_version==4 else []
+  body['question_snapshot_sha256']=hashlib.sha256(json.dumps(body['prior_context_questions'],sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+  body['review_contract_version']=self.contract_version
+  body['finding_aliases']={'F'+str(i+1):f.key for i,f in enumerate(warnings) if f.blocking}
+  body['expected_response_schema']=reviewer_schema(self.cfg['review_max_issues'],primary_clause=context['requirement']['clause'],changes=['C'+str(i+1) for i,_ in enumerate((changes or {}).get('changes',[]))],gaps=['G'+str(i+1) for i,_ in enumerate(context.get('retrieval_gaps',[]))],findings=body['finding_aliases'],version=self.contract_version,questions=[q['id'] for q in body['prior_context_questions']])
   execution=self.execution_summaries.get(c.version,probe_summary(c))
-  body.update(protocol_version=2,concise_findings=concise_findings(warnings),**review_binding(c,context,prior,previous,changes,execution),execution_probe=copy.deepcopy(execution),evidence_catalog=evidence_catalog(context,execution),citation_format=CITATION_FORMAT)
+  body.update(protocol_version=2,concise_findings=concise_findings(warnings),**review_binding(c,context,prior,previous,changes,execution,questions=body['prior_context_questions']),execution_probe=copy.deepcopy(execution),evidence_catalog=evidence_catalog(context,execution),citation_format=CITATION_FORMAT)
   wire=compact_review(body);self.active_review_body=copy.deepcopy(wire);assert_review_packet(wire,c)
   write(self.output/f'review_state_{self.sequence+1:03d}.json',body)
   write(self.output/f'review_packet_{self.sequence+1:03d}_evidence.json',body['evidence_catalog'])
   request=dict(route='review',system=self.p.path('prompts/reviewer.txt').read_text(),user=json.dumps(wire,ensure_ascii=False))
-  fmt=response_format(self.cfg)
+  fmt=response_format(self.cfg,schema=body['expected_response_schema'])
   if fmt:request['response_format']=fmt
   for retry in range(self.cfg['review_format_retries']+1):
    response=self.dispatch(request,c)
    try:
     _,normalization=normalize_response(response);write(self.output/f'reviewer_normalized_{self.sequence:03d}.json',{k:v for k,v in normalization.items() if k!='raw_text'})
     obj,fs=parse_review(response,c,context,self.cfg['review_max_issues'],previous=previous,changes=changes,prior_issues=prior,request_body=body)
-    routing=review_proposal_routing(obj,self.schema,context['requirement']['id'],context)
+    routing=review_proposal_routing(obj,self.schema,context['requirement']['id'],context,candidate=c)
     write(self.output/f'reviewer_proposal_validation_{self.sequence:03d}.json',routing)
     if routing['blocking']:
      self.review_blocking_conflicts=routing['blocking'];return None,[],None
     if routing['correctable']:
      errors=routing['correctable'];first=errors[0];e=ReviewerFormatError(first['code'],first['path'],first['expected'],first['observed'],first['category']);e.errors=errors;e.details=dict(first,validation_errors=errors);raise e
+    if self.contract_version==4:
+     self.context_questions=remember_question_review(self.context_questions,obj,c,dict(request_id=body['review_request_id'],sequence=self.sequence,response_sha256=hashlib.sha256(response['text'].encode()).hexdigest()),body['evidence_catalog'])
+     write(self.output/'context_questions.json',self.context_questions)
+    write(self.output/f'review_validated_{self.sequence:03d}.json',dict(review=obj,findings=[f.asdict() for f in fs],candidate_sha256=c.sha256,interpretation_is_not_independent_proof=True))
     return obj,fs,None
    except ReviewerFormatError as e:
     errors=getattr(e,'errors',[e.details]);proposal=any(x.get('category')=='REVIEWER_PROPOSAL_ERROR' for x in errors);proposal_correction_seen|=proposal
@@ -79,7 +90,8 @@ class Runner:
     write(self.output/f'reviewer_format_failure_{self.sequence:03d}.json',dict(error=str(e),error_details=e.details,validation_errors=errors,original_prior_issues=prior,raw_response=response,candidate_version=c.version,sha256=c.sha256,not_regulatory_rejection=True,correction_kind='PROPOSAL' if proposal else 'FORMAT',terminal_integrity=integrity,response_correction_index=retry,outcome_if_terminal=outcome))
     if integrity or retry==self.cfg['review_format_retries']:
      self.review_failure_outcome=outcome;return None,[],str(e)
-    feedback=dict(rejected_response=response['text'],rejected_response_is_not_prior_state=True,validation_errors=errors,allowed_reconciliation_ids=[x['issue_id'] for x in prior],failed_review_is_not_prior_state=True,correction_kind='PROPOSAL' if proposal else 'FORMAT',shared_response_correction_allowance=True,instruction='Correct every error or withdraw an inconsistent issue. Pair each comparison operand explicitly using supplied representation evidence. Keep the SAME candidate, evidence, request binding and ORIGINAL prior issues; rejected output creates NO accepted issues or repair authorization. Return one complete response. Do not rewrite candidate code, relabel properties or invent paths to bypass validation. Full raw responses remain artifacts.')
+    feedback=dict(rejected_response=response['text'],rejected_response_is_not_prior_state=True,validation_errors=errors,allowed_reconciliation_ids=[x['issue_id'] for x in prior],failed_review_is_not_prior_state=True,correction_kind='PROPOSAL' if proposal else 'FORMAT',shared_response_correction_allowance=True,instruction=response_correction_instruction(errors))
+    if self.contract_version==4:feedback.pop('allowed_reconciliation_ids',None)
     retry_body=copy.deepcopy(wire);retry_body['format_feedback']=feedback
     request=dict(request,route='review_format_retry',user=json.dumps(retry_body,ensure_ascii=False))
 
@@ -88,7 +100,10 @@ class Runner:
  def retrieve_context(self,c,context,requests,rid):
   self.transition(c,'RETRIEVE_CONTEXT',requests=requests)
   context,event=self.resolver.resolve(context,requests,rid);self.input_hashes.update(self.resolver.input_hashes);write(self.output/'retrieved_input_hashes.json',self.resolver.input_hashes)
-  write(self.output/f'context_retrieval_{len(self.resolver.events):02d}_{len(self.controller_transitions):02d}.json',event);write(self.output/'resolved_context.json',context);write(self.output/'retrieval_ledger.json',self.resolver.events)
+  event=dict(event,request_round_performed='round' in event,round=event.get('round',self.resolver.rounds+1),requests=event.get('requests',requests))
+  artifact=f'context_retrieval_{len(self.resolver.events):02d}_{len(self.controller_transitions):02d}.json'
+  self.context_questions=record_question_retrieval(self.context_questions,event,artifact);write(self.output/'context_questions.json',self.context_questions)
+  write(self.output/artifact,event);write(self.output/'resolved_context.json',context);write(self.output/'retrieval_ledger.json',self.resolver.events)
   self.transition(c,event['status'],novel=event['novel'])
   return context,event
  def assess_candidate(self,c,context,previous,changes,tracker,findings,rid):
@@ -98,16 +113,19 @@ class Runner:
   context_blockers=[f for f in base if f.blocking]
   if context_blockers or context.get('unresolvedSourceContext'):
    context,_=self.retrieve_context(c,context,self.resolver.default_requests(context,c),rid)
-  prior=tracker.prior_semantic_issues();obj=None;semantic=[];error=None;conflicts=[]
+  prior=tracker.prior_semantic_issues();obj=None;semantic=[];error=None;conflicts=[];last_valid=None;last_semantic=[]
   for round_index in range(policy['max_reviews_per_candidate']):
    if sum(x['route']=='review' for x in self.calls)>=policy['max_reviews_per_run']:
     self.transition(c,'REVIEW_LIMIT_EXHAUSTED');return context,base+semantic,obj,error,conflicts,'CONTEXT_LIMIT_EXHAUSTED'
    self.transition(c,'REVIEW',review_round=round_index+1,code_unchanged=True)
    obj,semantic,error=self.review(c,context,previous,changes,tracker,base,prior_override=prior)
    if error:
-    self.transition(c,self.review_failure_outcome);return context,base,None,error,[],self.review_failure_outcome
+    if not any(f.category=='UNRESOLVED_CONTEXT' and f.blocking for f in last_semantic):
+     for q in unresolved_questions(self.context_questions,context):last_semantic.append(finding(c,'UNRESOLVED_CONTEXT',q['missing'],expected='Explicit supported question disposition',evidence=json.dumps(q),suggestion='Resolve or withdraw with evidence; do not assume resolution.',location='context question '+q['id'],confirmed=False,obligation_id=q['id'],assessment='MATERIAL_REVIEW_UNCERTAINTY'))
+    self.transition(c,self.review_failure_outcome,unresolved_valid_feedback_preserved=bool(last_semantic));return context,base+last_semantic,last_valid,error,[],self.review_failure_outcome
    conflicts=self.review_blocking_conflicts
    if conflicts:self.transition(c,'CONFLICT');return context,base,None,None,conflicts,'CONFLICT'
+   last_valid=obj;last_semantic=list(semantic)
    requests=obj.get('evidence_requests',[])
    pending=obj['decision'] in ['REQUEST_EVIDENCE','UNRESOLVED'] or bool(obj.get('material_unchecked'))
    if requests or pending:
@@ -186,7 +204,7 @@ class Runner:
      self.transition(c,status,repair_type=repair_type,repair_counts=repair_counts.copy());break
     pending_repair_type=repair_type
     self.transition(c,'REPAIR_REQUEST_READY',latest_code_complete=True,repair_type=repair_type,repair_counts=repair_counts.copy())
-    request=repair_request(self.p,context,c,fs,persistent_summary=persistent)
+    request=repair_request(self.p,context,c,fs,persistent_summary=persistent,context_questions=unresolved_questions(self.context_questions,context))
     request['repair_type']=repair_type
     status='ATTEMPT_LIMIT_EXHAUSTED'
    except Exception as e:
@@ -199,7 +217,7 @@ class Runner:
   try:self.verify_inputs()
   except Exception as e:
    status='REQUEST_INTEGRITY_FAILURE';operational=dict(status=status,diagnostic=str(e),no_automatic_retry=True);write(self.output/'operational_failure.json',operational)
-  result=dict(version='0.11.3',repair_counts=repair_counts,repair_limits=dict(technical=1,semantic=1,total=2),effective_max_provider_calls=min(self.cfg.get('continuation',{}).get('max_provider_calls',11),11),effective_max_candidates=maximum,effective_review_limits=dict(primary_total=self.resolver.policy['max_reviews_per_run'],primary_per_candidate=self.resolver.policy['max_reviews_per_candidate'],shared_corrections_per_review=self.cfg['review_format_retries'],retrieval_rounds=self.resolver.policy['max_rounds']),token_usage={k:sum((m.get('usage') or {}).get(k,0) or 0 for m in self.response_metrics) for k in ['input_tokens','output_tokens','total_tokens']},request_elapsed_seconds=sum(m.get('elapsed_seconds',0) or 0 for m in self.response_metrics),admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=(self.transport.calls-self.physical_calls_start if self.physical_calls_start is not None else len(self.calls)) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(list(self.output.glob('candidate_*.ttl'))),dispatch_attempts=len(self.calls),call_counts_by_route={route:sum(q['route']==route for q in self.calls) for route in sorted({q['route'] for q in self.calls})},generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
+  result=dict(version='0.11.5',context_questions=copy.deepcopy(self.context_questions),repair_counts=repair_counts,repair_limits=dict(technical=1,semantic=1,total=2),effective_max_provider_calls=min(self.cfg.get('continuation',{}).get('max_provider_calls',11),11),effective_max_candidates=maximum,effective_review_limits=dict(primary_total=self.resolver.policy['max_reviews_per_run'],primary_per_candidate=self.resolver.policy['max_reviews_per_candidate'],shared_corrections_per_review=self.cfg['review_format_retries'],retrieval_rounds=self.resolver.policy['max_rounds']),token_usage={k:sum((m.get('usage') or {}).get(k,0) or 0 for m in self.response_metrics) for k in ['input_tokens','output_tokens','total_tokens']},request_elapsed_seconds=sum(m.get('elapsed_seconds',0) or 0 for m in self.response_metrics),admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=(self.transport.calls-self.physical_calls_start if self.physical_calls_start is not None else len(self.calls)) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(list(self.output.glob('candidate_*.ttl'))),dispatch_attempts=len(self.calls),call_counts_by_route={route:sum(q['route']==route for q in self.calls) for route in sorted({q['route'] for q in self.calls})},generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
   if self.cfg.get('delivery_policy')=='latest_technical':
    from .delivery import finalize
    result['delivery']=finalize(self.output,history,status)

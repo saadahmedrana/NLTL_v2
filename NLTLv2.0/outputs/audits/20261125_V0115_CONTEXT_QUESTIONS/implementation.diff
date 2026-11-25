@@ -1,0 +1,315 @@
+--- before/configs/nltl.json
++++ current/configs/nltl.json
+@@ -26,7 +26,7 @@
+   "network_enabled": false,
+   "source_grounding": "Original source plus ontology/representation only; model judgments remain interpretations",
+   "candidate_attempt_definition": "Initial generation plus every code revision. Reviewer format retries are separate.",
+-  "pipeline_version": "0.11.4",
++  "pipeline_version": "0.11.5",
+   "review_output_mode": "bounded_json",
+   "provider_capabilities": {
+     "responses_text_json_schema": false,
+--- before/prompts/reviewer.txt
++++ current/prompts/reviewer.txt
+@@ -9,3 +9,5 @@
+ Assess every supplied functional change/removal once, including reachable replacements. Supported removal needs the appropriate source/schema/scope evidence; checker silence is not support. Material context questions prevent repair/acceptance. APPROVE asserts no current or prior issue remains, all changes are supported and all supplied gaps are explicitly nonmaterial. Artifact delivery is separate from approval.
+ 
+ Failed responses are not prior issues or repair permission. The same candidate/evidence/prior state is retained for the existing single shared response correction. Return the complete response; never rewrite candidate code in review. Do not request evaluation fixtures, labels, counterparts, expected verdicts or historical solutions.
++
++Prior material questions are carried readably in prior_context_questions with software-owned Q IDs, original missing/why text, current evidence references and retrieval history. Follow the conditional question_review schema for every prior Q; omission or bare APPROVE never clears a concern. Software retains original question provenance.
+--- before/pyproject.toml
++++ current/pyproject.toml
+@@ -3,7 +3,7 @@
+ build-backend = "setuptools.build_meta"
+ [project]
+ name = "nltlv2-refined"
+-version = "0.11.4"
++version = "0.11.5"
+ description = "General source-grounded NLTL; independent offline evaluation"
+ requires-python = ">=3.11"
+ dependencies = ["rdflib==7.6.0", "pyshacl==0.31.0", "owlrl==7.6.2", "requests==2.32.5", "python-dotenv==1.2.2", "tiktoken==0.12.0", "regex==2025.11.3"]
+--- before/src/nltlv2/__init__.py
++++ current/src/nltlv2/__init__.py
+@@ -1,2 +1,2 @@
+ """General source-grounded NLTL pipeline. No credentials loaded on import."""
+-__version__ = "0.11.4"
++__version__ = "0.11.5"
+--- before/src/nltlv2/context_resolution.py
++++ current/src/nltlv2/context_resolution.py
+@@ -175,3 +175,47 @@
+   updated['retrieval_gaps']=[dict(gap_id=digest(json.dumps(x,sort_keys=True)),evidence=x,policy='Reviewer must explicitly assess materiality; missing information is not a code defect') for x in updated['unresolvedSourceContext']]
+   event=dict(round=self.rounds,status='EVIDENCE_ADDED' if novel else 'NO_NEW_EVIDENCE',novel=novel,requests=requests,entries=batch,total_characters=self.total_characters,limits=self.policy)
+   self.events.append(event);return updated,event
++
++# Per-run context-question bookkeeping, not a new controller or semantic oracle.
++def question_key(missing,kind):return digest(json.dumps([kind,' '.join(missing.split())],ensure_ascii=False))
++
++def unresolved_questions(ledger,context):
++ """Readable immutable question history, with CURRENT evidence aliases."""
++ from .evidence import evidence_catalog
++ catalog=evidence_catalog(context);byhash={e['evidence_sha256']:e for e in catalog['entries']};out=[]
++ for q in ledger.values():
++  if q['status']!='STILL_UNRESOLVED':continue
++  refs=[]
++  for r in q['supporting_evidence']:
++   current=byhash.get(r['evidence_sha256']);item=dict(kind=r['kind'],origin=copy.deepcopy(r['origin']),start=r['start'],end=r['end'])
++   if current:item['reference']=current['evidence_id']
++   else:item.update(reference=None,original_text=r['text'],availability='Original supporting evidence is not in the current catalog; retrieve/current evidence is needed for a closing disposition')
++   refs.append(item)
++  out.append(dict(id=q['id'],missing=q['missing'],why=q['why'],kind=q['kind'],reference=q.get('reference'),section=q.get('section'),originating_candidate=copy.deepcopy(q['originating_candidate']),supporting_evidence=refs,retrieval_attempts=[dict(round=a['round'],status=a['status'],novel=a['novel'],performed=a['performed'],schema_terms=a['schema_terms'],source_characters=a['source_characters'],artifact=a['artifact']) for a in q['retrieval_attempts']]))
++ return out
++
++def remember_question_review(ledger,review,candidate,review_origin,catalog):
++ """Commit only a complete, validated review. Preserve original wording/provenance."""
++ if 'prior_context_questions' in review and {q['id'] for q in ledger.values() if q['status']=='STILL_UNRESOLVED'}!={q['id'] for q in review['prior_context_questions']}:raise ValueError('CONTEXT_QUESTION_STATE_INTEGRITY_FAILURE')
++ updated=copy.deepcopy(ledger);byid={q['id']:q for q in updated.values()};evidence={e['evidence_sha256']:e for e in catalog['entries']}
++ for d in review.get('question_dispositions',[]):
++  q=byid[d['id']];q['status']=d['disposition'];q['dispositions'].append(dict(d,review=copy.deepcopy(review_origin),candidate=dict(version=candidate.version,sha256=candidate.sha256),interpretation_is_model_judgment=True))
++ for q in review.get('questions',[]):
++  key=question_key(q['missing'],q['kind']);refs=[]
++  for r in q['resolved_evidence']:
++   entry=evidence[r['evidence_sha256']];refs.append(dict(r,origin=copy.deepcopy(entry['origin']),original_reference=r['evidence_id']))
++  observation=dict(missing=q['missing'],why=q['why'],supporting_evidence=refs,candidate=dict(version=candidate.version,sha256=candidate.sha256),review=copy.deepcopy(review_origin))
++  if key not in updated:
++   updated[key]=dict(id='Q'+str(len(updated)+1),stable_id='question:'+key,missing=q['missing'],why=q['why'],kind=q['kind'],reference=q.get('reference'),section=q.get('section'),originating_candidate=copy.deepcopy(observation['candidate']),originating_review=copy.deepcopy(review_origin),supporting_evidence=refs,retrieval_attempts=[],dispositions=[],observations=[])
++  record=updated[key];record['status']='STILL_UNRESOLVED';record['observations'].append(observation)
++ return updated
++
++def record_question_retrieval(ledger,event,artifact):
++ updated=copy.deepcopy(ledger)
++ for q in updated.values():
++  if q['status']!='STILL_UNRESOLVED':continue
++  matched=[r for r in event.get('requests',[]) if r.get('kind')==q['kind'] and r.get('query')==q['missing'][:2000]]
++  if not matched:continue
++  entries=event.get('entries',[])
++  q['retrieval_attempts'].append(dict(round=event['round'],status=event['status'],novel=event['novel'],performed=event.get('request_round_performed',True),requests=copy.deepcopy(matched),schema_terms=sum(len(e.get('term_iris',[])) for e in entries),source_characters=sum(e.get('characters',0) for e in entries if e.get('kind')=='source'),artifact=artifact))
++ return updated
+--- before/src/nltlv2/evidence.py
++++ current/src/nltlv2/evidence.py
+@@ -73,8 +73,9 @@
+  if probe is None:return dict(candidate_version=c.version,candidate_sha256=c.sha256,engine_outcome='NOT_RUN',exact_diagnostics=dict(reason=reason),regulatory_correctness_established=False)
+  if probe.get('candidate_sha256') not in [None,c.sha256] or probe.get('candidate_version') not in [None,c.version]:raise ValueError('STALE_EXECUTION_PROBE_INTEGRITY_FAILURE')
+  return dict(candidate_version=c.version,candidate_sha256=c.sha256,engine='pyshacl',engine_version=probe.get('engine_version','NOT_EMBEDDED_IN_LEGACY_ARTIFACT'),engine_outcome=probe.get('engine_outcome','HISTORICAL_ERROR_RECORDED' if probe.get('error') else 'HISTORICAL_COMPLETED_PROBE_ARTIFACT'),exact_diagnostics={k:probe[k] for k in ['error','failure_kind','stdout','stderr'] if k in probe},diagnostic_availability='Captured verbatim' if 'stdout' in probe else 'Legacy artifact did not capture successful engine stdout/stderr',activation=probe.get('activation'),regulatory_correctness_established=False,scope='Execution-only schema-derived probe; no expected regulatory verdict; success is not complete correctness')
+-def review_binding(c,context,prior=(),previous=None,changes=None,execution=None):
++def review_binding(c,context,prior=(),previous=None,changes=None,execution=None,*,questions=()):
+  catalog=evidence_catalog(context,execution);identity=dict(candidate_version=c.version,candidate_sha256=c.sha256,context_sha256=digest(canonical(context)),catalog_sha256=catalog['catalog_sha256'],prior_issues=list(prior),previous_candidate=None if previous is None else dict(version=previous.version,sha256=previous.sha256,full_code=previous.code),changes=(changes or {}).get('changes',[]),execution_probe=execution)
++ if questions:identity['prior_context_questions']=list(questions)
+  return dict(candidate_version=c.version,candidate_sha256=c.sha256,review_request_id='review:'+digest(canonical(identity)))
+ def assert_review_packet(body,c):
+  if body.get('protocol_version')==2 and 'packet_sha256' in body:
+@@ -82,7 +83,7 @@
+   return assert_compact_review(body,c)
+  from .core import Candidate
+  previous=body.get('previous_candidate');p=None if previous is None else Candidate(previous['version'],previous['full_code'],'')
+- expected=review_binding(c,body['context'],body['prior_issues'],p,body['change_manifest'],body.get('execution_probe'))
++ expected=review_binding(c,body['context'],body['prior_issues'],p,body['change_manifest'],body.get('execution_probe'),questions=body.get('prior_context_questions',()))
+  if type(body.get('candidate_version')) is not int or any(body.get(k)!=v for k,v in expected.items()) or body['full_candidate']!=c.code:raise ValueError('STALE_REVIEW_STATE_INTEGRITY_FAILURE')
+  if body.get('evidence_catalog')!=evidence_catalog(body['context'],body.get('execution_probe')):raise ValueError('UNSUPPLIED_REVIEW_EVIDENCE_INTEGRITY_FAILURE')
+  execution=body.get('execution_probe')
+--- before/src/nltlv2/requests.py
++++ current/src/nltlv2/requests.py
+@@ -4,13 +4,14 @@
+ CATEGORIES={'RESPONSE_FORMAT_ERROR','PARSE_ERROR','CANONICAL_IDENTIFIER_ERROR','TERM_KIND_ERROR','UNIT_CONSISTENCY_ERROR','PATH_CONTRACT_ERROR','SPARQL_ERROR','SOURCE_BACKED_LOGIC_ERROR','TECHNICAL_REPRESENTATION_ERROR','UNRESOLVED_CONTEXT','SPARQL_STATIC_WARNING','INFRASTRUCTURE_ERROR','RESOURCE_UNCERTAIN','NUMERIC_TERM_REVIEW','PRESERVATION_CONFLICT','ACTIVATION_ERROR','ADMISSION_SCOPE_ERROR','SHACL_STRUCTURE_ERROR'}
+ def initial_request(project,context,settings):
+  return dict(route='generation',system=project.path('prompts/generator.txt').read_text(),user=json.dumps(dict(context=context,generation_settings=settings),ensure_ascii=False),settings=settings)
+-def repair_request(project,context,c,findings,persistent_summary=None):
++def repair_request(project,context,c,findings,persistent_summary=None,*,context_questions=()):
+  if not findings:raise ValueError('Repair requires current findings')
+  if any(f.version!=c.version or f.candidate_sha256!=c.sha256 for f in findings):raise ValueError('STALE_FEEDBACK')
+  payload=dict(admission=context.get('admission'),requirement_id=context['requirement']['id'],exact_regulatory_text=context['requirement']['text'],source_clause=context['requirement']['clause'],source_documents=context['source_documents'],source_selection=context.get('source_selection'),unresolved_source_context=context.get('unresolvedSourceContext',[]),retrieval_evidence=context.get('retrieval_evidence',[]),retrieved_schema_evidence=context.get('retrieved_schema_evidence',[]),verification_scope=context['scope'],schema_contract_evidence={k:context[k] for k in ['schema_terms','ontology_evidence','contract','termOwners','modelPaths','unresolvedOwnership','quantityEncoding']},candidate_version=c.version,candidate_sha256=c.sha256,previous_candidate=c.code,current_findings=repair_findings(findings,c),interpretation_policy='Model review findings are grounded interpretations, not independently validated facts. Resolve uncertain source/schema context explicitly. No handwritten solution or change permissions.',preserve='Preserve source obligations, not every accidental restriction in old code. Explain removals/replacements against source/schema; do not invent obligations, conversions or applicability.')
+  for key in ['exact_regulatory_text','source_clause','source_documents','source_selection','unresolved_source_context','retrieval_evidence','retrieved_schema_evidence','schema_contract_evidence','admission','verification_scope','interpretation_policy','preserve']:payload.pop(key,None)
+  from .evidence import evidence_catalog,wire_catalog
+  payload.update(protocol_version=2,context=compact_context(context),evidence_catalog=wire_catalog(evidence_catalog(context)),admission_sha256=digest(json.dumps(context.get('admission'),sort_keys=True)))
++ if context_questions:payload['prior_context_questions']=list(context_questions)
+  if persistent_summary is not None:payload['persistent_failure_summary']={k:persistent_summary[k] for k in ['current_version','current_sha256','repeat_detection'] if k in persistent_summary}
+  payload['repair_packet_sha256']=digest(json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(',',':')))
+  route='syntax_repair' if all(f.category in ['PARSE_ERROR','RESPONSE_FORMAT_ERROR'] for f in findings) else 'targeted_repair'
+@@ -93,6 +94,8 @@
+  from .evidence import wire_catalog
+  out.update(protocol_version=2,context=compact_context(body['context']),admission_sha256=digest(json.dumps(body['context'].get('admission'),sort_keys=True)),evidence_catalog=wire_catalog(body['evidence_catalog']),change_manifest=concise_changes(body['change_manifest']),prior_issues=concise_prior(body['prior_issues']),findings=body['concise_findings'])
+  if body.get('review_contract_version')==4:
++  out['prior_context_questions']=body.get('prior_context_questions',[])
++  out['question_snapshot_sha256']=body['question_snapshot_sha256']
+   out['review_contract_version']=4
+   out['finding_aliases']=body.get('finding_aliases',{})
+   out['prior_issues']=[dict(description=x.get('summary',x.get('reason','')),state='UNRESOLVED') for x in out['prior_issues']]
+@@ -109,6 +112,7 @@
+  from .evidence import extract_location
+  base=review_base(body);expected=base.pop('packet_sha256',None)
+  if expected!=digest(json.dumps(base,sort_keys=True,ensure_ascii=False,separators=(',',':'))):raise ValueError('REVIEW_RETRY_STATE_INTEGRITY_FAILURE')
++ if base.get('review_contract_version')==4 and base.get('question_snapshot_sha256')!=digest(json.dumps(base.get('prior_context_questions',[]),sort_keys=True,ensure_ascii=False,separators=(',',':'))):raise ValueError('CONTEXT_QUESTION_STATE_INTEGRITY_FAILURE')
+  if type(base.get('candidate_version')) is not int or base['candidate_version']!=c.version or base['candidate_sha256']!=c.sha256 or base['full_candidate']!=c.code:raise ValueError('STALE_REVIEW_CANDIDATE')
+  if digest(base['full_candidate'])!=c.sha256:raise ValueError('STALE_REVIEW_CANDIDATE')
+  prev=base.get('previous_candidate')
+--- before/src/nltlv2/review_protocol.py
++++ current/src/nltlv2/review_protocol.py
+@@ -132,7 +132,7 @@
+ 
+ # Current production contract. Legacy schema above exists only for explicitly
+ # offline regression controls, and is rejected by Runner for live transports.
+-def reviewer_schema(max_issues=12,strict=False,primary_clause=None,*,changes=(),gaps=(),findings=(),version=4):
++def reviewer_schema(max_issues=12,strict=False,primary_clause=None,*,changes=(),gaps=(),findings=(),version=4,questions=()):
+  if version==3:return legacy_reviewer_schema(max_issues,strict,primary_clause)
+  def obj(properties,required=None):return dict(type='object',properties=properties,required=list(properties) if required is None else required,additionalProperties=False)
+  text=dict(type='string',minLength=1)
+@@ -149,7 +149,13 @@
+   properties['change_review']={'type':'array','items':change,'minItems':len(changes),'maxItems':len(changes)}
+  if gaps:
+   properties['gap_review']={'type':'array','items':obj(dict(id={'enum':list(gaps)},material={'type':'boolean'},why=text)),'maxItems':len(gaps)}
+- schema=obj(properties);schema['description']=compact_contract_instructions();return schema
++ if questions:
++  disposition=obj(dict(id={'enum':list(questions)},disposition={'enum':['RESOLVED','WITHDRAWN','STILL_UNRESOLVED']},why=text,evidence={'type':'array','items':ref,'maxItems':8}),['id','disposition','why'])
++  properties['question_review']={'type':'array','items':disposition,'minItems':len(questions),'maxItems':len(questions)}
++ schema=obj(properties);schema['description']=compact_contract_instructions()+(' '+prior_question_instructions() if questions else '');return schema
++
++def prior_question_instructions():
++ return 'For each prior_context_questions ID return one question_review disposition: RESOLVED explains how supplied evidence answers it; WITHDRAWN explains why the earlier concern was mistaken/nonmaterial; both need current supporting evidence references. STILL_UNRESOLVED explains what remains missing and blocks APPROVE. Cover every prior question exactly once; do not repeat it as a new question while closing it. Empty current questions or APPROVE alone never closes prior questions. Software owns stable IDs, original text, provenance and retrieval history. Explanatory validity remains a model judgment, not deterministic proof. '
+ 
+ def compact_contract_instructions():
+  return ('Return the complete assessment, issues and questions arrays. APPROVE requires no issues/questions and every change supported and every retrieval gap explicitly nonmaterial. REJECT requires an actionable code issue; material questions remain blocking even with REJECT. HUMAN_REVIEW_REQUIRED needs an explicit question or unresolved change/gap. '
+--- before/src/nltlv2/review_validation.py
++++ current/src/nltlv2/review_validation.py
+@@ -172,13 +172,16 @@
+  try:_,audit=normalize_response(response)
+  except ReviewerFormatError as e:return None,None,[e.details]
+  raw=audit['normalized_response'];groups=(changes or {}).get('changes',[]);change_map={'C'+str(i+1):g for i,g in enumerate(groups)};gap_map={'G'+str(i+1):g for i,g in enumerate(context.get('retrieval_gaps',[]))}
++ prior_questions=(request_body or {}).get('prior_context_questions',[])
++ prior_question_map={q['id']:q for q in prior_questions}
+  finding_map=(request_body or {}).get('finding_aliases',{})
+- schema=reviewer_schema(max_issues,changes=change_map,gaps=gap_map,findings=finding_map)
++ schema=reviewer_schema(max_issues,changes=change_map,gaps=gap_map,findings=finding_map,questions=prior_question_map)
+  errors+=contract_shape_errors(raw,schema)
+  if errors:return None,audit,errors
+  catalog=evidence_catalog(context,(request_body or {}).get('execution_probe'));entries={e['evidence_id']:e for e in catalog['entries']}
+  if request_body is not None:
+-  expected=review_binding(c,context,prior_issues,previous,changes,request_body.get('execution_probe'))
++  expected=review_binding(c,context,prior_issues,previous,changes,request_body.get('execution_probe'),questions=prior_questions)
++  if request_body.get('question_snapshot_sha256')!=digest(canonical(prior_questions)):error('STALE_CONTEXT_QUESTION_STATE','$request.prior_context_questions','Original immutable question snapshot',category='REQUEST_VERSION_BINDING')
+   if any(request_body.get(k)!=v for k,v in expected.items()) or request_body.get('full_candidate')!=c.code or request_body.get('evidence_catalog')!=catalog:error('STALE_REVIEW_REQUEST','$request','Original immutable candidate/evidence/prior binding',category='REQUEST_VERSION_BINDING')
+  def references(refs,path):
+   resolved=[]
+@@ -211,7 +214,21 @@
+   issues.append(dict(issue_id=stable,category='SOURCE_BACKED_LOGIC_ERROR' if law else 'TECHNICAL_REPRESENTATION_ERROR',source_clause=context['requirement']['clause'] if law else None,source_evidence_id=law['evidence_id'] if law else None,source_excerpt=law['text'] if law else None,evidence_id=first['evidence_id'] if first else None,evidence_excerpt=first['text'] if first else None,reason=item['description'],expected=item['suggestion'],suggestion=item['suggestion'],candidate_excerpt=exact,candidate_location=loc,resolved_evidence=refs,operands=operands,addresses=item.get('addresses',[])))
+  questions=[];requests=[]
+  for i,q in enumerate(raw['questions']):
+-  refs=references(q.get('evidence',[]),'$.questions['+str(i)+'].evidence');questions.append(dict(missing=q['missing'],why=q['why'],resolved_evidence=refs));requests.append(dict(kind=q['kind'],reference=q.get('reference'),section=q.get('section'),query=q['missing'][:2000],reason=q['why']))
++  refs=references(q.get('evidence',[]),'$.questions['+str(i)+'].evidence');questions.append(dict(missing=q['missing'],why=q['why'],kind=q['kind'],reference=q.get('reference'),section=q.get('section'),resolved_evidence=refs));requests.append(dict(kind=q['kind'],reference=q.get('reference'),section=q.get('section'),query=q['missing'][:2000],reason=q['why']))
++ question_dispositions=[];question_ids=[];pending_questions=[]
++ from .context_resolution import question_key
++ new_question_keys={question_key(q['missing'],q['kind']) for q in questions}
++ for i,d in enumerate(raw.get('question_review',[])):
++  path='$.question_review['+str(i)+']';prior_q=prior_question_map[d['id']];question_ids.append(d['id']);refs=references(d.get('evidence',[]),path+'.evidence')
++  if d['disposition'] in ['RESOLVED','WITHDRAWN']:
++   if not refs or not any(r['role'] in ['OBLIGATION','REPRESENTATION','POPULATION_ASSUMPTION'] for r in refs):error('QUESTION_CLOSURE_NEEDS_EVIDENCE',path+'.evidence','Current supplied evidence supporting the explanation')
++   if question_key(prior_q['missing'],prior_q['kind']) in new_question_keys:error('CONTRADICTORY_QUESTION_DISPOSITION',path,'Cannot close a concern and simultaneously ask it as missing information',d['id'])
++  else:
++   pending_questions.append(prior_q)
++   requests.append(dict(kind=prior_q['kind'],reference=prior_q.get('reference'),section=prior_q.get('section'),query=prior_q['missing'][:2000],reason=prior_q['why']))
++  question_dispositions.append(dict(id=d['id'],disposition=d['disposition'],why=d['why'],resolved_evidence=refs))
++ if set(question_ids)!=set(prior_question_map) or len(question_ids)!=len(set(question_ids)):error('INCOMPLETE_QUESTION_REVIEW','$.question_review','Every prior material question exactly once')
++ if raw['assessment']=='APPROVE' and pending_questions:error('UNRESOLVED_QUESTION_APPROVAL','$.assessment','STILL_UNRESOLVED prior questions block APPROVE')
+  assessed=[];assessments=[]
+  for i,x in enumerate(raw.get('change_review',[])):
+   path='$.change_review['+str(i)+']';g=change_map[x['id']];refs=references(x['evidence'],path+'.evidence');assessed.append(x['id'])
+@@ -228,6 +245,7 @@
+  if len(gap_seen)!=len(set(gap_seen)):error('DUPLICATE_GAP_ASSESSMENT','$.gap_review','Each gap at most once')
+  if any(g['material'] for g in raw.get('gap_review',[])) and not questions:error('MATERIAL_GAP_NEEDS_QUESTION','$.questions','Describe missing information and why it matters')
+  unresolved=any(x['disposition']=='UNRESOLVED' for x in assessments)
++ for q in pending_questions:unchecked.append(dict(scope=q['id'],material=True,reason=q['why']))
+  assessment=raw['assessment']
+  if assessment=='APPROVE':
+   if issues or questions or unresolved or any(x['disposition']!='SUPPORTED' for x in assessments):error('DECISION_ISSUE_CONTRADICTION','$.assessment','APPROVE requires no code issues, questions or unsupported changes')
+@@ -241,7 +259,7 @@
+  context_assessments=[dict(finding_key=finding_map[a],disposition='REPAIRABLE_CODE',reason=x['reason']) for x in issues for a in x['addresses']]
+  for q in questions:unchecked.append(dict(scope=q['missing'],material=True,reason=q['why']))
+  if unresolved:unchecked.append(dict(scope='Unresolved change assessment',material=True,reason='Uncertainty is not code-repair permission'))
+- obj=dict(assessment=assessment,decision={'APPROVE':'ACCEPT','HUMAN_REVIEW_REQUIRED':'UNRESOLVED','REJECT':'REJECT'}[assessment],issues=issues,questions=questions,change_assessments=assessments,reconciliations=reconciliations,unchecked=unchecked,material_unchecked=[x for x in unchecked if x['material']],evidence_requests=requests,context_assessments=context_assessments,candidate_version=c.version,candidate_sha256=c.sha256,review_request_id=(request_body or {}).get('review_request_id'),model_response=copy.deepcopy(raw),software_owned_metadata=True)
++ obj=dict(assessment=assessment,decision={'APPROVE':'ACCEPT','HUMAN_REVIEW_REQUIRED':'UNRESOLVED','REJECT':'REJECT'}[assessment],issues=issues,questions=questions,question_dispositions=question_dispositions,prior_context_questions=copy.deepcopy(prior_questions),change_assessments=assessments,reconciliations=reconciliations,unchecked=unchecked,material_unchecked=[x for x in unchecked if x['material']],evidence_requests=requests,context_assessments=context_assessments,candidate_version=c.version,candidate_sha256=c.sha256,review_request_id=(request_body or {}).get('review_request_id'),model_response=copy.deepcopy(raw),software_owned_metadata=True)
+  return obj,audit,errors
+ 
+ # Legacy parsing is retained only to replay explicitly offline regression controls.
+--- before/src/nltlv2/runner.py
++++ current/src/nltlv2/runner.py
+@@ -6,7 +6,7 @@
+ from .checks import check,runtime_probe
+ from .change_review import manifest
+ from .tracking import Tracker
+-from .context_resolution import Resolver
++from .context_resolution import Resolver,unresolved_questions,remember_question_review,record_question_retrieval
+ from .review_protocol import normalize_response,response_format,reviewer_schema,contract_instructions
+ from .prompt_accounting import measure
+ from .evidence import evidence_catalog,review_binding,assert_review_packet,probe_summary,CITATION_FORMAT
+@@ -14,7 +14,7 @@
+ from .requests import initial_request,repair_request,assert_integrity,parse_review,ReviewerFormatError,review_conflicts
+ class Runner:
+  def __init__(self,project,config,transport,output):
+-  self.p=GenerationProject(project.root);self.cfg=copy.deepcopy(config);self.transport=transport;self.output=output;self.schema=Schema(self.p);self.sequence=0;self.latest_findings=();self.calls=[];self.response_metrics=[];self.input_hashes={};self.resolver=Resolver(self.schema,self.cfg);self.controller_transitions=[];self.execution_summaries={};self.active_review_body=None;self.physical_calls_start=getattr(transport,'calls',None) if isinstance(getattr(transport,'calls',None),int) else None
++  self.p=GenerationProject(project.root);self.cfg=copy.deepcopy(config);self.transport=transport;self.output=output;self.schema=Schema(self.p);self.sequence=0;self.latest_findings=();self.calls=[];self.response_metrics=[];self.input_hashes={};self.resolver=Resolver(self.schema,self.cfg);self.controller_transitions=[];self.execution_summaries={};self.active_review_body=None;self.context_questions={};self.physical_calls_start=getattr(transport,'calls',None) if isinstance(getattr(transport,'calls',None),int) else None
+   self.contract_version=config.get('review_contract_version',4)
+   if self.contract_version not in [3,4] or self.contract_version==3 and (getattr(transport,'is_live',False) or config.get('network_enabled')):raise ValueError('LEGACY_REVIEW_CONTRACT_OFFLINE_ONLY')
+   if config.get('repair_limits',dict(technical=1,semantic=1,total=2))!=dict(technical=1,semantic=1,total=2):raise ValueError('INVALID_REPAIR_LIMITS')
+@@ -54,11 +54,13 @@
+  def review(self,c,context,previous,changes,tracker,warnings,prior_override=None):
+   self.review_failure_outcome='REVIEWER_FORMAT_FAILURE';self.review_blocking_conflicts=[];proposal_correction_seen=False
+   prior=copy.deepcopy(tracker.prior_semantic_issues() if prior_override is None else prior_override);body=dict(context=context,candidate_version=c.version,candidate_sha256=c.sha256,full_candidate=c.code,previous_candidate=None if previous is None else dict(version=previous.version,sha256=previous.sha256,full_code=previous.code),change_manifest=changes,prior_issues=prior,static_warnings=[f.asdict() for f in warnings if not f.blocking],deterministic_findings=[dict(f.asdict(),finding_key=f.key) for f in warnings],acceptance_blockers=[dict(f.asdict(),finding_key=f.key) for f in warnings if f.blocking],max_issues=self.cfg['review_max_issues'],expected_response_schema={})
++  body['prior_context_questions']=unresolved_questions(self.context_questions,context) if self.contract_version==4 else []
++  body['question_snapshot_sha256']=hashlib.sha256(json.dumps(body['prior_context_questions'],sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+   body['review_contract_version']=self.contract_version
+   body['finding_aliases']={'F'+str(i+1):f.key for i,f in enumerate(warnings) if f.blocking}
+-  body['expected_response_schema']=reviewer_schema(self.cfg['review_max_issues'],primary_clause=context['requirement']['clause'],changes=['C'+str(i+1) for i,_ in enumerate((changes or {}).get('changes',[]))],gaps=['G'+str(i+1) for i,_ in enumerate(context.get('retrieval_gaps',[]))],findings=body['finding_aliases'],version=self.contract_version)
++  body['expected_response_schema']=reviewer_schema(self.cfg['review_max_issues'],primary_clause=context['requirement']['clause'],changes=['C'+str(i+1) for i,_ in enumerate((changes or {}).get('changes',[]))],gaps=['G'+str(i+1) for i,_ in enumerate(context.get('retrieval_gaps',[]))],findings=body['finding_aliases'],version=self.contract_version,questions=[q['id'] for q in body['prior_context_questions']])
+   execution=self.execution_summaries.get(c.version,probe_summary(c))
+-  body.update(protocol_version=2,concise_findings=concise_findings(warnings),**review_binding(c,context,prior,previous,changes,execution),execution_probe=copy.deepcopy(execution),evidence_catalog=evidence_catalog(context,execution),citation_format=CITATION_FORMAT)
++  body.update(protocol_version=2,concise_findings=concise_findings(warnings),**review_binding(c,context,prior,previous,changes,execution,questions=body['prior_context_questions']),execution_probe=copy.deepcopy(execution),evidence_catalog=evidence_catalog(context,execution),citation_format=CITATION_FORMAT)
+   wire=compact_review(body);self.active_review_body=copy.deepcopy(wire);assert_review_packet(wire,c)
+   write(self.output/f'review_state_{self.sequence+1:03d}.json',body)
+   write(self.output/f'review_packet_{self.sequence+1:03d}_evidence.json',body['evidence_catalog'])
+@@ -76,6 +78,9 @@
+      self.review_blocking_conflicts=routing['blocking'];return None,[],None
+     if routing['correctable']:
+      errors=routing['correctable'];first=errors[0];e=ReviewerFormatError(first['code'],first['path'],first['expected'],first['observed'],first['category']);e.errors=errors;e.details=dict(first,validation_errors=errors);raise e
++    if self.contract_version==4:
++     self.context_questions=remember_question_review(self.context_questions,obj,c,dict(request_id=body['review_request_id'],sequence=self.sequence,response_sha256=hashlib.sha256(response['text'].encode()).hexdigest()),body['evidence_catalog'])
++     write(self.output/'context_questions.json',self.context_questions)
+     write(self.output/f'review_validated_{self.sequence:03d}.json',dict(review=obj,findings=[f.asdict() for f in fs],candidate_sha256=c.sha256,interpretation_is_not_independent_proof=True))
+     return obj,fs,None
+    except ReviewerFormatError as e:
+@@ -95,7 +100,10 @@
+  def retrieve_context(self,c,context,requests,rid):
+   self.transition(c,'RETRIEVE_CONTEXT',requests=requests)
+   context,event=self.resolver.resolve(context,requests,rid);self.input_hashes.update(self.resolver.input_hashes);write(self.output/'retrieved_input_hashes.json',self.resolver.input_hashes)
+-  write(self.output/f'context_retrieval_{len(self.resolver.events):02d}_{len(self.controller_transitions):02d}.json',event);write(self.output/'resolved_context.json',context);write(self.output/'retrieval_ledger.json',self.resolver.events)
++  event=dict(event,request_round_performed='round' in event,round=event.get('round',self.resolver.rounds+1),requests=event.get('requests',requests))
++  artifact=f'context_retrieval_{len(self.resolver.events):02d}_{len(self.controller_transitions):02d}.json'
++  self.context_questions=record_question_retrieval(self.context_questions,event,artifact);write(self.output/'context_questions.json',self.context_questions)
++  write(self.output/artifact,event);write(self.output/'resolved_context.json',context);write(self.output/'retrieval_ledger.json',self.resolver.events)
+   self.transition(c,event['status'],novel=event['novel'])
+   return context,event
+  def assess_candidate(self,c,context,previous,changes,tracker,findings,rid):
+@@ -112,6 +120,8 @@
+    self.transition(c,'REVIEW',review_round=round_index+1,code_unchanged=True)
+    obj,semantic,error=self.review(c,context,previous,changes,tracker,base,prior_override=prior)
+    if error:
++    if not any(f.category=='UNRESOLVED_CONTEXT' and f.blocking for f in last_semantic):
++     for q in unresolved_questions(self.context_questions,context):last_semantic.append(finding(c,'UNRESOLVED_CONTEXT',q['missing'],expected='Explicit supported question disposition',evidence=json.dumps(q),suggestion='Resolve or withdraw with evidence; do not assume resolution.',location='context question '+q['id'],confirmed=False,obligation_id=q['id'],assessment='MATERIAL_REVIEW_UNCERTAINTY'))
+     self.transition(c,self.review_failure_outcome,unresolved_valid_feedback_preserved=bool(last_semantic));return context,base+last_semantic,last_valid,error,[],self.review_failure_outcome
+    conflicts=self.review_blocking_conflicts
+    if conflicts:self.transition(c,'CONFLICT');return context,base,None,None,conflicts,'CONFLICT'
+@@ -194,7 +204,7 @@
+      self.transition(c,status,repair_type=repair_type,repair_counts=repair_counts.copy());break
+     pending_repair_type=repair_type
+     self.transition(c,'REPAIR_REQUEST_READY',latest_code_complete=True,repair_type=repair_type,repair_counts=repair_counts.copy())
+-    request=repair_request(self.p,context,c,fs,persistent_summary=persistent)
++    request=repair_request(self.p,context,c,fs,persistent_summary=persistent,context_questions=unresolved_questions(self.context_questions,context))
+     request['repair_type']=repair_type
+     status='ATTEMPT_LIMIT_EXHAUSTED'
+    except Exception as e:
+@@ -207,7 +217,7 @@
+   try:self.verify_inputs()
+   except Exception as e:
+    status='REQUEST_INTEGRITY_FAILURE';operational=dict(status=status,diagnostic=str(e),no_automatic_retry=True);write(self.output/'operational_failure.json',operational)
+-  result=dict(version='0.11.4',repair_counts=repair_counts,repair_limits=dict(technical=1,semantic=1,total=2),effective_max_provider_calls=min(self.cfg.get('continuation',{}).get('max_provider_calls',11),11),effective_max_candidates=maximum,effective_review_limits=dict(primary_total=self.resolver.policy['max_reviews_per_run'],primary_per_candidate=self.resolver.policy['max_reviews_per_candidate'],shared_corrections_per_review=self.cfg['review_format_retries'],retrieval_rounds=self.resolver.policy['max_rounds']),token_usage={k:sum((m.get('usage') or {}).get(k,0) or 0 for m in self.response_metrics) for k in ['input_tokens','output_tokens','total_tokens']},request_elapsed_seconds=sum(m.get('elapsed_seconds',0) or 0 for m in self.response_metrics),admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=(self.transport.calls-self.physical_calls_start if self.physical_calls_start is not None else len(self.calls)) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(list(self.output.glob('candidate_*.ttl'))),dispatch_attempts=len(self.calls),call_counts_by_route={route:sum(q['route']==route for q in self.calls) for route in sorted({q['route'] for q in self.calls})},generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
++  result=dict(version='0.11.5',context_questions=copy.deepcopy(self.context_questions),repair_counts=repair_counts,repair_limits=dict(technical=1,semantic=1,total=2),effective_max_provider_calls=min(self.cfg.get('continuation',{}).get('max_provider_calls',11),11),effective_max_candidates=maximum,effective_review_limits=dict(primary_total=self.resolver.policy['max_reviews_per_run'],primary_per_candidate=self.resolver.policy['max_reviews_per_candidate'],shared_corrections_per_review=self.cfg['review_format_retries'],retrieval_rounds=self.resolver.policy['max_rounds']),token_usage={k:sum((m.get('usage') or {}).get(k,0) or 0 for m in self.response_metrics) for k in ['input_tokens','output_tokens','total_tokens']},request_elapsed_seconds=sum(m.get('elapsed_seconds',0) or 0 for m in self.response_metrics),admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=(self.transport.calls-self.physical_calls_start if self.physical_calls_start is not None else len(self.calls)) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(list(self.output.glob('candidate_*.ttl'))),dispatch_attempts=len(self.calls),call_counts_by_route={route:sum(q['route']==route for q in self.calls) for route in sorted({q['route'] for q in self.calls})},generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
+   if self.cfg.get('delivery_policy')=='latest_technical':
+    from .delivery import finalize
+    result['delivery']=finalize(self.output,history,status)

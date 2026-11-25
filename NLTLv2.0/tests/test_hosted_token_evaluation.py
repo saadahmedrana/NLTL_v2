@@ -29,7 +29,7 @@ class InterruptedAccounting(unittest.TestCase):
  def test_scripted_preflight_failure_preserves_candidate_and_counts_only_HTTP_attempts(self):
   base=gp.GeneralPipelineTests();base.setUp()
   try:
-   software_admission(base);cfg=base.p.config('configs/nltl.json');cfg.update(maximum_candidate_attempts=2,delivery_policy='latest_technical',admission_file='data/admissions/software.json')
+   software_admission(base);cfg=base.p.config('configs/nltl.json');cfg.update(review_contract_version=4,maximum_candidate_attempts=2,delivery_policy='latest_technical',admission_file='data/admissions/software.json')
    class Physical:
     is_live=True
     def __init__(self):self.calls=0

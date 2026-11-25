@@ -34,7 +34,7 @@ def main():
  out=project.output('experiments',a.run_id);write(out/'manifest.frozen.json',m);write(out/'freeze_lock.json',lock)
  start=time.monotonic();transport=None;pairs=[];errors=[];inventory=[];workflows={w:{} for w in ['Single-shot','NLTL']};queue=[]
  try:
-  transport=HostedResponsesTransport(enabled=True,project_root=project.root,output=out/'provider',max_calls=m['max_physical_calls'],max_seconds=m['max_execution_seconds'],max_output_tokens_total=m['max_reserved_output_tokens'],token_limits=m['token_limits'],timeout=m['request_timeout_seconds'])
+  transport=HostedResponsesTransport(enabled=True,project_root=project.root,output=out/'provider',max_calls=m['max_physical_calls'],max_seconds=m['max_execution_seconds'],max_output_tokens_total=m['max_reserved_output_tokens'],token_limits=m['token_limits'],timeout=m['request_timeout_seconds'],model=m['config']['model'])
   dispatch=transport.dispatch
   def guarded(*args,**kwargs):verify(project.root,lock);return dispatch(*args,**kwargs)
   transport.dispatch=guarded

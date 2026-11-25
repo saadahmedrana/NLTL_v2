@@ -1,0 +1,147 @@
+{
+  "text": "<BEGIN_SHACL>\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n@prefix vocab: <https://w3id.org/nltl/vocab#> .\n\n############################\n# Shape for Ship instances #\n############################\n\nvocab:ShipShape\n    a sh:NodeShape ;\n    sh:targetClass vocab:ship ;\n    # ---- upperIceWaterlineDisplacement (Quantity) ----\n    sh:property [\n        sh:path vocab:upperIceWaterlineDisplacement ;\n        sh:nodeKind sh:IRI ;                     # expects a QuantityValue node\n        sh:class qudt:QuantityValue ;\n        # unit must be kt\n        sh:property [\n            sh:path qudt:unit ;\n            sh:hasValue unit:KiloTON_Metric ;\n        ] ;\n        # numeric value must be decimal\n        sh:property [\n            sh:path qudt:numericValue ;\n            sh:datatype xsd:decimal ;\n        ] ;\n    ] ;\n    # ---- hasUpperIceWaterlineCase relationships (with nested case validation) ----\n    sh:property [\n        sh:path vocab:hasUpperIceWaterlineCase ;\n        sh:class vocab:upperIceWaterlineCase ;\n        sh:node [\n            # ---- waterlineCaseDisplacement (Quantity) ----\n            sh:property [\n                sh:path vocab:waterlineCaseDisplacement ;\n                sh:nodeKind sh:IRI ;\n                sh:class qudt:QuantityValue ;\n                # unit must be kt\n                sh:property [\n                    sh:path qudt:unit ;\n                    sh:hasValue unit:KiloTON_Metric ;\n                ] ;\n                # numeric value must be decimal\n                sh:property [\n                    sh:path qudt:numericValue ;\n                    sh:datatype xsd:decimal ;\n                ] ;\n            ] ;\n        ] ;\n    ] ;\n    # ---- SPARQL constraint: ship displacement must be the maximum of its waterline cases ----\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        sh:message \"The upper‑ice‑waterline displacement (DUI) must equal the greatest displacement among the associated waterline cases.\" ;\n        sh:select \"\"\" \n            PREFIX sh: <http://www.w3.org/ns/shacl#>\n            PREFIX vocab: <https://w3id.org/nltl/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n\n            SELECT $this WHERE {\n                $this vocab:upperIceWaterlineDisplacement ?shipQty .\n                ?shipQty qudt:numericValue ?shipVal .\n                $this vocab:hasUpperIceWaterlineCase ?case .\n                ?case vocab:waterlineCaseDisplacement ?caseQty .\n                ?caseQty qudt:numericValue ?caseVal .\n            }\n            GROUP BY $this ?shipVal\n            HAVING ( ?shipVal != MAX(?caseVal) )\n        \"\"\" ;\n    ] .\n\n#############################\n# Unresolved ownership note #\n#############################\n# The property vocab:upperIceWaterline is mentioned in the source but its ownership\n# cannot be resolved from the supplied ontology. No shape is generated for it,\n# preserving the ambiguity as required.\n<END_SHACL>",
+  "status": "completed",
+  "finish_reason": null,
+  "usage": {
+    "input_tokens": 23500,
+    "input_tokens_details": {
+      "cached_tokens": 320,
+      "cache_write_tokens": 23168,
+      "input_tokens_per_turn": [
+        23500
+      ],
+      "cached_tokens_per_turn": [
+        320
+      ]
+    },
+    "output_tokens": 1864,
+    "output_tokens_details": {
+      "reasoning_tokens": 1084,
+      "tool_output_tokens": 0,
+      "output_tokens_per_turn": [
+        1864
+      ],
+      "tool_output_tokens_per_turn": [
+        0
+      ]
+    },
+    "total_tokens": 25364
+  },
+  "provider_response": {
+    "id": "resp_8975bd013c156385",
+    "created_at": 1795618265,
+    "incomplete_details": null,
+    "instructions": null,
+    "metadata": null,
+    "model": "gpt-oss-120b",
+    "object": "response",
+    "output": [
+      {
+        "id": "rs_96e1e5143fc44ae7",
+        "summary": [],
+        "type": "reasoning",
+        "content": [
+          {
+            "text": "We need to revise previous SHACL to constrain activation to supplied population boundary. Currently shape uses sh:targetClass vocab:ship (targetClass). Admission declares focus_set mode COMPLETE_CLASS_POPULATION_PER_INPUT with owner_class vocab:ship. The error says \"Other target classes select beyond declared population\". Must restrict activation to only those instances provided as input (i.e., use sh:targetNode? but we need to use sh:targetClass still okay if activation limited? Usually need sh:targetClass with sh:node to restrict? Provided admission indicates that the caller supplies the represented design population, so the shape should only validate those input nodes, not any ship in dataset. In SHACL, to limit activation to a given focus set, we can use sh:targetNode with variable placeholder? Not possible. Usually there's a mechanism \"sh:targetSubjectsOf\" or \"sh:targetObjectsOf\". But the error likely expects sh:targetClass to be removed and instead using sh:targetNode with a variable? However spec: there's no way to express external population boundary directly in SHACL; system may enforce that the shape's target must match the declared owner_class. It already matches (vocab:ship). So why error? Maybe because the shape also has sh:property with sh:class vocab:upperIceWaterlineCase which is not within owned class? But target is only ship; that's okay.\n\nMaybe the shape's SPARQL constraint uses $this which is ship, fine.\n\nPossibly the shape also uses sh:targetClass vocab:ship but the admission expects a \"focus_set\" defined with mode COMPLETE_CLASS_POPULATION_PER_INPUT, meaning the shape should use sh:targetClass but also have sh:scope ? Not sure.\n\nCould be that the shape includes other classes (upperIceWaterlineDisplacement etc.) but that doesn't affect target.\n\nMaybe they want to add sh:targetNode to limit to provided nodes via sh:targetNode ?this? Not.\n\nOr they want to add a sh:nodeKind constraint on root? Not.\n\nAnother possibility: The shape should be attached to a specific named graph? No.\n\nGiven limited guidance, we could add sh:targetClass vocab:ship and also sh:sparql with sh:select that limits to only those ships that are part of the provided input set. But we don't have identifier.\n\nMaybe the system expects a sh:targetClass together with a sh:nodeKind sh:IRI for ship? Not.\n\nMaybe the issue is that the shape also defines sh:targetClass for UpperIceWaterlineCaseShape, which selects class upperIceWaterlineCase which is not within declared owner_class (ship). The admission mentions \"focus_set: owner_class ship\". So shapes targeting other classes beyond owner_class cause error. Indeed UpperIceWaterlineCaseShape targets vocab:upperIceWaterlineCase, which is not ship. That violates the rule \"Other target classes select beyond declared population\". So we need to constrain activation for the UpperIceWaterlineCaseShape to be within population boundary—maybe we should remove its targetClass, or make it not a shape, or change to sh:targetObjectsOf something? The requirement likely only needs to validate quantities of cases related to ships, but activation maybe should be driven by ship shape only. We can keep UpperIceWaterlineCaseShape but change it to be a sh:property shape via sh:property on ship? Already ship shape has property hasUpperIceWaterlineCase with class upperIceWaterlineCase but does not enforce inner properties of case. Could embed nested property shapes within ship shape's property for hasUpperIceWaterlineCase to validate case's displacement. That would eliminate separate shape targeting case class. So remove UpperIceWaterlineCaseShape entirely, and instead add a sh:property within ship shape's hasUpperIceWaterlineCase to enforce waterlineCaseDisplacement constraints (unit kt, decimal). This respects population boundary (only ship instances). That aligns with requirement: need to ensure each case's displacement defined correctly.\n\nThus modify SHACL: merge case constraints.\n\nImplement: within ship shape, after property for hasUpperIceWaterlineCase, add a nested property shape (sh:node) referencing a shape inline that checks the path vocab:waterlineCaseDisplacement similar to earlier.\n\nWe must preserve existing constraints; just remove UpperIceWaterlineCaseShape and its targetClass. Add inside ship shape:\n\nsh:property [\n  sh:path vocab:hasUpperIceWaterlineCase ;\n  sh:node [\n    sh:property [\n      sh:path vocab:waterlineCaseDisplacement ;\n      sh:nodeKind sh:IRI ;\n      sh:class qudt:QuantityValue ;\n      sh:property [\n        sh:path qudt:unit ;\n        sh:hasValue unit:KiloTON_Metric ;\n      ] ;\n      sh:property [\n        sh:path qudt:numericValue ;\n        sh:datatype xsd:decimal ;\n      ] ;\n    ] ;\n  ] ;\n].\n\nBut we also need to keep original class assertion for hasUpperIceWaterlineCase (sh:class vocab:upperIceWaterlineCase). Could include both sh:class and sh:node. That's fine.\n\nThus replace UpperIceWaterlineCaseShape with inline constraints.\n\nNow the SHACL only targets ship class.\n\nCreate revised SHACL block.\n\nLet's produce final.",
+            "type": "reasoning_text"
+          }
+        ],
+        "encrypted_content": null,
+        "status": null
+      },
+      {
+        "id": "msg_96d25b1166e0849f",
+        "content": [
+          {
+            "annotations": [],
+            "text": "<BEGIN_SHACL>\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n@prefix vocab: <https://w3id.org/nltl/vocab#> .\n\n############################\n# Shape for Ship instances #\n############################\n\nvocab:ShipShape\n    a sh:NodeShape ;\n    sh:targetClass vocab:ship ;\n    # ---- upperIceWaterlineDisplacement (Quantity) ----\n    sh:property [\n        sh:path vocab:upperIceWaterlineDisplacement ;\n        sh:nodeKind sh:IRI ;                     # expects a QuantityValue node\n        sh:class qudt:QuantityValue ;\n        # unit must be kt\n        sh:property [\n            sh:path qudt:unit ;\n            sh:hasValue unit:KiloTON_Metric ;\n        ] ;\n        # numeric value must be decimal\n        sh:property [\n            sh:path qudt:numericValue ;\n            sh:datatype xsd:decimal ;\n        ] ;\n    ] ;\n    # ---- hasUpperIceWaterlineCase relationships (with nested case validation) ----\n    sh:property [\n        sh:path vocab:hasUpperIceWaterlineCase ;\n        sh:class vocab:upperIceWaterlineCase ;\n        sh:node [\n            # ---- waterlineCaseDisplacement (Quantity) ----\n            sh:property [\n                sh:path vocab:waterlineCaseDisplacement ;\n                sh:nodeKind sh:IRI ;\n                sh:class qudt:QuantityValue ;\n                # unit must be kt\n                sh:property [\n                    sh:path qudt:unit ;\n                    sh:hasValue unit:KiloTON_Metric ;\n                ] ;\n                # numeric value must be decimal\n                sh:property [\n                    sh:path qudt:numericValue ;\n                    sh:datatype xsd:decimal ;\n                ] ;\n            ] ;\n        ] ;\n    ] ;\n    # ---- SPARQL constraint: ship displacement must be the maximum of its waterline cases ----\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        sh:message \"The upper‑ice‑waterline displacement (DUI) must equal the greatest displacement among the associated waterline cases.\" ;\n        sh:select \"\"\" \n            PREFIX sh: <http://www.w3.org/ns/shacl#>\n            PREFIX vocab: <https://w3id.org/nltl/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n\n            SELECT $this WHERE {\n                $this vocab:upperIceWaterlineDisplacement ?shipQty .\n                ?shipQty qudt:numericValue ?shipVal .\n                $this vocab:hasUpperIceWaterlineCase ?case .\n                ?case vocab:waterlineCaseDisplacement ?caseQty .\n                ?caseQty qudt:numericValue ?caseVal .\n            }\n            GROUP BY $this ?shipVal\n            HAVING ( ?shipVal != MAX(?caseVal) )\n        \"\"\" ;\n    ] .\n\n#############################\n# Unresolved ownership note #\n#############################\n# The property vocab:upperIceWaterline is mentioned in the source but its ownership\n# cannot be resolved from the supplied ontology. No shape is generated for it,\n# preserving the ambiguity as required.\n<END_SHACL>",
+            "type": "output_text",
+            "logprobs": null
+          }
+        ],
+        "role": "assistant",
+        "status": "completed",
+        "type": "message",
+        "phase": null
+      }
+    ],
+    "parallel_tool_calls": true,
+    "temperature": 1.0,
+    "tool_choice": "none",
+    "tools": [],
+    "top_p": 1.0,
+    "background": false,
+    "max_output_tokens": 16000,
+    "max_tool_calls": null,
+    "previous_response_id": null,
+    "prompt": null,
+    "prompt_cache_options": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": null,
+    "safety_identifier": null,
+    "service_tier": "auto",
+    "status": "completed",
+    "text": null,
+    "top_logprobs": null,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 23500,
+      "input_tokens_details": {
+        "cached_tokens": 320,
+        "cache_write_tokens": 23168,
+        "input_tokens_per_turn": [
+          23500
+        ],
+        "cached_tokens_per_turn": [
+          320
+        ]
+      },
+      "output_tokens": 1864,
+      "output_tokens_details": {
+        "reasoning_tokens": 1084,
+        "tool_output_tokens": 0,
+        "output_tokens_per_turn": [
+          1864
+        ],
+        "tool_output_tokens_per_turn": [
+          0
+        ]
+      },
+      "total_tokens": 25364
+    },
+    "user": null,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "kv_transfer_params": null,
+    "ec_transfer_params": null,
+    "input_messages": null,
+    "output_messages": null
+  },
+  "returned_model": "gpt-oss-120b",
+  "identity_status": "MATCH",
+  "elapsed_seconds": 10.741004249997786,
+  "physical_call": 2,
+  "final_output_present": true,
+  "token_budget": {
+    "encoding": "o200k_harmony",
+    "supplied_text_tokens": 23426,
+    "input_text_count_verified": true,
+    "complete_provider_input_count_verified": false,
+    "provider_framing_tokens": null,
+    "requested_output_tokens": 16000,
+    "input_plus_output_lower_bound": 39426,
+    "model_context_tokens": 131072,
+    "provider_context_tokens": null,
+    "provider_max_output_tokens": null,
+    "exceeds_known_token_limit": false,
+    "status": "CONTENT_COUNT_WITHIN_LIMIT_PROVIDER_FRAMING_UNVERIFIED",
+    "uncertainty": "Provider-added framing, deployed tokenizer revision and any lower provider limit are not exposed. Count is verified for supplied text under pinned public tokenizer, not claimed exact full provider input. Provider context rejection is terminal; truncation stays disabled.",
+    "material_context_truncated": false,
+    "request_bytes": 81705,
+    "route": "targeted_repair",
+    "logical_dispatch_attempt": 2,
+    "actual_provider_input_tokens": 23500,
+    "actual_input_minus_content_tokens": 74
+  }
+}

@@ -175,3 +175,47 @@ class Resolver:
   updated['retrieval_gaps']=[dict(gap_id=digest(json.dumps(x,sort_keys=True)),evidence=x,policy='Reviewer must explicitly assess materiality; missing information is not a code defect') for x in updated['unresolvedSourceContext']]
   event=dict(round=self.rounds,status='EVIDENCE_ADDED' if novel else 'NO_NEW_EVIDENCE',novel=novel,requests=requests,entries=batch,total_characters=self.total_characters,limits=self.policy)
   self.events.append(event);return updated,event
+
+# Per-run context-question bookkeeping, not a new controller or semantic oracle.
+def question_key(missing,kind):return digest(json.dumps([kind,' '.join(missing.split())],ensure_ascii=False))
+
+def unresolved_questions(ledger,context):
+ """Readable immutable question history, with CURRENT evidence aliases."""
+ from .evidence import evidence_catalog
+ catalog=evidence_catalog(context);byhash={e['evidence_sha256']:e for e in catalog['entries']};out=[]
+ for q in ledger.values():
+  if q['status']!='STILL_UNRESOLVED':continue
+  refs=[]
+  for r in q['supporting_evidence']:
+   current=byhash.get(r['evidence_sha256']);item=dict(kind=r['kind'],origin=copy.deepcopy(r['origin']),start=r['start'],end=r['end'])
+   if current:item['reference']=current['evidence_id']
+   else:item.update(reference=None,original_text=r['text'],availability='Original supporting evidence is not in the current catalog; retrieve/current evidence is needed for a closing disposition')
+   refs.append(item)
+  out.append(dict(id=q['id'],missing=q['missing'],why=q['why'],kind=q['kind'],reference=q.get('reference'),section=q.get('section'),originating_candidate=copy.deepcopy(q['originating_candidate']),supporting_evidence=refs,retrieval_attempts=[dict(round=a['round'],status=a['status'],novel=a['novel'],performed=a['performed'],schema_terms=a['schema_terms'],source_characters=a['source_characters'],artifact=a['artifact']) for a in q['retrieval_attempts']]))
+ return out
+
+def remember_question_review(ledger,review,candidate,review_origin,catalog):
+ """Commit only a complete, validated review. Preserve original wording/provenance."""
+ if 'prior_context_questions' in review and {q['id'] for q in ledger.values() if q['status']=='STILL_UNRESOLVED'}!={q['id'] for q in review['prior_context_questions']}:raise ValueError('CONTEXT_QUESTION_STATE_INTEGRITY_FAILURE')
+ updated=copy.deepcopy(ledger);byid={q['id']:q for q in updated.values()};evidence={e['evidence_sha256']:e for e in catalog['entries']}
+ for d in review.get('question_dispositions',[]):
+  q=byid[d['id']];q['status']=d['disposition'];q['dispositions'].append(dict(d,review=copy.deepcopy(review_origin),candidate=dict(version=candidate.version,sha256=candidate.sha256),interpretation_is_model_judgment=True))
+ for q in review.get('questions',[]):
+  key=question_key(q['missing'],q['kind']);refs=[]
+  for r in q['resolved_evidence']:
+   entry=evidence[r['evidence_sha256']];refs.append(dict(r,origin=copy.deepcopy(entry['origin']),original_reference=r['evidence_id']))
+  observation=dict(missing=q['missing'],why=q['why'],supporting_evidence=refs,candidate=dict(version=candidate.version,sha256=candidate.sha256),review=copy.deepcopy(review_origin))
+  if key not in updated:
+   updated[key]=dict(id='Q'+str(len(updated)+1),stable_id='question:'+key,missing=q['missing'],why=q['why'],kind=q['kind'],reference=q.get('reference'),section=q.get('section'),originating_candidate=copy.deepcopy(observation['candidate']),originating_review=copy.deepcopy(review_origin),supporting_evidence=refs,retrieval_attempts=[],dispositions=[],observations=[])
+  record=updated[key];record['status']='STILL_UNRESOLVED';record['observations'].append(observation)
+ return updated
+
+def record_question_retrieval(ledger,event,artifact):
+ updated=copy.deepcopy(ledger)
+ for q in updated.values():
+  if q['status']!='STILL_UNRESOLVED':continue
+  matched=[r for r in event.get('requests',[]) if r.get('kind')==q['kind'] and r.get('query')==q['missing'][:2000]]
+  if not matched:continue
+  entries=event.get('entries',[])
+  q['retrieval_attempts'].append(dict(round=event['round'],status=event['status'],novel=event['novel'],performed=event.get('request_round_performed',True),requests=copy.deepcopy(matched),schema_terms=sum(len(e.get('term_iris',[])) for e in entries),source_characters=sum(e.get('characters',0) for e in entries if e.get('kind')=='source'),artifact=artifact))
+ return updated

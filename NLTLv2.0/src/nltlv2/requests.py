@@ -4,13 +4,14 @@ from .core import digest,finding
 CATEGORIES={'RESPONSE_FORMAT_ERROR','PARSE_ERROR','CANONICAL_IDENTIFIER_ERROR','TERM_KIND_ERROR','UNIT_CONSISTENCY_ERROR','PATH_CONTRACT_ERROR','SPARQL_ERROR','SOURCE_BACKED_LOGIC_ERROR','TECHNICAL_REPRESENTATION_ERROR','UNRESOLVED_CONTEXT','SPARQL_STATIC_WARNING','INFRASTRUCTURE_ERROR','RESOURCE_UNCERTAIN','NUMERIC_TERM_REVIEW','PRESERVATION_CONFLICT','ACTIVATION_ERROR','ADMISSION_SCOPE_ERROR','SHACL_STRUCTURE_ERROR'}
 def initial_request(project,context,settings):
  return dict(route='generation',system=project.path('prompts/generator.txt').read_text(),user=json.dumps(dict(context=context,generation_settings=settings),ensure_ascii=False),settings=settings)
-def repair_request(project,context,c,findings,persistent_summary=None):
+def repair_request(project,context,c,findings,persistent_summary=None,*,context_questions=()):
  if not findings:raise ValueError('Repair requires current findings')
  if any(f.version!=c.version or f.candidate_sha256!=c.sha256 for f in findings):raise ValueError('STALE_FEEDBACK')
  payload=dict(admission=context.get('admission'),requirement_id=context['requirement']['id'],exact_regulatory_text=context['requirement']['text'],source_clause=context['requirement']['clause'],source_documents=context['source_documents'],source_selection=context.get('source_selection'),unresolved_source_context=context.get('unresolvedSourceContext',[]),retrieval_evidence=context.get('retrieval_evidence',[]),retrieved_schema_evidence=context.get('retrieved_schema_evidence',[]),verification_scope=context['scope'],schema_contract_evidence={k:context[k] for k in ['schema_terms','ontology_evidence','contract','termOwners','modelPaths','unresolvedOwnership','quantityEncoding']},candidate_version=c.version,candidate_sha256=c.sha256,previous_candidate=c.code,current_findings=repair_findings(findings,c),interpretation_policy='Model review findings are grounded interpretations, not independently validated facts. Resolve uncertain source/schema context explicitly. No handwritten solution or change permissions.',preserve='Preserve source obligations, not every accidental restriction in old code. Explain removals/replacements against source/schema; do not invent obligations, conversions or applicability.')
  for key in ['exact_regulatory_text','source_clause','source_documents','source_selection','unresolved_source_context','retrieval_evidence','retrieved_schema_evidence','schema_contract_evidence','admission','verification_scope','interpretation_policy','preserve']:payload.pop(key,None)
  from .evidence import evidence_catalog,wire_catalog
  payload.update(protocol_version=2,context=compact_context(context),evidence_catalog=wire_catalog(evidence_catalog(context)),admission_sha256=digest(json.dumps(context.get('admission'),sort_keys=True)))
+ if context_questions:payload['prior_context_questions']=list(context_questions)
  if persistent_summary is not None:payload['persistent_failure_summary']={k:persistent_summary[k] for k in ['current_version','current_sha256','repeat_detection'] if k in persistent_summary}
  payload['repair_packet_sha256']=digest(json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(',',':')))
  route='syntax_repair' if all(f.category in ['PARSE_ERROR','RESPONSE_FORMAT_ERROR'] for f in findings) else 'targeted_repair'
@@ -27,6 +28,13 @@ def assert_integrity(request,latest,expected_findings=None):
   if any(k in p for k in ['validated_constraint_changes','expected_verdicts','behavioral_witnesses']):raise ValueError('LEGACY_SOLUTION_PACKET_FORBIDDEN')
   for f in fs:
    if f['category'] not in CATEGORIES or not f.get('diagnostic') or not f.get('location') or not f.get('suggestion'):raise ValueError('INCOMPLETE_FINDING')
+  catalog={e['evidence_id']:e for e in p.get('evidence_catalog',{}).get('entries',[])}
+  for f in fs:
+   evidence=f.get('evidence')
+   if not isinstance(evidence,dict):continue
+   for ref in evidence.get('resolved_evidence',[]):
+    entry=catalog.get(ref['evidence_id'])
+    if entry is None or digest(entry['text'][ref['start']:ref['end']])!=ref['text_sha256']:raise ValueError('FEEDBACK_EVIDENCE_INTEGRITY_FAILURE')
   if p.get('protocol_version')==2:
    unsigned={k:v for k,v in p.items() if k!='repair_packet_sha256'}
    if p.get('repair_packet_sha256')!=digest(json.dumps(unsigned,sort_keys=True,ensure_ascii=False,separators=(',',':'))):raise ValueError('REPAIR_CONTEXT_INTEGRITY_FAILURE')
@@ -42,7 +50,7 @@ def parse_review(response,c,context,max_issues=12,*,previous=None,changes=None,p
   first=errors[0];exception=ReviewerFormatError(first['code'],first['path'],first['expected'],first.get('observed'),first['category']);exception.errors=errors;exception.details=dict(first,validation_errors=errors);exception.args=(json.dumps(exception.details,ensure_ascii=False),);raise exception
  out=[];raw=response['text']
  for x in obj['issues']:
-  out.append(finding(c,x['category'],x['reason'],(x.get('candidate_excerpt') or ''),x['expected'],json.dumps(dict(source_clause=x.get('source_clause'),source_evidence_id=x.get('source_evidence_id'),source_excerpt=x.get('source_excerpt'),evidence_id=x['evidence_id'],schema_excerpt=x['evidence_excerpt'],claim_basis=x.get('claim_basis'),reviewer_proposal={k:x[k] for k in ['property','proposed_path','proposed_path_role','proposed_unit','proposed_datatype','operands','representation_disposition'] if k in x},epistemic_status='MODEL_INTERPRETATION_NOT_INDEPENDENTLY_VERIFIED')),x['suggestion'],location='semantic reviewer excerpt' if x.get('candidate_excerpt') else 'semantic reviewer context (no offending code asserted)' if x['category']=='UNRESOLVED_CONTEXT' else 'semantic reviewer insertion context: '+str(x.get('insertion_context','')),confirmed=False,diagnostic=raw,contract_id='source-review:'+context['requirement']['id'],obligation_id=x['issue_id'],check_id='semantic-issue',assessment='UNRESOLVED_CONTEXT' if x['category']=='UNRESOLVED_CONTEXT' else 'MODEL_INTERPRETATION'))
+  out.append(finding(c,x['category'],x['reason'],(x.get('candidate_excerpt') or ''),x['expected'],json.dumps(dict(source_clause=x.get('source_clause'),source_evidence_id=x.get('source_evidence_id'),source_excerpt=x.get('source_excerpt'),evidence_id=x['evidence_id'],schema_excerpt=x['evidence_excerpt'],claim_basis=x.get('claim_basis'),resolved_evidence=x.get('resolved_evidence'),reviewer_proposal={k:x[k] for k in ['property','proposed_path','proposed_path_role','proposed_unit','proposed_datatype','operands','representation_disposition'] if k in x},epistemic_status='MODEL_INTERPRETATION_NOT_INDEPENDENTLY_VERIFIED')),x['suggestion'],location='semantic reviewer excerpt' if x.get('candidate_excerpt') else 'semantic reviewer context (no offending code asserted)' if x['category']=='UNRESOLVED_CONTEXT' else 'semantic reviewer insertion context: '+str(x.get('insertion_context','')),confirmed=False,diagnostic=raw,contract_id='source-review:'+context['requirement']['id'],obligation_id=x['issue_id'],check_id='semantic-issue',assessment='UNRESOLVED_CONTEXT' if x['category']=='UNRESOLVED_CONTEXT' else 'MODEL_INTERPRETATION'))
  for i,entry in enumerate(obj['material_unchecked']):
   out.append(finding(c,'UNRESOLVED_CONTEXT','Material review scope remains unchecked: '+entry['scope'],'',expected='Resolve material applicability/activation/source uncertainty before acceptance',evidence=json.dumps(entry),suggestion='Resolve from supplied evidence; execution success is not regulatory correctness.',location='review unchecked['+str(i)+']',confirmed=False,diagnostic=raw,contract_id='review-scope',obligation_id=entry['scope'],check_id='material-scope',assessment='MATERIAL_REVIEW_UNCERTAINTY'))
  obj['normalization']=dict(aliases=normalization['aliases'],values_modified=False);obj['epistemic_status']='GROUNDED_MODEL_REVIEW_NOT_INDEPENDENT_VERIFICATION'
@@ -85,6 +93,16 @@ def compact_review(body):
  out['execution_probe']=execution
  from .evidence import wire_catalog
  out.update(protocol_version=2,context=compact_context(body['context']),admission_sha256=digest(json.dumps(body['context'].get('admission'),sort_keys=True)),evidence_catalog=wire_catalog(body['evidence_catalog']),change_manifest=concise_changes(body['change_manifest']),prior_issues=concise_prior(body['prior_issues']),findings=body['concise_findings'])
+ if body.get('review_contract_version')==4:
+  out['prior_context_questions']=body.get('prior_context_questions',[])
+  out['question_snapshot_sha256']=body['question_snapshot_sha256']
+  out['review_contract_version']=4
+  out['finding_aliases']=body.get('finding_aliases',{})
+  out['prior_issues']=[dict(description=x.get('summary',x.get('reason','')),state='UNRESOLVED') for x in out['prior_issues']]
+  out['change_manifest']=dict(status=body['change_manifest'].get('status'),changes=[dict(id='C'+str(i+1),kind=g['kind'],removed_count=len(g.get('removed',[])),added_count=len(g.get('added',[])),removal_required=bool(g.get('removal_alerts'))) for i,g in enumerate(body['change_manifest'].get('changes',[]))])
+  out['retrieval_gaps']=[dict(id='G'+str(i+1),evidence=g['evidence']) for i,g in enumerate(body['context'].get('retrieval_gaps',[]))]
+  out['findings']=[dict(f,id=alias) for alias,key in body.get('finding_aliases',{}).items() for f in out['findings'] if f['finding_key']==key]+[f for f in out['findings'] if not f['blocking']]
+  out['citation_format']=dict(evidence='E ID, optional character span. Server resolves exact text/hash/provenance. quote optional and checked if asserted.',code='location {start,end,unit?}; default one-based inclusive lines, optional characters half-open. Server binds version/hash.',roles='SOURCE: obligation. SCHEMA_TEXT/RDF_FACT: representation. CALLER_DECLARATION: external research population. No legal IRI requirement; no formulas inferred from mappings.')
  out['packet_sha256']=digest(json.dumps(out,sort_keys=True,ensure_ascii=False,separators=(',',':')))
  return out
 
@@ -94,6 +112,7 @@ def assert_compact_review(body,c):
  from .evidence import extract_location
  base=review_base(body);expected=base.pop('packet_sha256',None)
  if expected!=digest(json.dumps(base,sort_keys=True,ensure_ascii=False,separators=(',',':'))):raise ValueError('REVIEW_RETRY_STATE_INTEGRITY_FAILURE')
+ if base.get('review_contract_version')==4 and base.get('question_snapshot_sha256')!=digest(json.dumps(base.get('prior_context_questions',[]),sort_keys=True,ensure_ascii=False,separators=(',',':'))):raise ValueError('CONTEXT_QUESTION_STATE_INTEGRITY_FAILURE')
  if type(base.get('candidate_version')) is not int or base['candidate_version']!=c.version or base['candidate_sha256']!=c.sha256 or base['full_candidate']!=c.code:raise ValueError('STALE_REVIEW_CANDIDATE')
  if digest(base['full_candidate'])!=c.sha256:raise ValueError('STALE_REVIEW_CANDIDATE')
  prev=base.get('previous_candidate')
@@ -109,17 +128,26 @@ def repair_findings(findings,c):
    from .evidence import code_location
    start=c.code.index(excerpt);row['candidate_location']=code_location(c,start,start+len(excerpt))
   elif excerpt:row['identifier_excerpt']=excerpt
-  if f.assessment in ['MODEL_INTERPRETATION','UNRESOLVED_CONTEXT']:
-   row['diagnostic_artifact_sha256']=digest(row.pop('diagnostic'));row['diagnostic']='Grounded model interpretation; full raw response retained in artifacts.'
-   try:
-    support=json.loads(row['evidence']);row['evidence']={k:v for k,v in support.items() if k in ['source_evidence_id','evidence_id','epistemic_status','reviewer_proposal']}
-   except (ValueError,TypeError):pass
+  try:support=json.loads(row['evidence'])
+  except (ValueError,TypeError):support={}
+  if support.get('resolved_evidence'):
+   refs=[]
+   for ref in support['resolved_evidence']:
+    refs.append(dict({k:v for k,v in ref.items() if k!='text'},text_ref='evidence_catalog:'+ref['evidence_id']))
+   row['evidence']=dict(resolved_evidence=refs,epistemic_status=support.get('epistemic_status'))
+   # Original complete response remains the exact diagnostic, not a substitute summary.
+  else:
+   if f.assessment in ['MODEL_INTERPRETATION','UNRESOLVED_CONTEXT']:
+    row['diagnostic_artifact_sha256']=digest(row.pop('diagnostic'));row['diagnostic']='Grounded model interpretation; full raw response retained in artifacts.'
+    try:
+     support=json.loads(row['evidence']);row['evidence']={k:v for k,v in support.items() if k in ['source_evidence_id','evidence_id','epistemic_status','reviewer_proposal']}
+    except (ValueError,TypeError):pass
   result.append(row)
  return result
 
 
-def review_proposal_routing(obj,schema,rid,context):
- """Route failures without changing properties, paths, roles, evidence or issues.
+def review_proposal_routing(obj,schema,rid,context,*,candidate=None):
+ """Compare supplied identifier spellings without mutating model proposals.
  Only a declared path belonging to a different declared property proves a
  pairing inconsistency. Unknown mappings and actual representation conflicts
  remain blocking; this function never manufactures a corrected proposal.
@@ -128,6 +156,23 @@ def review_proposal_routing(obj,schema,rid,context):
  supplied=context.get('contract',{})
  bindings=schema.bindings.get(rid,{})
  evidenced=(supplied.get('kind')=='REPRESENTATION_ONLY' and supplied.get('owners')==bindings.get('owners',{}) and supplied.get('modelPaths')==bindings.get('model_paths',[]) and supplied.get('target_owner')==bindings.get('target_owner') and context.get('quantityEncoding')==schema.quantity_profile)
+ # Identity resolution only: current-candidate namespace declarations and supplied mappings.
+ # Never infer a new property/path or rewrite a model claim or role.
+ namespaces={};resolutions=[]
+ if candidate is not None:
+  try:
+   from rdflib import Graph
+   namespaces={prefix:str(iri) for prefix,iri in Graph().parse(data=candidate.code,format='turtle').namespaces()}
+  except Exception:pass  # Unparseable code grants no extra identifier aliases.
+ path_terms={step for paths in allowed.values() for route in paths for step in route}|{schema.quantity_profile['numeric_predicate']}
+ def identity(value,permitted):
+  if not evidenced or not isinstance(value,str) or value in permitted:return value
+  if ':' in value:
+   prefix,local=value.split(':',1);expanded=namespaces.get(prefix,'')+local if prefix in namespaces else None
+   return expanded if expanded in permitted else value
+  matches=[iri for iri in permitted if schema.terms.get(iri,{}).get('localName')==value]
+  return matches[0] if len(matches)==1 else value
+
  for index,issue in enumerate(obj.get('issues',[])):
   base='$.issues['+str(index)+']';contradiction=issue.get('representation_disposition')=='UNRESOLVED_CONTRADICTION' or issue.get('category')=='UNRESOLVED_CONTEXT'
   if issue.get('representation_disposition')=='UNRESOLVED_CONTRADICTION':
@@ -136,7 +181,9 @@ def review_proposal_routing(obj,schema,rid,context):
   for path,proposal in proposals:
    fields=['proposed_path','proposed_unit','proposed_datatype']
    if not any(proposal.get(k) is not None for k in fields):continue
-   prop=proposal.get('property');proposed=proposal.get('proposed_path');role=proposal.get('proposed_path_role') or 'PROPERTY'
+   raw_proposal=proposal;prop=identity(proposal.get('property'),set(allowed));raw_path=proposal.get('proposed_path');proposed=[identity(step,path_terms) for step in raw_path] if isinstance(raw_path,list) else raw_path;role=proposal.get('proposed_path_role') or 'PROPERTY'
+   proposal=dict(proposal,property=prop,proposed_path=proposed)
+   if prop!=raw_proposal.get('property') or proposed!=raw_path:resolutions.append(dict(path=path,original_property=raw_proposal.get('property'),resolved_property=prop,original_path=raw_path,resolved_path=proposed,basis='Exact current-candidate namespace/unique supplied localName identity within evidenced mappings; no model claim changed'))
    conflicts=review_conflicts({'issues':[proposal]},schema,rid)
    if not allowed.get(prop):
     blocking.append(dict(code='UNRESOLVED_PROPOSAL_MAPPING',path=path+'.property',reason='No explicit current-requirement property/path mapping; no correction inferred',property=prop,proposed_path=proposed,reviewer_issue=issue));continue
@@ -152,4 +199,4 @@ def review_proposal_routing(obj,schema,rid,context):
     error=dict(code='INCONSISTENT_REVIEWER_PROPERTY_PATH_PAIRING' if alternatives else 'UNRESOLVED_REPRESENTATION_CONFLICT',path=path+'.proposed_path' if is_path else path,category='REVIEWER_PROPOSAL_ERROR' if alternatives else 'REPRESENTATION_CONFLICT',expected='Correct or withdraw this inconsistent proposal; explicitly pair each operand with its declared property/path/role. Do not change candidate or invent a representation.' if alternatives else 'Resolve the source/schema contradiction without overriding declared representation',observed=dict(property=prop,proposed_path=proposed,proposed_path_role=role),reason=conflict['reason'],matching_declared_properties=alternatives,issue_id=issue['issue_id'])
     (correctable if alternatives else blocking).append(error)
  # A real contradiction is never hidden behind a response-correction opportunity.
- return dict(correctable=correctable,blocking=blocking,route='CONFLICT' if blocking else 'CORRECT_RESPONSE' if correctable else 'VALID')
+ return dict(correctable=correctable,blocking=blocking,identifier_resolutions=resolutions,route='CONFLICT' if blocking else 'CORRECT_RESPONSE' if correctable else 'VALID')

@@ -9,8 +9,20 @@ from nltlv2.core import load,write,digest
 from nltlv2.schema import N,Q,U,Schema
 from nltlv2.sparql_extensions import register_math_functions
 
+class _EvaluationProject:
+ def path(self,name):
+  from pathlib import Path
+  return Path(__file__).resolve().parents[1]/name
+
 def oracle(g,rid):
  """Source-authored oracle for the six represented development requirements only."""
+ if rid in {'I2-046','TRF-015','I2-048','TRF-001','TRF-036','TRF-050','TRF-003','TRF-018','TRF-032','TRF-128','I2-019','I2-021','I2-041','I2-066','IMO-057','IMO-078','IMO-083','IMO-086'}:
+  import importlib.util
+  from pathlib import Path
+  if '_expanded' not in globals():
+   spec=importlib.util.spec_from_file_location('nltl_external_expanded',Path(__file__).with_name('expanded_development.py'));module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);globals()['_expanded']=module
+  if '_expanded_ontology' not in globals():globals()['_expanded_ontology']=Schema(_EvaluationProject()).graph
+  return _expanded.oracle(g,rid,_expanded_ontology)
  issues=[];unresolved=[];ships=list(g.subjects(RDF.type,N.ship))
  if len(ships)!=1:return dict(conforms=None,issues=[],unresolved=['SHIP_IDENTITY_NOT_UNIQUE'])
  ship=ships[0]
@@ -97,6 +109,7 @@ def reference_queries(rid):
  if rid=='IMO-001':return [('designIceCondition','FILTER NOT EXISTS { $this n:designIceCondition ?d }'),('shipCategory','$this n:designIceCondition n:mediumFirstYearIceWithPossibleOldIceInclusions . FILTER NOT EXISTS { $this n:shipCategory n:polarShipCategoryA }')]
  if rid=='TRF-010':return [('iceClass','FILTER NOT EXISTS { $this n:iceClass ?v . FILTER(?v IN (n:iceClassIaSuper,n:iceClassIa,n:iceClassIb,n:iceClassIc,n:iceClassIi,n:iceClassIii)) }')]
  if rid=='TRF-035':return [('classificationSocietyRuleLength',missing_qty('$this','classificationSocietyRuleLength','M')),('ruleLength',missing_qty('$this','ruleLength','M')),('ruleLength','$this n:classificationSocietyRuleLength/q:numericValue ?a ; n:ruleLength/q:numericValue ?b . FILTER(?a != ?b)')]
+ if rid in {'I2-046','TRF-015','I2-048','TRF-001','TRF-036','TRF-050','TRF-003','TRF-018','TRF-032','TRF-128','I2-019','I2-021','I2-041','I2-066','IMO-057','IMO-078','IMO-083','IMO-086'}:return [] # No manufactured exact-query attribution credit.
  raise ValueError(rid)
 
 def reference_shape(rid):

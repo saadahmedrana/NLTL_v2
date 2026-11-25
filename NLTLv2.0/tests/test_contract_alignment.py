@@ -3,7 +3,7 @@ import copy,json,os,pathlib,shutil,unittest
 import test_general_pipeline as base
 from nltlv2.core import Candidate,digest
 from nltlv2.evidence import evidence_catalog,code_location,wire_catalog
-from nltlv2.review_protocol import reviewer_schema,contract_instructions
+from nltlv2.review_protocol import legacy_reviewer_schema as reviewer_schema,contract_instructions
 from nltlv2.review_validation import validate_review
 from nltlv2.requests import parse_review,review_base
 from nltlv2.context_resolution import Resolver

@@ -1,0 +1,147 @@
+{
+  "text": "<BEGIN_SHACL>\n@prefix sh:   <http://www.w3.org/ns/shacl#> .\n@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .\n@prefix nltl: <https://w3id.org/nltl/vocab#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n\n# -----------------------------------------------------------------\n# Activation boundary: the shape is activated only for members of the\n# declared population class (the ship).\n# -----------------------------------------------------------------\nnltl:ShipStructuralMemberLargestHullAreaFactorShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:ship ;\n    sh:message \"A structural member of this ship violates I2‑019: the selected hull‑area factor must equal the maximum hull‑area factor of all hull areas spanned by the member.\" ;\n    sh:severity sh:Violation ;\n    sh:property [\n        sh:path nltl:hasStructuralMember ;\n        sh:node nltl:StructuralMemberLargestHullAreaFactorShape ;\n    ] .\n\n# -----------------------------------------------------------------\n# Core obligation: for any structural member (reached via the ship\n# activation above) the selected hull‑area factor must be the maximum\n# of the factors of the spanned hull areas (I2‑019, clause I2.3.5 (ii)).\n# -----------------------------------------------------------------\nnltl:StructuralMemberLargestHullAreaFactorShape\n    a sh:NodeShape ;\n    # No direct target class – activation controlled by the ship shape above.\n    sh:message \"The selected hull area factor must equal the maximum hull area factor of all hull areas spanned by the structural member.\" ;\n    sh:severity sh:Violation ;\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n            PREFIX unit: <http://qudt.org/vocab/unit/>\n\n            SELECT $this WHERE {\n                # The structural member must have at least one spanned hull area\n                $this nltl:hasSpannedHullArea ?area .\n\n                # Retrieve the hull‑area factor (QuantityValue) for each spanned area\n                ?area nltl:hullAreaFactor ?areaFactor .\n                ?areaFactor qudt:numericValue ?areaValue .\n                OPTIONAL { ?areaFactor qudt:unit ?areaUnit . }\n\n                # The structural member must have a selected hull‑area factor\n                $this nltl:selectedHullAreaFactor ?selectedFactor .\n                ?selectedFactor qudt:numericValue ?selectedValue .\n                OPTIONAL { ?selectedFactor qudt:unit ?selectedUnit . }\n\n                # Units must be compatible (if present)\n                FILTER (\n                    (!bound(?areaUnit) && !bound(?selectedUnit)) ||\n                    (bound(?areaUnit) && bound(?selectedUnit) && ?areaUnit = ?selectedUnit)\n                )\n\n                # Compute the maximum numeric value among all spanned hull‑area factors\n                {\n                    SELECT (MAX(?v) AS ?maxValue) WHERE {\n                        $this nltl:hasSpannedHullArea ?a2 .\n                        ?a2 nltl:hullAreaFactor ?f2 .\n                        ?f2 qudt:numericValue ?v .\n                        OPTIONAL { ?f2 qudt:unit ?u2 . }\n                        FILTER ( !bound(?selectedUnit) || !bound(?u2) || ?u2 = ?selectedUnit )\n                    }\n                }\n\n                # The selected factor must equal that maximum\n                FILTER ( ?selectedValue = ?maxValue )\n            }\n        \"\"\" ;\n    ] .\n\n# NOTE: The property hullAreaBoundary has unresolved ownership (no explicit owner binding);\n# it is therefore not included in the constraint model.\n<END_SHACL>",
+  "status": "completed",
+  "finish_reason": null,
+  "usage": {
+    "input_tokens": 31715,
+    "input_tokens_details": {
+      "cached_tokens": 320,
+      "cache_write_tokens": 31392,
+      "input_tokens_per_turn": [
+        31715
+      ],
+      "cached_tokens_per_turn": [
+        320
+      ]
+    },
+    "output_tokens": 1707,
+    "output_tokens_details": {
+      "reasoning_tokens": 819,
+      "tool_output_tokens": 0,
+      "output_tokens_per_turn": [
+        1707
+      ],
+      "tool_output_tokens_per_turn": [
+        0
+      ]
+    },
+    "total_tokens": 33422
+  },
+  "provider_response": {
+    "id": "resp_afb05a8aa7d59326",
+    "created_at": 1795618528,
+    "incomplete_details": null,
+    "instructions": null,
+    "metadata": null,
+    "model": "gpt-oss-120b",
+    "object": "response",
+    "output": [
+      {
+        "id": "rs_b1d69837c5e48bd1",
+        "summary": [],
+        "type": "reasoning",
+        "content": [
+          {
+            "text": "We need to revise previous_candidate SHACL to fix admission scope error: target class selection beyond declared population. Admission expects target boundary to be the declared owner_class: https://w3id.org/nltl/vocab#ship. Currently shape targets nltl:structuralMember class. According to admission, they want activation constrained to supplied population boundary: i.e., shape should target ship class? Actually the obligation is \"focus-boundary\": constrain activation to the supplied population boundary. So we need to modify shape's sh:targetClass to ship, and perhaps use sh:targetNode or sh:targetObjectsOf property to apply to structuralMember within ship? The schema representation mapping earlier (E47) shows owners mapping: fromOwner ship to structuralMember via hasStructuralMember, then to hullAreaValue via hasSpannedHullArea. target_owner null. So we likely need to keep shape targeting ship (owner_class) and then apply constraint within that ship's structural members. In SHACL, we can have sh:targetClass nltl:ship and then inside shape use sh:property with path nltl:hasStructuralMember and sh:valueShape referencing another shape for structuralMember. But we have a single shape with constraint in SPARQL that uses $this as the structuralMember. To keep same logic, we could set sh:targetClass nltl:ship and modify SPARQL to focus on $this nltl:hasStructuralMember ?member . Then evaluate for each member? Or have sh:node kind? Better: create a shape targeting nltl:ship, with sh:property that has sh:path nltl:hasStructuralMember and sh:node with inner shape similar to original structuralMember shape.\n\nGoal: preserve represented conditions/query obligations: they relate to structuralMember, hull areas, selected factor etc. So we can embed them in a nested shape. That respects activation boundary.\n\nThus new shape:\n\nnltl:ShipStructuralMemberLargestHullAreaFactorShape a sh:NodeShape; sh:targetClass nltl:ship; sh:message ... ; sh:severity sh:Violation; sh:property [ sh:path nltl:hasStructuralMember; sh:node nltl:StructuralMemberLargestHullAreaFactorShape ; ] .\n\nKeep existing structuralMember shape unchanged but adjust its targetClass to maybe nltl:structuralMember but not used directly? According to admission, we shouldn't have shape that directly targets structuralMember because that selects beyond declared population. But we could keep shape but not target class (just as a node shape not activated). Could still define it without targetClass. Simpler: remove sh:targetClass from structuralMember shape, make it a sh:NodeShape with no target, used via sh:node. That removes the admission error.\n\nThus final SHACL: define two shapes: main ship shape (activation boundary) and nested structuralMember shape (no target). Need to ensure prefixes remain.\n\nAlso need to fix unknown prefix issue: earlier error about unknown prefix nltl in SPARQL? In previous candidate, prefix nltl is declared at top as @prefix nltl: <https://w3id.org/nltl/vocab#> . That's fine; the static warning was about unknown prefix maybe because SHACL parser didn't see that prefix? Ensure that the SPARQL query uses full prefixes consistently; maybe need to declare PREFIX inside query? Not required if outer declarations are recognized; but to be safe, include PREFIX line in SPARQL SELECT. Add at start of query: PREFIX nltl: <https://w3id.org/nltl/vocab#> PREFIX qudt: <http://qudt.org/schema/qudt/> PREFIX unit: <http://qudt.org/vocab/unit/> . That resolves unknown.\n\nThus modify sh:select to include those PREFIX lines.\n\nAlso need to ensure that optional unit variables are bound similarly.\n\nThus final SHACL code.\n\nReturn within <BEGIN_SHACL> ... <END_SHACL>.\n\n",
+            "type": "reasoning_text"
+          }
+        ],
+        "encrypted_content": null,
+        "status": null
+      },
+      {
+        "id": "msg_b2a1c63ac610b5c0",
+        "content": [
+          {
+            "annotations": [],
+            "text": "<BEGIN_SHACL>\n@prefix sh:   <http://www.w3.org/ns/shacl#> .\n@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .\n@prefix nltl: <https://w3id.org/nltl/vocab#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n\n# -----------------------------------------------------------------\n# Activation boundary: the shape is activated only for members of the\n# declared population class (the ship).\n# -----------------------------------------------------------------\nnltl:ShipStructuralMemberLargestHullAreaFactorShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:ship ;\n    sh:message \"A structural member of this ship violates I2‑019: the selected hull‑area factor must equal the maximum hull‑area factor of all hull areas spanned by the member.\" ;\n    sh:severity sh:Violation ;\n    sh:property [\n        sh:path nltl:hasStructuralMember ;\n        sh:node nltl:StructuralMemberLargestHullAreaFactorShape ;\n    ] .\n\n# -----------------------------------------------------------------\n# Core obligation: for any structural member (reached via the ship\n# activation above) the selected hull‑area factor must be the maximum\n# of the factors of the spanned hull areas (I2‑019, clause I2.3.5 (ii)).\n# -----------------------------------------------------------------\nnltl:StructuralMemberLargestHullAreaFactorShape\n    a sh:NodeShape ;\n    # No direct target class – activation controlled by the ship shape above.\n    sh:message \"The selected hull area factor must equal the maximum hull area factor of all hull areas spanned by the structural member.\" ;\n    sh:severity sh:Violation ;\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        sh:select \"\"\"\n            PREFIX nltl: <https://w3id.org/nltl/vocab#>\n            PREFIX qudt: <http://qudt.org/schema/qudt/>\n            PREFIX unit: <http://qudt.org/vocab/unit/>\n\n            SELECT $this WHERE {\n                # The structural member must have at least one spanned hull area\n                $this nltl:hasSpannedHullArea ?area .\n\n                # Retrieve the hull‑area factor (QuantityValue) for each spanned area\n                ?area nltl:hullAreaFactor ?areaFactor .\n                ?areaFactor qudt:numericValue ?areaValue .\n                OPTIONAL { ?areaFactor qudt:unit ?areaUnit . }\n\n                # The structural member must have a selected hull‑area factor\n                $this nltl:selectedHullAreaFactor ?selectedFactor .\n                ?selectedFactor qudt:numericValue ?selectedValue .\n                OPTIONAL { ?selectedFactor qudt:unit ?selectedUnit . }\n\n                # Units must be compatible (if present)\n                FILTER (\n                    (!bound(?areaUnit) && !bound(?selectedUnit)) ||\n                    (bound(?areaUnit) && bound(?selectedUnit) && ?areaUnit = ?selectedUnit)\n                )\n\n                # Compute the maximum numeric value among all spanned hull‑area factors\n                {\n                    SELECT (MAX(?v) AS ?maxValue) WHERE {\n                        $this nltl:hasSpannedHullArea ?a2 .\n                        ?a2 nltl:hullAreaFactor ?f2 .\n                        ?f2 qudt:numericValue ?v .\n                        OPTIONAL { ?f2 qudt:unit ?u2 . }\n                        FILTER ( !bound(?selectedUnit) || !bound(?u2) || ?u2 = ?selectedUnit )\n                    }\n                }\n\n                # The selected factor must equal that maximum\n                FILTER ( ?selectedValue = ?maxValue )\n            }\n        \"\"\" ;\n    ] .\n\n# NOTE: The property hullAreaBoundary has unresolved ownership (no explicit owner binding);\n# it is therefore not included in the constraint model.\n<END_SHACL>",
+            "type": "output_text",
+            "logprobs": null
+          }
+        ],
+        "role": "assistant",
+        "status": "completed",
+        "type": "message",
+        "phase": null
+      }
+    ],
+    "parallel_tool_calls": true,
+    "temperature": 1.0,
+    "tool_choice": "none",
+    "tools": [],
+    "top_p": 1.0,
+    "background": false,
+    "max_output_tokens": 16000,
+    "max_tool_calls": null,
+    "previous_response_id": null,
+    "prompt": null,
+    "prompt_cache_options": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": null,
+    "safety_identifier": null,
+    "service_tier": "auto",
+    "status": "completed",
+    "text": null,
+    "top_logprobs": null,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 31715,
+      "input_tokens_details": {
+        "cached_tokens": 320,
+        "cache_write_tokens": 31392,
+        "input_tokens_per_turn": [
+          31715
+        ],
+        "cached_tokens_per_turn": [
+          320
+        ]
+      },
+      "output_tokens": 1707,
+      "output_tokens_details": {
+        "reasoning_tokens": 819,
+        "tool_output_tokens": 0,
+        "output_tokens_per_turn": [
+          1707
+        ],
+        "tool_output_tokens_per_turn": [
+          0
+        ]
+      },
+      "total_tokens": 33422
+    },
+    "user": null,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "kv_transfer_params": null,
+    "ec_transfer_params": null,
+    "input_messages": null,
+    "output_messages": null
+  },
+  "returned_model": "gpt-oss-120b",
+  "identity_status": "MATCH",
+  "elapsed_seconds": 10.325049084000057,
+  "physical_call": 2,
+  "final_output_present": true,
+  "token_budget": {
+    "encoding": "o200k_harmony",
+    "supplied_text_tokens": 31641,
+    "input_text_count_verified": true,
+    "complete_provider_input_count_verified": false,
+    "provider_framing_tokens": null,
+    "requested_output_tokens": 16000,
+    "input_plus_output_lower_bound": 47641,
+    "model_context_tokens": 131072,
+    "provider_context_tokens": null,
+    "provider_max_output_tokens": null,
+    "exceeds_known_token_limit": false,
+    "status": "CONTENT_COUNT_WITHIN_LIMIT_PROVIDER_FRAMING_UNVERIFIED",
+    "uncertainty": "Provider-added framing, deployed tokenizer revision and any lower provider limit are not exposed. Count is verified for supplied text under pinned public tokenizer, not claimed exact full provider input. Provider context rejection is terminal; truncation stays disabled.",
+    "material_context_truncated": false,
+    "request_bytes": 109116,
+    "route": "targeted_repair",
+    "logical_dispatch_attempt": 2,
+    "actual_provider_input_tokens": 31715,
+    "actual_input_minus_content_tokens": 74
+  }
+}

@@ -63,7 +63,7 @@ def decision_contract_errors(obj):
  if decision=='UNRESOLVED' and not (context or material or pending):errors.append(('UNRESOLVED_DECISION_NEEDS_CONTEXT_ISSUE','UNRESOLVED requires explicit missing context in issues, unchecked, requests or unresolved changes'))
  return errors
 
-def reviewer_schema(max_issues=12,strict=False,primary_clause=None):
+def legacy_reviewer_schema(max_issues=12,strict=False,primary_clause=None):
  def obj(props):
   optional={'insertion_context','property','proposed_unit','proposed_datatype','proposed_path','change_id','removal_assessments','evidence_requests','context_assessments','reference','section','revision','candidate_excerpt','previous_excerpt','proposed_path_role','operands','representation_disposition','claim_basis','source_clause','source_evidence_id','source_excerpt','candidate_location','previous_location'}
   if 'disposition' in props:optional.discard('change_id')
@@ -123,9 +123,78 @@ def reviewer_schema(max_issues=12,strict=False,primary_clause=None):
   require_all(result)
  return result
 
-def response_format(config):
+def response_format(config,schema=None):
  mode=config.get('review_output_mode','bounded_json')
  if mode=='bounded_json':return None
  cap=config.get('provider_capabilities',{})
  if mode!='json_schema' or cap.get('responses_text_json_schema') is not True or not cap.get('documentation_url'):raise ValueError('STRUCTURED_REVIEW_CAPABILITY_NOT_VERIFIED')
- return dict(type='json_schema',name='source_grounded_review',strict=True,schema=reviewer_schema(config.get('review_max_issues',12),strict=True))
+ return dict(type='json_schema',name='source_grounded_review',strict=True,schema=schema or reviewer_schema(config.get('review_max_issues',12),strict=True))
+
+# Current production contract. Legacy schema above exists only for explicitly
+# offline regression controls, and is rejected by Runner for live transports.
+def reviewer_schema(max_issues=12,strict=False,primary_clause=None,*,changes=(),gaps=(),findings=(),version=4,questions=()):
+ if version==3:return legacy_reviewer_schema(max_issues,strict,primary_clause)
+ def obj(properties,required=None):return dict(type='object',properties=properties,required=list(properties) if required is None else required,additionalProperties=False)
+ text=dict(type='string',minLength=1)
+ ref={'anyOf':[text,obj(dict(id=text,start={'type':'integer'},end={'type':'integer'},quote=text),['id'])]}
+ refs=dict(type='array',items=ref,minItems=1,maxItems=8)
+ location=obj(dict(start={'type':'integer'},end={'type':'integer'},unit={'type':'string','enum':['lines','characters']}),['start','end'])
+ operand=obj(dict(property=text,path={'type':'array','items':text,'minItems':1},role={'type':'string','enum':['PROPERTY','NUMERIC_OPERAND']},unit=text,datatype=text),['property','path','role'])
+ issue=obj(dict(description=text,evidence=refs,location=location,suggestion=text,operands={'type':'array','items':operand,'minItems':1,'maxItems':8}),['description','evidence','location','suggestion'])
+ if findings:issue['properties']['addresses']={'type':'array','items':{'enum':list(findings)},'uniqueItems':True}
+ question=obj(dict(missing=text,why=text,kind={'type':'string','enum':['source','schema']},reference={'type':'string','minLength':1,'maxLength':100},section=text,evidence={'type':'array','items':ref,'maxItems':8}),['missing','why','kind'])
+ properties=dict(assessment={'type':'string','enum':['APPROVE','HUMAN_REVIEW_REQUIRED','REJECT']},issues={'type':'array','items':issue,'maxItems':max_issues},questions={'type':'array','items':question,'maxItems':3})
+ if changes:
+  change=obj(dict(id={'enum':list(changes)},disposition={'type':'string','enum':['SUPPORTED','REGRESSION','UNRESOLVED']},reason=text,evidence=refs,issue={'type':'integer','minimum':0}),['id','disposition','reason','evidence'])
+  properties['change_review']={'type':'array','items':change,'minItems':len(changes),'maxItems':len(changes)}
+ if gaps:
+  properties['gap_review']={'type':'array','items':obj(dict(id={'enum':list(gaps)},material={'type':'boolean'},why=text)),'maxItems':len(gaps)}
+ if questions:
+  disposition=obj(dict(id={'enum':list(questions)},disposition={'enum':['RESOLVED','WITHDRAWN','STILL_UNRESOLVED']},why=text,evidence={'type':'array','items':ref,'maxItems':8}),['id','disposition','why'])
+  properties['question_review']={'type':'array','items':disposition,'minItems':len(questions),'maxItems':len(questions)}
+ schema=obj(properties);schema['description']=compact_contract_instructions()+(' '+prior_question_instructions() if questions else '');return schema
+
+def prior_question_instructions():
+ return 'For each prior_context_questions ID return one question_review disposition: RESOLVED explains how supplied evidence answers it; WITHDRAWN explains why the earlier concern was mistaken/nonmaterial; both need current supporting evidence references. STILL_UNRESOLVED explains what remains missing and blocks APPROVE. Cover every prior question exactly once; do not repeat it as a new question while closing it. Empty current questions or APPROVE alone never closes prior questions. Software owns stable IDs, original text, provenance and retrieval history. Explanatory validity remains a model judgment, not deterministic proof. '
+
+def compact_contract_instructions():
+ return ('Return complete assessment, issues and questions. APPROVE requires no current/prior issue or material question, all changes SUPPORTED and every supplied gap explicitly nonmaterial. REJECT needs an actionable code issue. HUMAN_REVIEW_REQUIRED needs a new/carried-forward material question or unresolved change/gap. '
+ 'Issue fields: description, evidence, location, suggestion. Evidence uses supplied E IDs or {id,start?,end?,quote?}; paired start/end are character offsets in that evidence, not code. RDF_FACT citations use the whole fact. Optional quotes are checked exactly. '
+ 'location uses start/end and optional unit=lines (default) or characters, on the full current candidate; software extracts exact code. Context questions/dispositions have no location and need no invented defect. '
+ 'Assess each supplied C ID once. REGRESSION links an actionable zero-based issue index; UNRESOLVED blocks approval. For APPROVE assess each G ID with material=false and why; material gaps require questions. '
+ 'Software owns hashes, IDs and reconciliation. Review supplied prior issues without returning duplicate bookkeeping. Unsupported assertions, invented references/quotes and inconsistent decisions are invalid; citation interpretation remains model judgment.')
+
+def response_correction_instruction(errors):
+ text='Correct the reported errors using expected_response_schema; return one complete review. Keep the SAME candidate, supplied evidence and ORIGINAL prior state. Failed output creates no accepted issues or repair permission; do not rewrite candidate code.'
+ if any('.evidence' in e.get('path','') for e in errors):
+  text+=' Evidence fields accept only supplied E IDs or {"id":"E7"} (E7 must exist in this packet), optionally paired character start/end and an exact quote. They do not accept unit or candidate IDs. Code references belong in issues[].location, e.g. {"start":1,"end":1,"unit":"lines"} if current line 1 exists; questions/dispositions need no code location. Omit optional quotations rather than paraphrasing them.'
+ elif any('.location' in e.get('path','') for e in errors):text+=' Use a valid range in the full current candidate for issues[].location; line ranges are 1-based inclusive, character ranges are 0-based half-open. Software extracts code.'
+ return text
+
+def contract_shape_errors(value,schema,path='$'):
+ """Validate the emitted small JSON-schema subset; definitions are authoritative."""
+ errors=[]
+ def error(code,expected):errors.append(dict(code=code,path=path,expected=expected,observed=value,category='MALFORMED_STRUCTURE'))
+ if 'anyOf' in schema:
+  variants=[contract_shape_errors(value,s,path) for s in schema['anyOf']]
+  if any(not v for v in variants):return []
+  for branch,branch_errors in zip(schema['anyOf'],variants):
+   if branch.get('type')=='object' and isinstance(value,dict) or branch.get('type')=='string' and isinstance(value,str):return branch_errors
+  error('INVALID_FIELD_TYPE','One documented reference form');return errors
+ kind=schema.get('type');valid={'object':lambda:isinstance(value,dict),'array':lambda:isinstance(value,list),'string':lambda:isinstance(value,str),'integer':lambda:type(value) is int,'boolean':lambda:type(value) is bool}
+ if kind and not valid[kind]():error('INVALID_FIELD_TYPE',kind);return errors
+ if 'enum' in schema and value not in schema['enum']:error('INVALID_FIELD_VALUE','One of '+str(schema['enum']))
+ if kind=='object':
+  for key in schema['required']:
+   if key not in value:errors.append(dict(code='MISSING_REVIEW_FIELD',path=path+'.'+key,expected='Required complete-response field',observed=None,category='MALFORMED_STRUCTURE'))
+  for key,v in value.items():
+   if key not in schema['properties']:errors.append(dict(code='UNKNOWN_REVIEW_FIELD',path=path+'.'+key,expected='Only documented fields',observed=v,category='MALFORMED_STRUCTURE'))
+   else:errors+=contract_shape_errors(v,schema['properties'][key],path+'.'+key)
+ if kind in ['array','string']:
+  lo=schema.get('minItems' if kind=='array' else 'minLength',0);hi=schema.get('maxItems' if kind=='array' else 'maxLength')
+  if len(value)<lo or hi is not None and len(value)>hi:error('REVIEW_FIELD_BOUND','Declared length bounds')
+ if kind=='array':
+  if schema.get('uniqueItems') and len({json.dumps(v,sort_keys=True) for v in value})!=len(value):error('DUPLICATE_REVIEW_ITEM','Unique items')
+  for i,v in enumerate(value):errors+=contract_shape_errors(v,schema['items'],path+'['+str(i)+']')
+ if kind=='integer' and value<schema.get('minimum',value):error('REVIEW_FIELD_BOUND','Declared numeric bounds')
+ return errors

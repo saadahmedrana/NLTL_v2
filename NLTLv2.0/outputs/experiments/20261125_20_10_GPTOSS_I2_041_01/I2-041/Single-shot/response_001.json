@@ -1,0 +1,147 @@
+{
+  "text": "<BEGIN_SHACL>\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix vocab: <https://w3id.org/nltl/vocab#> .\n@prefix qudt: <http://qudt.org/schema/qudt#> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n# Shape enforcing I2.9.3 – minimum net web thickness\nvocab:NetWebThicknessShape\n    a sh:NodeShape ;\n    sh:targetClass vocab:structuralMember ;\n    sh:description \"I2.9.3 – The net web thickness (t_wn) of a structural member shall satisfy t_wn ≥ 0.35·t_pn·√(σ_y/235), where t_pn is the net attached shell‑plate thickness and σ_y is the minimum upper yield stress of the shell plate.\" ;\n    sh:severity sh:Violation ;\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        sh:prefixes [\n            sh:declare [\n                sh:prefix \"vocab\" ;\n                sh:namespace \"https://w3id.org/nltl/vocab#\" ;\n            ] ;\n            sh:declare [\n                sh:prefix \"qudt\" ;\n                sh:namespace \"http://qudt.org/schema/qudt#\" ;\n            ] ;\n            sh:declare [\n                sh:prefix \"xsd\" ;\n                sh:namespace \"http://www.w3.org/2001/XMLSchema#\" ;\n            ]\n        ] ;\n        sh:select \"\"\"\n            SELECT $this ?twnVal ?tpnVal ?sigmaVal\n            WHERE {\n                # Net web thickness quantity value\n                $this vocab:netWebThickness ?twnQty .\n                ?twnQty a qudt:QuantityValue ;\n                        qudt:numericValue ?twnVal ;\n                        qudt:unit <http://qudt.org/vocab/unit/MilliM> .\n\n                # Net attached shell‑plate thickness quantity value\n                $this vocab:netAttachedShellPlateThickness ?tpnQty .\n                ?tpnQty a qudt:QuantityValue ;\n                        qudt:numericValue ?tpnVal ;\n                        qudt:unit <http://qudt.org/vocab/unit/MilliM> .\n\n                # Yield strength quantity value\n                $this vocab:yieldStrength ?sigmaQty .\n                ?sigmaQty a qudt:QuantityValue ;\n                        qudt:numericValue ?sigmaVal ;\n                        qudt:unit <http://qudt.org/vocab/unit/MegaPA> .\n\n                # Compute the required minimum net web thickness\n                BIND ( 0.35 * ?tpnVal * sqrt(?sigmaVal / 235.0) AS ?requiredTwn ) .\n\n                # Violation if actual t_wn is less than required\n                FILTER ( ?twnVal < ?requiredTwn )\n            }\n        \"\"\" ;\n        sh:message \"Net web thickness (t_wn) is below the required minimum of 0.35·t_pn·√(σ_y/235) as stipulated in I2.9.3.\" ;\n    ] .\n<END_SHACL>",
+  "status": "completed",
+  "finish_reason": null,
+  "usage": {
+    "input_tokens": 41038,
+    "input_tokens_details": {
+      "cached_tokens": 592,
+      "cache_write_tokens": 40432,
+      "input_tokens_per_turn": [
+        41038
+      ],
+      "cached_tokens_per_turn": [
+        592
+      ]
+    },
+    "output_tokens": 1414,
+    "output_tokens_details": {
+      "reasoning_tokens": 740,
+      "tool_output_tokens": 0,
+      "output_tokens_per_turn": [
+        1414
+      ],
+      "tool_output_tokens_per_turn": [
+        0
+      ]
+    },
+    "total_tokens": 42452
+  },
+  "provider_response": {
+    "id": "resp_8f3f32e1548338c7",
+    "created_at": 1795618158,
+    "incomplete_details": null,
+    "instructions": null,
+    "metadata": null,
+    "model": "gpt-oss-120b",
+    "object": "response",
+    "output": [
+      {
+        "id": "rs_996ce75bbbb4f058",
+        "summary": [],
+        "type": "reasoning",
+        "content": [
+          {
+            "text": "We need to produce SHACL shape for the requirement I2.9.3 concerning net web thickness constraints: t_wn >= 0.35 * t_pn * sqrt(sigma_y/235). We have properties: netWebThickness (t_wn), netAttachedShellPlateThickness (t_pn), yieldStrength (sigma_y). All these are QuantityProperties with units mm (for thickness) and MPa for yield.\n\nWe need to encode the constraint as a SHACL property shape maybe on structuralMember class? The netWebThickness domain is structuralMember, as per ontology: domain structuralMember. netAttachedShellPlateThickness also domain structuralMember. yieldStrength domain structuralMember (actually domain benchmarkEntity, but sourceRequirementId includes I2-041, so may apply to structuralMember as well? It is linked to structuralMember? In ontology evidence, yieldStrength domain is benchmarkEntity, not structuralMember. But we have to enforce constraint on structuralMember where both thicknesses and yield strength are present. The shape target may be structuralMember.\n\nWe need to use sh:property shapes with sh:path to each property, and use sh:qualifiedValueShape? Actually need a constraint involving multiple properties -> we can use sh:or, sh:and with sh:hasValue? Possibly use sh:node constraint with a custom SPARQL expression (sh:sparql). Use sh:message etc. Provide sh:targetClass as structuralMember. Use sh:sparql constraint to compute the inequality.\n\nThe format: Use sh:property shapes? For combined constraint, use sh:rule? Actually SHACL supports sh:sparql property for constraints: sh:select and sh:message.\n\nWe'll create a shape ex:NetWebThicknessShape a sh:NodeShape; sh:targetClass vocab:structuralMember; sh:sparql [ a sh:SPARQLConstraint ; sh:prefixes ... ; sh:select \"\"\" SELECT $this ( ... ) WHERE { $this vocab:netWebThickness ?twn . $this vocab:netAttachedShellPlateThickness ?tpn . $this vocab:yieldStrength ?sigma . FILTER ( ?twn < 0.35 * ?tpn * sqrt(?sigma/235) ) } \"\"\" ; sh:message \"Net web thickness must be at least 0.35 * net attached shell plate thickness * sqrt(yield strength / 235).\" ].\n\nNeed to reference IRIs fully.\n\nWe need to use quantityEncoding to encode numeric values maybe as QuantityValue with numericValue and unit. The properties point to QuantityValue nodes, which have qudt:numericValue and qudt:unit. So our SPARQL must dereference those.\n\nThus pattern: ?twnNode a qudt:QuantityValue ; qudt:numericValue ?twnVal ; qudt:unit <http://qudt.org/vocab/unit/MilliM> . Similarly for tpn and sigma.\n\nWe'll need to ensure units are appropriate, but we can just compare numeric values without unit conversion.\n\nImplement shape using prefixes:\n\nPREFIX vocab: <https://w3id.org/nltl/vocab#>\nPREFIX sh: <http://www.w3.org/ns/shacl#>\nPREFIX qudt: <http://qudt.org/schema/qudt#>\nPREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n\nThen shape.\n\nAlso need to include sh:targetClass vocab:structuralMember.\n\nWe'll also include sh:closed false.\n\nProvide sh:description maybe.\n\nAdd sh:severity sh:Violation.\n\nThat's it.\n\nReturn with <BEGIN_SHACL> and <END_SHACL>.\n\n",
+            "type": "reasoning_text"
+          }
+        ],
+        "encrypted_content": null,
+        "status": null
+      },
+      {
+        "id": "msg_a8b71dc7d468c4f7",
+        "content": [
+          {
+            "annotations": [],
+            "text": "<BEGIN_SHACL>\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix vocab: <https://w3id.org/nltl/vocab#> .\n@prefix qudt: <http://qudt.org/schema/qudt#> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n\n# Shape enforcing I2.9.3 – minimum net web thickness\nvocab:NetWebThicknessShape\n    a sh:NodeShape ;\n    sh:targetClass vocab:structuralMember ;\n    sh:description \"I2.9.3 – The net web thickness (t_wn) of a structural member shall satisfy t_wn ≥ 0.35·t_pn·√(σ_y/235), where t_pn is the net attached shell‑plate thickness and σ_y is the minimum upper yield stress of the shell plate.\" ;\n    sh:severity sh:Violation ;\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        sh:prefixes [\n            sh:declare [\n                sh:prefix \"vocab\" ;\n                sh:namespace \"https://w3id.org/nltl/vocab#\" ;\n            ] ;\n            sh:declare [\n                sh:prefix \"qudt\" ;\n                sh:namespace \"http://qudt.org/schema/qudt#\" ;\n            ] ;\n            sh:declare [\n                sh:prefix \"xsd\" ;\n                sh:namespace \"http://www.w3.org/2001/XMLSchema#\" ;\n            ]\n        ] ;\n        sh:select \"\"\"\n            SELECT $this ?twnVal ?tpnVal ?sigmaVal\n            WHERE {\n                # Net web thickness quantity value\n                $this vocab:netWebThickness ?twnQty .\n                ?twnQty a qudt:QuantityValue ;\n                        qudt:numericValue ?twnVal ;\n                        qudt:unit <http://qudt.org/vocab/unit/MilliM> .\n\n                # Net attached shell‑plate thickness quantity value\n                $this vocab:netAttachedShellPlateThickness ?tpnQty .\n                ?tpnQty a qudt:QuantityValue ;\n                        qudt:numericValue ?tpnVal ;\n                        qudt:unit <http://qudt.org/vocab/unit/MilliM> .\n\n                # Yield strength quantity value\n                $this vocab:yieldStrength ?sigmaQty .\n                ?sigmaQty a qudt:QuantityValue ;\n                        qudt:numericValue ?sigmaVal ;\n                        qudt:unit <http://qudt.org/vocab/unit/MegaPA> .\n\n                # Compute the required minimum net web thickness\n                BIND ( 0.35 * ?tpnVal * sqrt(?sigmaVal / 235.0) AS ?requiredTwn ) .\n\n                # Violation if actual t_wn is less than required\n                FILTER ( ?twnVal < ?requiredTwn )\n            }\n        \"\"\" ;\n        sh:message \"Net web thickness (t_wn) is below the required minimum of 0.35·t_pn·√(σ_y/235) as stipulated in I2.9.3.\" ;\n    ] .\n<END_SHACL>",
+            "type": "output_text",
+            "logprobs": null
+          }
+        ],
+        "role": "assistant",
+        "status": "completed",
+        "type": "message",
+        "phase": null
+      }
+    ],
+    "parallel_tool_calls": true,
+    "temperature": 1.0,
+    "tool_choice": "none",
+    "tools": [],
+    "top_p": 1.0,
+    "background": false,
+    "max_output_tokens": 16000,
+    "max_tool_calls": null,
+    "previous_response_id": null,
+    "prompt": null,
+    "prompt_cache_options": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": null,
+    "safety_identifier": null,
+    "service_tier": "auto",
+    "status": "completed",
+    "text": null,
+    "top_logprobs": null,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 41038,
+      "input_tokens_details": {
+        "cached_tokens": 592,
+        "cache_write_tokens": 40432,
+        "input_tokens_per_turn": [
+          41038
+        ],
+        "cached_tokens_per_turn": [
+          592
+        ]
+      },
+      "output_tokens": 1414,
+      "output_tokens_details": {
+        "reasoning_tokens": 740,
+        "tool_output_tokens": 0,
+        "output_tokens_per_turn": [
+          1414
+        ],
+        "tool_output_tokens_per_turn": [
+          0
+        ]
+      },
+      "total_tokens": 42452
+    },
+    "user": null,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "kv_transfer_params": null,
+    "ec_transfer_params": null,
+    "input_messages": null,
+    "output_messages": null
+  },
+  "returned_model": "gpt-oss-120b",
+  "identity_status": "MATCH",
+  "elapsed_seconds": 9.603116375001264,
+  "physical_call": 1,
+  "final_output_present": true,
+  "token_budget": {
+    "encoding": "o200k_harmony",
+    "supplied_text_tokens": 40964,
+    "input_text_count_verified": true,
+    "complete_provider_input_count_verified": false,
+    "provider_framing_tokens": null,
+    "requested_output_tokens": 16000,
+    "input_plus_output_lower_bound": 56964,
+    "model_context_tokens": 131072,
+    "provider_context_tokens": null,
+    "provider_max_output_tokens": null,
+    "exceeds_known_token_limit": false,
+    "status": "CONTENT_COUNT_WITHIN_LIMIT_PROVIDER_FRAMING_UNVERIFIED",
+    "uncertainty": "Provider-added framing, deployed tokenizer revision and any lower provider limit are not exposed. Count is verified for supplied text under pinned public tokenizer, not claimed exact full provider input. Provider context rejection is terminal; truncation stays disabled.",
+    "material_context_truncated": false,
+    "request_bytes": 151546,
+    "route": "generation",
+    "logical_dispatch_attempt": 1,
+    "actual_provider_input_tokens": 41038,
+    "actual_input_minus_content_tokens": 74
+  }
+}

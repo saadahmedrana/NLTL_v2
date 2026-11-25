@@ -1,0 +1,414 @@
+--- before/src/nltlv2/delivery.py
++++ after/src/nltlv2/delivery.py
+@@ -22,7 +22,8 @@
+  review=chosen.get('review') if chosen else None
+  decision=(review or {}).get('decision')
+  # Terminal review is preserved. This mapping is a handoff, not another review call.
+- handoff='APPROVE' if status=='ACCEPTED' else 'REJECT' if status=='NO_VERDICT' or decision=='REJECT' else 'HUMAN_REVIEW_REQUIRED'
+- result=dict(status=status,version=chosen['version'] if chosen else None,sha256=chosen['sha256'] if chosen else None,final_review=handoff,final_review_basis='Deterministic handoff from validated saved review and technical eligibility; no additional model review or repair',selected_review_decision=decision,terminal_review_decision=next((h['review']['decision'] for h in reversed(history) if h.get('review')),None),terminal_reason=terminal,selection_basis='Highest version passing fixed technical checks; no external scores',findings=chosen.get('findings',[]) if chosen else [],all_candidate_findings_preserved=True,correctness_certified=False)
++ context_pending=bool((review or {}).get('material_unchecked')) or any(f.get('category')=='UNRESOLVED_CONTEXT' and f.get('blocking') for f in (chosen or {}).get('findings',[]))
++ handoff='APPROVE' if status=='ACCEPTED' else 'HUMAN_REVIEW_REQUIRED' if context_pending else 'REJECT' if status=='NO_VERDICT' or decision=='REJECT' else 'HUMAN_REVIEW_REQUIRED'
++ result=dict(context_pending=context_pending,status=status,version=chosen['version'] if chosen else None,sha256=chosen['sha256'] if chosen else None,final_review=handoff,final_review_basis='Deterministic handoff from validated saved review and technical eligibility; no additional model review or repair',selected_review_decision=decision,terminal_review_decision=next((h['review']['decision'] for h in reversed(history) if h.get('review')),None),terminal_reason=terminal,selection_basis='Highest version passing fixed technical checks; no external scores',findings=chosen.get('findings',[]) if chosen else [],all_candidate_findings_preserved=True,correctness_certified=False)
+  if chosen:shutil.copyfile(output/f"candidate_{chosen['version']:02d}.ttl",output/'delivered.ttl')
+  write(output/'delivery.json',result);return result
+--- before/src/nltlv2/runner.py
++++ after/src/nltlv2/runner.py
+@@ -15,6 +15,8 @@
+ class Runner:
+  def __init__(self,project,config,transport,output):
+   self.p=GenerationProject(project.root);self.cfg=copy.deepcopy(config);self.transport=transport;self.output=output;self.schema=Schema(self.p);self.sequence=0;self.latest_findings=();self.calls=[];self.response_metrics=[];self.input_hashes={};self.resolver=Resolver(self.schema,self.cfg);self.controller_transitions=[];self.execution_summaries={};self.active_review_body=None;self.physical_calls_start=getattr(transport,'calls',None) if isinstance(getattr(transport,'calls',None),int) else None
++  self.contract_version=config.get('review_contract_version',4)
++  if self.contract_version not in [3,4] or self.contract_version==3 and (getattr(transport,'is_live',False) or config.get('network_enabled')):raise ValueError('LEGACY_REVIEW_CONTRACT_OFFLINE_ONLY')
+   if config.get('repair_limits',dict(technical=1,semantic=1,total=2))!=dict(technical=1,semantic=1,total=2):raise ValueError('INVALID_REPAIR_LIMITS')
+   self.cfg['maximum_candidate_attempts']=min(self.cfg.get('maximum_candidate_attempts',3),3)
+   self.cfg['review_format_retries']=min(self.cfg.get('review_format_retries',1),1)
+@@ -51,14 +53,17 @@
+   self.response_metrics.append(dict(sequence=self.sequence,route=request['route'],repair_type=request.get('repair_type'),usage=response.get('usage',{}),elapsed_seconds=response.get('elapsed_seconds',0)));return response
+  def review(self,c,context,previous,changes,tracker,warnings,prior_override=None):
+   self.review_failure_outcome='REVIEWER_FORMAT_FAILURE';self.review_blocking_conflicts=[];proposal_correction_seen=False
+-  prior=copy.deepcopy(tracker.prior_semantic_issues() if prior_override is None else prior_override);body=dict(context=context,candidate_version=c.version,candidate_sha256=c.sha256,full_candidate=c.code,previous_candidate=None if previous is None else dict(version=previous.version,sha256=previous.sha256,full_code=previous.code),change_manifest=changes,prior_issues=prior,static_warnings=[f.asdict() for f in warnings if not f.blocking],deterministic_findings=[dict(f.asdict(),finding_key=f.key) for f in warnings],acceptance_blockers=[dict(f.asdict(),finding_key=f.key) for f in warnings if f.blocking],max_issues=self.cfg['review_max_issues'],expected_response_schema=reviewer_schema(self.cfg['review_max_issues'],primary_clause=context['requirement']['clause']))
++  prior=copy.deepcopy(tracker.prior_semantic_issues() if prior_override is None else prior_override);body=dict(context=context,candidate_version=c.version,candidate_sha256=c.sha256,full_candidate=c.code,previous_candidate=None if previous is None else dict(version=previous.version,sha256=previous.sha256,full_code=previous.code),change_manifest=changes,prior_issues=prior,static_warnings=[f.asdict() for f in warnings if not f.blocking],deterministic_findings=[dict(f.asdict(),finding_key=f.key) for f in warnings],acceptance_blockers=[dict(f.asdict(),finding_key=f.key) for f in warnings if f.blocking],max_issues=self.cfg['review_max_issues'],expected_response_schema={})
++  body['review_contract_version']=self.contract_version
++  body['finding_aliases']={'F'+str(i+1):f.key for i,f in enumerate(warnings) if f.blocking}
++  body['expected_response_schema']=reviewer_schema(self.cfg['review_max_issues'],primary_clause=context['requirement']['clause'],changes=['C'+str(i+1) for i,_ in enumerate((changes or {}).get('changes',[]))],gaps=['G'+str(i+1) for i,_ in enumerate(context.get('retrieval_gaps',[]))],findings=body['finding_aliases'],version=self.contract_version)
+   execution=self.execution_summaries.get(c.version,probe_summary(c))
+   body.update(protocol_version=2,concise_findings=concise_findings(warnings),**review_binding(c,context,prior,previous,changes,execution),execution_probe=copy.deepcopy(execution),evidence_catalog=evidence_catalog(context,execution),citation_format=CITATION_FORMAT)
+   wire=compact_review(body);self.active_review_body=copy.deepcopy(wire);assert_review_packet(wire,c)
+   write(self.output/f'review_state_{self.sequence+1:03d}.json',body)
+   write(self.output/f'review_packet_{self.sequence+1:03d}_evidence.json',body['evidence_catalog'])
+   request=dict(route='review',system=self.p.path('prompts/reviewer.txt').read_text(),user=json.dumps(wire,ensure_ascii=False))
+-  fmt=response_format(self.cfg)
++  fmt=response_format(self.cfg,schema=body['expected_response_schema'])
+   if fmt:request['response_format']=fmt
+   for retry in range(self.cfg['review_format_retries']+1):
+    response=self.dispatch(request,c)
+@@ -71,6 +76,7 @@
+      self.review_blocking_conflicts=routing['blocking'];return None,[],None
+     if routing['correctable']:
+      errors=routing['correctable'];first=errors[0];e=ReviewerFormatError(first['code'],first['path'],first['expected'],first['observed'],first['category']);e.errors=errors;e.details=dict(first,validation_errors=errors);raise e
++    write(self.output/f'review_validated_{self.sequence:03d}.json',dict(review=obj,findings=[f.asdict() for f in fs],candidate_sha256=c.sha256,interpretation_is_not_independent_proof=True))
+     return obj,fs,None
+    except ReviewerFormatError as e:
+     errors=getattr(e,'errors',[e.details]);proposal=any(x.get('category')=='REVIEWER_PROPOSAL_ERROR' for x in errors);proposal_correction_seen|=proposal
+@@ -80,6 +86,7 @@
+     if integrity or retry==self.cfg['review_format_retries']:
+      self.review_failure_outcome=outcome;return None,[],str(e)
+     feedback=dict(rejected_response=response['text'],rejected_response_is_not_prior_state=True,validation_errors=errors,allowed_reconciliation_ids=[x['issue_id'] for x in prior],failed_review_is_not_prior_state=True,correction_kind='PROPOSAL' if proposal else 'FORMAT',shared_response_correction_allowance=True,instruction='Correct every error or withdraw an inconsistent issue. Pair each comparison operand explicitly using supplied representation evidence. Keep the SAME candidate, evidence, request binding and ORIGINAL prior issues; rejected output creates NO accepted issues or repair authorization. Return one complete response. Do not rewrite candidate code, relabel properties or invent paths to bypass validation. Full raw responses remain artifacts.')
++    if self.contract_version==4:feedback.pop('allowed_reconciliation_ids',None)
+     retry_body=copy.deepcopy(wire);retry_body['format_feedback']=feedback
+     request=dict(request,route='review_format_retry',user=json.dumps(retry_body,ensure_ascii=False))
+ 
+@@ -98,16 +105,17 @@
+   context_blockers=[f for f in base if f.blocking]
+   if context_blockers or context.get('unresolvedSourceContext'):
+    context,_=self.retrieve_context(c,context,self.resolver.default_requests(context,c),rid)
+-  prior=tracker.prior_semantic_issues();obj=None;semantic=[];error=None;conflicts=[]
++  prior=tracker.prior_semantic_issues();obj=None;semantic=[];error=None;conflicts=[];last_valid=None;last_semantic=[]
+   for round_index in range(policy['max_reviews_per_candidate']):
+    if sum(x['route']=='review' for x in self.calls)>=policy['max_reviews_per_run']:
+     self.transition(c,'REVIEW_LIMIT_EXHAUSTED');return context,base+semantic,obj,error,conflicts,'CONTEXT_LIMIT_EXHAUSTED'
+    self.transition(c,'REVIEW',review_round=round_index+1,code_unchanged=True)
+    obj,semantic,error=self.review(c,context,previous,changes,tracker,base,prior_override=prior)
+    if error:
+-    self.transition(c,self.review_failure_outcome);return context,base,None,error,[],self.review_failure_outcome
++    self.transition(c,self.review_failure_outcome,unresolved_valid_feedback_preserved=bool(last_semantic));return context,base+last_semantic,last_valid,error,[],self.review_failure_outcome
+    conflicts=self.review_blocking_conflicts
+    if conflicts:self.transition(c,'CONFLICT');return context,base,None,None,conflicts,'CONFLICT'
++   last_valid=obj;last_semantic=list(semantic)
+    requests=obj.get('evidence_requests',[])
+    pending=obj['decision'] in ['REQUEST_EVIDENCE','UNRESOLVED'] or bool(obj.get('material_unchecked'))
+    if requests or pending:
+@@ -199,7 +207,7 @@
+   try:self.verify_inputs()
+   except Exception as e:
+    status='REQUEST_INTEGRITY_FAILURE';operational=dict(status=status,diagnostic=str(e),no_automatic_retry=True);write(self.output/'operational_failure.json',operational)
+-  result=dict(version='0.11.3',repair_counts=repair_counts,repair_limits=dict(technical=1,semantic=1,total=2),effective_max_provider_calls=min(self.cfg.get('continuation',{}).get('max_provider_calls',11),11),effective_max_candidates=maximum,effective_review_limits=dict(primary_total=self.resolver.policy['max_reviews_per_run'],primary_per_candidate=self.resolver.policy['max_reviews_per_candidate'],shared_corrections_per_review=self.cfg['review_format_retries'],retrieval_rounds=self.resolver.policy['max_rounds']),token_usage={k:sum((m.get('usage') or {}).get(k,0) or 0 for m in self.response_metrics) for k in ['input_tokens','output_tokens','total_tokens']},request_elapsed_seconds=sum(m.get('elapsed_seconds',0) or 0 for m in self.response_metrics),admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=(self.transport.calls-self.physical_calls_start if self.physical_calls_start is not None else len(self.calls)) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(list(self.output.glob('candidate_*.ttl'))),dispatch_attempts=len(self.calls),call_counts_by_route={route:sum(q['route']==route for q in self.calls) for route in sorted({q['route'] for q in self.calls})},generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
++  result=dict(version='0.11.4',repair_counts=repair_counts,repair_limits=dict(technical=1,semantic=1,total=2),effective_max_provider_calls=min(self.cfg.get('continuation',{}).get('max_provider_calls',11),11),effective_max_candidates=maximum,effective_review_limits=dict(primary_total=self.resolver.policy['max_reviews_per_run'],primary_per_candidate=self.resolver.policy['max_reviews_per_candidate'],shared_corrections_per_review=self.cfg['review_format_retries'],retrieval_rounds=self.resolver.policy['max_rounds']),token_usage={k:sum((m.get('usage') or {}).get(k,0) or 0 for m in self.response_metrics) for k in ['input_tokens','output_tokens','total_tokens']},request_elapsed_seconds=sum(m.get('elapsed_seconds',0) or 0 for m in self.response_metrics),admission=dict(status=admission['status'],admission_id=self.admission_context['declaration']['admission_id'],declaration_sha256=self.admission_context['declaration_sha256'],eligibility_independently_certified=False),run_label='SOURCE_GROUNDED_LIVE' if getattr(self.transport,'is_live',False) else 'OFFLINE_SCRIPTED_SOFTWARE_TEST',provider_calls=(self.transport.calls-self.physical_calls_start if self.physical_calls_start is not None else len(self.calls)) if getattr(self.transport,'is_live',False) else 0,method=self.cfg['method'],requirement_id=rid,status=status,complete_verification=False,candidate_attempts=len(list(self.output.glob('candidate_*.ttl'))),dispatch_attempts=len(self.calls),call_counts_by_route={route:sum(q['route']==route for q in self.calls) for route in sorted({q['route'] for q in self.calls})},generation_calls=sum(r['route']=='generation' for r in self.calls),repair_calls=sum(r['route'].endswith('repair') for r in self.calls),auxiliary_format_retries=sum(r['route']=='review_format_retry' for r in self.calls),accepted_version=next((h['version'] for h in history if h['accepted']),None),evaluation_candidate=next((h['version'] for h in history if h['accepted']),1 if self.cfg['method']=='Single-shot' and history else None),elapsed_seconds=time.monotonic()-start,history=history,operational_failure=operational,exhaustion_policy='No accepted NLTL candidate means NO_VERDICT; rejected candidates remain diagnostics only.',interpretation_policy='Model conclusions are not independently verified facts.',behavioral_gold_consulted=False)
+   if self.cfg.get('delivery_policy')=='latest_technical':
+    from .delivery import finalize
+    result['delivery']=finalize(self.output,history,status)
+--- before/src/nltlv2/__init__.py
++++ after/src/nltlv2/__init__.py
+@@ -1,2 +1,2 @@
+ """General source-grounded NLTL pipeline. No credentials loaded on import."""
+-__version__ = "0.11.3"
++__version__ = "0.11.4"
+--- before/src/nltlv2/review_validation.py
++++ after/src/nltlv2/review_validation.py
+@@ -1,8 +1,8 @@
+ """Collect independent reviewer protocol failures. No partial review becomes repair state."""
+-from .review_protocol import normalize_response,ReviewerFormatError,reviewer_schema,claim_basis,context_only,ISSUE_BASES,CLAIM_BASES,REVIEW_DECISIONS,TECHNICAL_EVIDENCE_KINDS,decision_contract_errors,COMMON_ISSUE_TEXT_FIELDS,CLAIM_REQUIRED_FIELDS
++from .review_protocol import normalize_response,ReviewerFormatError,reviewer_schema,claim_basis,context_only,ISSUE_BASES,CLAIM_BASES,REVIEW_DECISIONS,TECHNICAL_EVIDENCE_KINDS,decision_contract_errors,COMMON_ISSUE_TEXT_FIELDS,CLAIM_REQUIRED_FIELDS,legacy_reviewer_schema
+ from .evidence import evidence_catalog,citation_error,review_binding
+ 
+-def validate_review(response,c,context,max_issues=12,*,previous=None,changes=None,prior_issues=(),request_body=None):
++def validate_legacy_review(response,c,context,max_issues=12,*,previous=None,changes=None,prior_issues=(),request_body=None):
+  errors=[]
+  def error(code,path,expected,observed=None,category='MALFORMED_STRUCTURE'):errors.append(dict(code=code,path=path,category=category,expected=expected,observed=observed))
+  try:normalized,audit=normalize_response(response)
+@@ -54,7 +54,7 @@
+   if (previous_required or not context_only(x)) and not (isinstance(excerpt,str) and excerpt.strip() and excerpt in c.code or not excerpt and isinstance(anchor,str) and anchor.strip() and anchor in c.code):error('ISSUE_EVIDENCE_NOT_IN_SOURCE_OR_CANDIDATE',path+'.candidate_excerpt','Verbatim current code excerpt or exact insertion_context',excerpt,'INVALID_CANDIDATE_QUOTATION')
+   if previous_required and (previous is None or not isinstance(x.get('previous_excerpt'),str) or not x['previous_excerpt'].strip() or x['previous_excerpt'] not in previous.code):error('CHANGE_NOT_TIED_TO_PREVIOUS_CODE',path+'.previous_excerpt','Verbatim immediately preceding candidate',x.get('previous_excerpt'),'INVALID_PREVIOUS_QUOTATION')
+   if not isinstance(x.get('reason'),str) or not x['reason'].strip():error('MISSING_REASON',path+'.reason','Specific source/code-based reason')
+- schemas=reviewer_schema(max_issues)['properties']
++ schemas=legacy_reviewer_schema(max_issues)['properties']
+  def fields(x,path,name):
+   props=({k:{} for k in ['alert_id','disposition','source_evidence_id','source_excerpt','previous_excerpt','candidate_excerpt','insertion_context','reason','claim_basis','evidence_id','evidence_excerpt']} if name=='removal' else dict(schemas[name]['items']['properties']))
+   props.update({k:{} for k in ['candidate_excerpt','previous_excerpt','insertion_context']})
+@@ -160,3 +160,93 @@
+   assessed.add(str(x.get('finding_key')))
+  obj['evidence_requests']=requests;obj['context_assessments']=assessments;obj['material_unchecked']=material
+  return obj,audit,errors
++
++def validate_compact_review(response,c,context,max_issues=12,*,previous=None,changes=None,prior_issues=(),request_body=None):
++ """Small production response -> server-owned, candidate-bound internal findings."""
++ import copy,json
++ from .core import digest
++ from .review_protocol import contract_shape_errors,reviewer_schema
++ from .evidence import canonical,extract_location,code_location
++ errors=[]
++ def error(code,path,expected,observed=None,category='MALFORMED_STRUCTURE'):errors.append(dict(code=code,path=path,expected=expected,observed=observed,category=category))
++ try:_,audit=normalize_response(response)
++ except ReviewerFormatError as e:return None,None,[e.details]
++ raw=audit['normalized_response'];groups=(changes or {}).get('changes',[]);change_map={'C'+str(i+1):g for i,g in enumerate(groups)};gap_map={'G'+str(i+1):g for i,g in enumerate(context.get('retrieval_gaps',[]))}
++ finding_map=(request_body or {}).get('finding_aliases',{})
++ schema=reviewer_schema(max_issues,changes=change_map,gaps=gap_map,findings=finding_map)
++ errors+=contract_shape_errors(raw,schema)
++ if errors:return None,audit,errors
++ catalog=evidence_catalog(context,(request_body or {}).get('execution_probe'));entries={e['evidence_id']:e for e in catalog['entries']}
++ if request_body is not None:
++  expected=review_binding(c,context,prior_issues,previous,changes,request_body.get('execution_probe'))
++  if any(request_body.get(k)!=v for k,v in expected.items()) or request_body.get('full_candidate')!=c.code or request_body.get('evidence_catalog')!=catalog:error('STALE_REVIEW_REQUEST','$request','Original immutable candidate/evidence/prior binding',category='REQUEST_VERSION_BINDING')
++ def references(refs,path):
++  resolved=[]
++  for i,r in enumerate(refs):
++   at=path+'['+str(i)+']';r={'id':r} if isinstance(r,str) else r;e=entries.get(r['id'])
++   if e is None:error('MISSING_OR_UNSUPPLIED_EVIDENCE_ID',at,'E ID in this exact packet',r['id']);continue
++   a,b=r.get('start',0),r.get('end',len(e['text']))
++   if ('start' in r)!=('end' in r) or type(a) is not int or type(b) is not int or not 0<=a<b<=len(e['text']):error('INVALID_EVIDENCE_SPAN',at,'Valid character range in supplied evidence',r);continue
++   if e['kind']=='RDF_FACT' and (a!=0 or b!=len(e['text'])):error('RDF_FACT_REFERENCE_MUST_BE_WHOLE_FACT',at,'Cite the complete explicit RDF fact, not a fragment',r);continue
++   text=e['text'][a:b]
++   if 'quote' in r:
++    problem=citation_error(catalog,r['id'],r['quote'],source=e['kind']=='SOURCE')
++    if problem:error(problem[0],at+'.quote',problem[1],r['quote']);continue
++    if r['quote'] not in text and e['kind']!='RDF_FACT':error('ASSERTED_QUOTE_OUTSIDE_SPAN',at+'.quote','Asserted quotation inside cited span',r['quote']);continue
++   resolved.append(dict(evidence_id=e['evidence_id'],kind=e['kind'],role='OBLIGATION' if e['kind']=='SOURCE' else 'POPULATION_ASSUMPTION' if e['kind']=='CALLER_DECLARATION' else 'REPRESENTATION' if e['kind'] in ['SCHEMA_TEXT','RDF_FACT'] else 'CONTEXT_STATUS',start=a,end=b,text=text,text_sha256=digest(text),evidence_sha256=e['evidence_sha256'],provenance_sha256=e['provenance_sha256']))
++  return resolved
++ def location(x,path):
++  loc=code_location(c,x['start'],x['end'],unit=x.get('unit','lines'))
++  try:exact=extract_location(loc,c)
++  except ValueError as e:error(str(e),path,'Current candidate range',x);return loc,''
++  return loc,exact
++ issues=[]
++ for i,item in enumerate(raw['issues']):
++  path='$.issues['+str(i)+']';refs=references(item['evidence'],path+'.evidence');loc,exact=location(item['location'],path+'.location')
++  support=[r for r in refs if r['role'] in ['OBLIGATION','REPRESENTATION','POPULATION_ASSUMPTION']]
++  if not support:error('UNSUPPORTED_CODE_ASSERTION',path+'.evidence','Code issue needs obligation, schema/representation or approved scope evidence')
++  law=next((r for r in refs if r['kind']=='SOURCE'),None);first=next(iter(support),None)
++  stable='issue:'+digest(canonical([' '.join(item['description'].split()).casefold(),sorted(r['evidence_sha256'] for r in refs)]))
++  operands=[dict(operand_id='operand'+str(j+1),property=o['property'],proposed_path=o['path'],proposed_path_role=o['role'],proposed_unit=o.get('unit'),proposed_datatype=o.get('datatype')) for j,o in enumerate(item.get('operands',[]))]
++  issues.append(dict(issue_id=stable,category='SOURCE_BACKED_LOGIC_ERROR' if law else 'TECHNICAL_REPRESENTATION_ERROR',source_clause=context['requirement']['clause'] if law else None,source_evidence_id=law['evidence_id'] if law else None,source_excerpt=law['text'] if law else None,evidence_id=first['evidence_id'] if first else None,evidence_excerpt=first['text'] if first else None,reason=item['description'],expected=item['suggestion'],suggestion=item['suggestion'],candidate_excerpt=exact,candidate_location=loc,resolved_evidence=refs,operands=operands,addresses=item.get('addresses',[])))
++ questions=[];requests=[]
++ for i,q in enumerate(raw['questions']):
++  refs=references(q.get('evidence',[]),'$.questions['+str(i)+'].evidence');questions.append(dict(missing=q['missing'],why=q['why'],resolved_evidence=refs));requests.append(dict(kind=q['kind'],reference=q.get('reference'),section=q.get('section'),query=q['missing'][:2000],reason=q['why']))
++ assessed=[];assessments=[]
++ for i,x in enumerate(raw.get('change_review',[])):
++  path='$.change_review['+str(i)+']';g=change_map[x['id']];refs=references(x['evidence'],path+'.evidence');assessed.append(x['id'])
++  if not any(r['role'] in ['OBLIGATION','REPRESENTATION','POPULATION_ASSUMPTION'] for r in refs):error('UNSUPPORTED_CHANGE_ASSESSMENT',path+'.evidence','Source/schema/scope evidence, not checker silence alone')
++  if x['disposition']=='REGRESSION':
++   idx=x.get('issue');valid=type(idx) is int and 0<=idx<len(issues)
++   if not valid:error('CHANGE_FAILURE_NEEDS_ACTIONABLE_ISSUE',path+'.issue','Zero-based index of actionable issue',idx)
++   else:issues[idx]['change_id']=g['change_id']
++  assessments.append(dict(change_id=g['change_id'],disposition=x['disposition'],reason=x['reason'],resolved_evidence=refs,removal_disposition='SUPPORTED_REMOVAL' if x['disposition']=='SUPPORTED' else x['disposition'],previous_excerpt=previous.code if previous else '',candidate_excerpt=c.code))
++ if set(assessed)!=set(change_map) or len(assessed)!=len(set(assessed)):error('INCOMPLETE_CHANGE_REVIEW','$.change_review','Every supplied C ID exactly once')
++ gap_seen=[];unchecked=[]
++ for i,g in enumerate(raw.get('gap_review',[])):
++  gap_seen.append(g['id']);unchecked.append(dict(scope=gap_map[g['id']]['gap_id'],material=g['material'],reason=g['why']))
++ if len(gap_seen)!=len(set(gap_seen)):error('DUPLICATE_GAP_ASSESSMENT','$.gap_review','Each gap at most once')
++ if any(g['material'] for g in raw.get('gap_review',[])) and not questions:error('MATERIAL_GAP_NEEDS_QUESTION','$.questions','Describe missing information and why it matters')
++ unresolved=any(x['disposition']=='UNRESOLVED' for x in assessments)
++ assessment=raw['assessment']
++ if assessment=='APPROVE':
++  if issues or questions or unresolved or any(x['disposition']!='SUPPORTED' for x in assessments):error('DECISION_ISSUE_CONTRADICTION','$.assessment','APPROVE requires no code issues, questions or unsupported changes')
++  if set(gap_seen)!=set(gap_map):error('UNASSESSED_RETRIEVAL_GAP','$.gap_review','Every supplied G ID explicitly assessed')
++  if any(x['material'] for x in unchecked):error('DECISION_ISSUE_CONTRADICTION','$.assessment','Material uncertainty prevents APPROVE')
++ if assessment=='REJECT' and not issues:error('DECISION_ISSUE_CONTRADICTION','$.assessment','REJECT requires an actionable code issue')
++ if assessment=='HUMAN_REVIEW_REQUIRED' and not (questions or unresolved or any(x['material'] for x in unchecked)):error('DECISION_ISSUE_CONTRADICTION','$.assessment','Describe a context question or unresolved change/gap; code-only issues use REJECT')
++ # Software-owned prior reconciliation. Stable IDs use description + immutable
++ # evidence identity, never mutable E aliases or model-supplied bookkeeping.
++ current={x['issue_id'] for x in issues};reconciliations=[dict(issue_id=x['issue_id'],state='PERSISTENT' if x['issue_id'] in current else 'RESOLVED' if assessment=='APPROVE' else 'UNASSESSABLE',reason='Derived from complete current review, not independent proof') for x in prior_issues]
++ context_assessments=[dict(finding_key=finding_map[a],disposition='REPAIRABLE_CODE',reason=x['reason']) for x in issues for a in x['addresses']]
++ for q in questions:unchecked.append(dict(scope=q['missing'],material=True,reason=q['why']))
++ if unresolved:unchecked.append(dict(scope='Unresolved change assessment',material=True,reason='Uncertainty is not code-repair permission'))
++ obj=dict(assessment=assessment,decision={'APPROVE':'ACCEPT','HUMAN_REVIEW_REQUIRED':'UNRESOLVED','REJECT':'REJECT'}[assessment],issues=issues,questions=questions,change_assessments=assessments,reconciliations=reconciliations,unchecked=unchecked,material_unchecked=[x for x in unchecked if x['material']],evidence_requests=requests,context_assessments=context_assessments,candidate_version=c.version,candidate_sha256=c.sha256,review_request_id=(request_body or {}).get('review_request_id'),model_response=copy.deepcopy(raw),software_owned_metadata=True)
++ return obj,audit,errors
++
++# Legacy parsing is retained only to replay explicitly offline regression controls.
++# A production request identifies contract 4; old replies then fail the small schema.
++def validate_review(response,c,context,max_issues=12,*,previous=None,changes=None,prior_issues=(),request_body=None):
++ if (request_body or {}).get('review_contract_version')==4 or request_body is None and '"assessment"' in response.get('text',''):
++  return validate_compact_review(response,c,context,max_issues,previous=previous,changes=changes,prior_issues=prior_issues,request_body=request_body)
++ return validate_legacy_review(response,c,context,max_issues,previous=previous,changes=changes,prior_issues=prior_issues,request_body=request_body)
+--- before/src/nltlv2/review_protocol.py
++++ after/src/nltlv2/review_protocol.py
+@@ -63,7 +63,7 @@
+  if decision=='UNRESOLVED' and not (context or material or pending):errors.append(('UNRESOLVED_DECISION_NEEDS_CONTEXT_ISSUE','UNRESOLVED requires explicit missing context in issues, unchecked, requests or unresolved changes'))
+  return errors
+ 
+-def reviewer_schema(max_issues=12,strict=False,primary_clause=None):
++def legacy_reviewer_schema(max_issues=12,strict=False,primary_clause=None):
+  def obj(props):
+   optional={'insertion_context','property','proposed_unit','proposed_datatype','proposed_path','change_id','removal_assessments','evidence_requests','context_assessments','reference','section','revision','candidate_excerpt','previous_excerpt','proposed_path_role','operands','representation_disposition','claim_basis','source_clause','source_evidence_id','source_excerpt','candidate_location','previous_location'}
+   if 'disposition' in props:optional.discard('change_id')
+@@ -123,9 +123,64 @@
+   require_all(result)
+  return result
+ 
+-def response_format(config):
++def response_format(config,schema=None):
+  mode=config.get('review_output_mode','bounded_json')
+  if mode=='bounded_json':return None
+  cap=config.get('provider_capabilities',{})
+  if mode!='json_schema' or cap.get('responses_text_json_schema') is not True or not cap.get('documentation_url'):raise ValueError('STRUCTURED_REVIEW_CAPABILITY_NOT_VERIFIED')
+- return dict(type='json_schema',name='source_grounded_review',strict=True,schema=reviewer_schema(config.get('review_max_issues',12),strict=True))
++ return dict(type='json_schema',name='source_grounded_review',strict=True,schema=schema or reviewer_schema(config.get('review_max_issues',12),strict=True))
++
++# Current production contract. Legacy schema above exists only for explicitly
++# offline regression controls, and is rejected by Runner for live transports.
++def reviewer_schema(max_issues=12,strict=False,primary_clause=None,*,changes=(),gaps=(),findings=(),version=4):
++ if version==3:return legacy_reviewer_schema(max_issues,strict,primary_clause)
++ def obj(properties,required=None):return dict(type='object',properties=properties,required=list(properties) if required is None else required,additionalProperties=False)
++ text=dict(type='string',minLength=1)
++ ref={'anyOf':[text,obj(dict(id=text,start={'type':'integer'},end={'type':'integer'},quote=text),['id'])]}
++ refs=dict(type='array',items=ref,minItems=1,maxItems=8)
++ location=obj(dict(start={'type':'integer'},end={'type':'integer'},unit={'type':'string','enum':['lines','characters']}),['start','end'])
++ operand=obj(dict(property=text,path={'type':'array','items':text,'minItems':1},role={'type':'string','enum':['PROPERTY','NUMERIC_OPERAND']},unit=text,datatype=text),['property','path','role'])
++ issue=obj(dict(description=text,evidence=refs,location=location,suggestion=text,operands={'type':'array','items':operand,'minItems':1,'maxItems':8}),['description','evidence','location','suggestion'])
++ if findings:issue['properties']['addresses']={'type':'array','items':{'enum':list(findings)},'uniqueItems':True}
++ question=obj(dict(missing=text,why=text,kind={'type':'string','enum':['source','schema']},reference={'type':'string','minLength':1,'maxLength':100},section=text,evidence={'type':'array','items':ref,'maxItems':8}),['missing','why','kind'])
++ properties=dict(assessment={'type':'string','enum':['APPROVE','HUMAN_REVIEW_REQUIRED','REJECT']},issues={'type':'array','items':issue,'maxItems':max_issues},questions={'type':'array','items':question,'maxItems':3})
++ if changes:
++  change=obj(dict(id={'enum':list(changes)},disposition={'type':'string','enum':['SUPPORTED','REGRESSION','UNRESOLVED']},reason=text,evidence=refs,issue={'type':'integer','minimum':0}),['id','disposition','reason','evidence'])
++  properties['change_review']={'type':'array','items':change,'minItems':len(changes),'maxItems':len(changes)}
++ if gaps:
++  properties['gap_review']={'type':'array','items':obj(dict(id={'enum':list(gaps)},material={'type':'boolean'},why=text)),'maxItems':len(gaps)}
++ schema=obj(properties);schema['description']=compact_contract_instructions();return schema
++
++def compact_contract_instructions():
++ return ('Return the complete assessment, issues and questions arrays. APPROVE requires no issues/questions and every change supported and every retrieval gap explicitly nonmaterial. REJECT requires an actionable code issue; material questions remain blocking even with REJECT. HUMAN_REVIEW_REQUIRED needs an explicit question or unresolved change/gap. '
++ 'Code issue: description, supplied evidence references, current code location and actionable suggestion. Context question: exactly what is missing, why it matters and source/schema retrieval kind; no invented code defect/location. '
++ 'Cite E IDs, optionally with character start/end for text entries; RDF_FACT references cite the whole atomic fact. Software extracts exact text. Never reproduce quotations unless deliberately asserting one (optional quote is checked exactly). Locations contain start/end, optional unit (default lines); software binds current hashes and extracts code. '
++ 'Regulation establishes obligations. Schema/declared representation establishes RDF identifiers, paths, datatypes and units. Approved research scope establishes the external population assumption. A regulation need not literally contain an RDF IRI. Mappings do not establish regulatory formulas or compliance answers. Genuine missing/contradictory mappings stay questions. Citations do not prove interpretation. '
++ 'When supplied, assess every change ID once, including removed/replaced constraints and their reachable enforcement. REGRESSION must link the zero-based issue index; UNRESOLVED stays blocking. For APPROVE assess every gap ID with material=false and why; material gaps require questions. '
++ 'Software maintains stable issue IDs, prior reconciliation and candidate bindings. Review all supplied prior issues; APPROVE asserts none remains. Do not return hashes, issue IDs, reconciliation states, source-clause echoes or duplicate removal assessments. Never request evaluation fixtures/labels/solutions.')
++
++def contract_shape_errors(value,schema,path='$'):
++ """Validate the emitted small JSON-schema subset; definitions are authoritative."""
++ errors=[]
++ def error(code,expected):errors.append(dict(code=code,path=path,expected=expected,observed=value,category='MALFORMED_STRUCTURE'))
++ if 'anyOf' in schema:
++  variants=[contract_shape_errors(value,s,path) for s in schema['anyOf']]
++  if all(variants):error('INVALID_FIELD_TYPE','One documented reference form')
++  return errors
++ kind=schema.get('type');valid={'object':lambda:isinstance(value,dict),'array':lambda:isinstance(value,list),'string':lambda:isinstance(value,str),'integer':lambda:type(value) is int,'boolean':lambda:type(value) is bool}
++ if kind and not valid[kind]():error('INVALID_FIELD_TYPE',kind);return errors
++ if 'enum' in schema and value not in schema['enum']:error('INVALID_FIELD_VALUE','One of '+str(schema['enum']))
++ if kind=='object':
++  for key in schema['required']:
++   if key not in value:errors.append(dict(code='MISSING_REVIEW_FIELD',path=path+'.'+key,expected='Required complete-response field',observed=None,category='MALFORMED_STRUCTURE'))
++  for key,v in value.items():
++   if key not in schema['properties']:errors.append(dict(code='UNKNOWN_REVIEW_FIELD',path=path+'.'+key,expected='Only documented fields',observed=v,category='MALFORMED_STRUCTURE'))
++   else:errors+=contract_shape_errors(v,schema['properties'][key],path+'.'+key)
++ if kind in ['array','string']:
++  lo=schema.get('minItems' if kind=='array' else 'minLength',0);hi=schema.get('maxItems' if kind=='array' else 'maxLength')
++  if len(value)<lo or hi is not None and len(value)>hi:error('REVIEW_FIELD_BOUND','Declared length bounds')
++ if kind=='array':
++  if schema.get('uniqueItems') and len({json.dumps(v,sort_keys=True) for v in value})!=len(value):error('DUPLICATE_REVIEW_ITEM','Unique items')
++  for i,v in enumerate(value):errors+=contract_shape_errors(v,schema['items'],path+'['+str(i)+']')
++ if kind=='integer' and value<schema.get('minimum',value):error('REVIEW_FIELD_BOUND','Declared numeric bounds')
++ return errors
+--- before/src/nltlv2/requests.py
++++ after/src/nltlv2/requests.py
+@@ -27,6 +27,13 @@
+   if any(k in p for k in ['validated_constraint_changes','expected_verdicts','behavioral_witnesses']):raise ValueError('LEGACY_SOLUTION_PACKET_FORBIDDEN')
+   for f in fs:
+    if f['category'] not in CATEGORIES or not f.get('diagnostic') or not f.get('location') or not f.get('suggestion'):raise ValueError('INCOMPLETE_FINDING')
++  catalog={e['evidence_id']:e for e in p.get('evidence_catalog',{}).get('entries',[])}
++  for f in fs:
++   evidence=f.get('evidence')
++   if not isinstance(evidence,dict):continue
++   for ref in evidence.get('resolved_evidence',[]):
++    entry=catalog.get(ref['evidence_id'])
++    if entry is None or digest(entry['text'][ref['start']:ref['end']])!=ref['text_sha256']:raise ValueError('FEEDBACK_EVIDENCE_INTEGRITY_FAILURE')
+   if p.get('protocol_version')==2:
+    unsigned={k:v for k,v in p.items() if k!='repair_packet_sha256'}
+    if p.get('repair_packet_sha256')!=digest(json.dumps(unsigned,sort_keys=True,ensure_ascii=False,separators=(',',':'))):raise ValueError('REPAIR_CONTEXT_INTEGRITY_FAILURE')
+@@ -42,7 +49,7 @@
+   first=errors[0];exception=ReviewerFormatError(first['code'],first['path'],first['expected'],first.get('observed'),first['category']);exception.errors=errors;exception.details=dict(first,validation_errors=errors);exception.args=(json.dumps(exception.details,ensure_ascii=False),);raise exception
+  out=[];raw=response['text']
+  for x in obj['issues']:
+-  out.append(finding(c,x['category'],x['reason'],(x.get('candidate_excerpt') or ''),x['expected'],json.dumps(dict(source_clause=x.get('source_clause'),source_evidence_id=x.get('source_evidence_id'),source_excerpt=x.get('source_excerpt'),evidence_id=x['evidence_id'],schema_excerpt=x['evidence_excerpt'],claim_basis=x.get('claim_basis'),reviewer_proposal={k:x[k] for k in ['property','proposed_path','proposed_path_role','proposed_unit','proposed_datatype','operands','representation_disposition'] if k in x},epistemic_status='MODEL_INTERPRETATION_NOT_INDEPENDENTLY_VERIFIED')),x['suggestion'],location='semantic reviewer excerpt' if x.get('candidate_excerpt') else 'semantic reviewer context (no offending code asserted)' if x['category']=='UNRESOLVED_CONTEXT' else 'semantic reviewer insertion context: '+str(x.get('insertion_context','')),confirmed=False,diagnostic=raw,contract_id='source-review:'+context['requirement']['id'],obligation_id=x['issue_id'],check_id='semantic-issue',assessment='UNRESOLVED_CONTEXT' if x['category']=='UNRESOLVED_CONTEXT' else 'MODEL_INTERPRETATION'))
++  out.append(finding(c,x['category'],x['reason'],(x.get('candidate_excerpt') or ''),x['expected'],json.dumps(dict(source_clause=x.get('source_clause'),source_evidence_id=x.get('source_evidence_id'),source_excerpt=x.get('source_excerpt'),evidence_id=x['evidence_id'],schema_excerpt=x['evidence_excerpt'],claim_basis=x.get('claim_basis'),resolved_evidence=x.get('resolved_evidence'),reviewer_proposal={k:x[k] for k in ['property','proposed_path','proposed_path_role','proposed_unit','proposed_datatype','operands','representation_disposition'] if k in x},epistemic_status='MODEL_INTERPRETATION_NOT_INDEPENDENTLY_VERIFIED')),x['suggestion'],location='semantic reviewer excerpt' if x.get('candidate_excerpt') else 'semantic reviewer context (no offending code asserted)' if x['category']=='UNRESOLVED_CONTEXT' else 'semantic reviewer insertion context: '+str(x.get('insertion_context','')),confirmed=False,diagnostic=raw,contract_id='source-review:'+context['requirement']['id'],obligation_id=x['issue_id'],check_id='semantic-issue',assessment='UNRESOLVED_CONTEXT' if x['category']=='UNRESOLVED_CONTEXT' else 'MODEL_INTERPRETATION'))
+  for i,entry in enumerate(obj['material_unchecked']):
+   out.append(finding(c,'UNRESOLVED_CONTEXT','Material review scope remains unchecked: '+entry['scope'],'',expected='Resolve material applicability/activation/source uncertainty before acceptance',evidence=json.dumps(entry),suggestion='Resolve from supplied evidence; execution success is not regulatory correctness.',location='review unchecked['+str(i)+']',confirmed=False,diagnostic=raw,contract_id='review-scope',obligation_id=entry['scope'],check_id='material-scope',assessment='MATERIAL_REVIEW_UNCERTAINTY'))
+  obj['normalization']=dict(aliases=normalization['aliases'],values_modified=False);obj['epistemic_status']='GROUNDED_MODEL_REVIEW_NOT_INDEPENDENT_VERIFICATION'
+@@ -85,6 +92,14 @@
+  out['execution_probe']=execution
+  from .evidence import wire_catalog
+  out.update(protocol_version=2,context=compact_context(body['context']),admission_sha256=digest(json.dumps(body['context'].get('admission'),sort_keys=True)),evidence_catalog=wire_catalog(body['evidence_catalog']),change_manifest=concise_changes(body['change_manifest']),prior_issues=concise_prior(body['prior_issues']),findings=body['concise_findings'])
++ if body.get('review_contract_version')==4:
++  out['review_contract_version']=4
++  out['finding_aliases']=body.get('finding_aliases',{})
++  out['prior_issues']=[dict(description=x.get('summary',x.get('reason','')),state='UNRESOLVED') for x in out['prior_issues']]
++  out['change_manifest']=dict(status=body['change_manifest'].get('status'),changes=[dict(id='C'+str(i+1),kind=g['kind'],removed_count=len(g.get('removed',[])),added_count=len(g.get('added',[])),removal_required=bool(g.get('removal_alerts'))) for i,g in enumerate(body['change_manifest'].get('changes',[]))])
++  out['retrieval_gaps']=[dict(id='G'+str(i+1),evidence=g['evidence']) for i,g in enumerate(body['context'].get('retrieval_gaps',[]))]
++  out['findings']=[dict(f,id=alias) for alias,key in body.get('finding_aliases',{}).items() for f in out['findings'] if f['finding_key']==key]+[f for f in out['findings'] if not f['blocking']]
++  out['citation_format']=dict(evidence='E ID, optional character span. Server resolves exact text/hash/provenance. quote optional and checked if asserted.',code='location {start,end,unit?}; default one-based inclusive lines, optional characters half-open. Server binds version/hash.',roles='SOURCE: obligation. SCHEMA_TEXT/RDF_FACT: representation. CALLER_DECLARATION: external research population. No legal IRI requirement; no formulas inferred from mappings.')
+  out['packet_sha256']=digest(json.dumps(out,sort_keys=True,ensure_ascii=False,separators=(',',':')))
+  return out
+ 
+@@ -109,11 +124,20 @@
+    from .evidence import code_location
+    start=c.code.index(excerpt);row['candidate_location']=code_location(c,start,start+len(excerpt))
+   elif excerpt:row['identifier_excerpt']=excerpt
+-  if f.assessment in ['MODEL_INTERPRETATION','UNRESOLVED_CONTEXT']:
+-   row['diagnostic_artifact_sha256']=digest(row.pop('diagnostic'));row['diagnostic']='Grounded model interpretation; full raw response retained in artifacts.'
+-   try:
+-    support=json.loads(row['evidence']);row['evidence']={k:v for k,v in support.items() if k in ['source_evidence_id','evidence_id','epistemic_status','reviewer_proposal']}
+-   except (ValueError,TypeError):pass
++  try:support=json.loads(row['evidence'])
++  except (ValueError,TypeError):support={}
++  if support.get('resolved_evidence'):
++   refs=[]
++   for ref in support['resolved_evidence']:
++    refs.append(dict({k:v for k,v in ref.items() if k!='text'},text_ref='evidence_catalog:'+ref['evidence_id']))
++   row['evidence']=dict(resolved_evidence=refs,epistemic_status=support.get('epistemic_status'))
++   # Original complete response remains the exact diagnostic, not a substitute summary.
++  else:
++   if f.assessment in ['MODEL_INTERPRETATION','UNRESOLVED_CONTEXT']:
++    row['diagnostic_artifact_sha256']=digest(row.pop('diagnostic'));row['diagnostic']='Grounded model interpretation; full raw response retained in artifacts.'
++    try:
++     support=json.loads(row['evidence']);row['evidence']={k:v for k,v in support.items() if k in ['source_evidence_id','evidence_id','epistemic_status','reviewer_proposal']}
++    except (ValueError,TypeError):pass
+   result.append(row)
+  return result
+ 
+--- before/prompts/reviewer.txt
++++ after/prompts/reviewer.txt
+@@ -1,20 +1,11 @@
+-Review the complete supplied SHACL against source, schema and declared research scope. Return one JSON object matching expected_response_schema. Its description is the authoritative response contract, generated from review_protocol.py. Review every query/branch and all represented source obligations. No fixtures, labels, counterpart records, expected verdicts or known solution are supplied. Never request them. Shape messages and execution success are not proofs of correct logic.
++Review the full current SHACL against the supplied regulation, declared schema/representation and approved research scope. Return one complete JSON object matching expected_response_schema; its description is the authoritative response contract. Review all source obligations, query branches, activation, changes/removals and prior issues. Successful execution is not proof of correctness.
+ 
+-The packet supplies full_candidate once. For code claims use candidate_location rather than quoting code (omit it for context-only uncertainty; any asserted location is still checked): {candidate_version, candidate_sha256, unit: "lines" or "characters", start, end}. Lines are one-based inclusive; character offsets are zero-based half-open Unicode positions. The server extracts exact code. Reference previous_location against previous_candidate when assessing changes. For missing code, locate a real insertion anchor. Never invent ranges or stale hashes.
++Regulation establishes the obligation. Declared schema/representation establishes RDF identifiers, paths, units and datatypes. Approved scope establishes an external research population assumption, not real-vessel certification. A regulation need not literally contain an RDF IRI. A vocabulary label/mapping does not establish a regulatory formula or compliance answer. Genuine missing or contradictory mappings remain context questions; do not weaken code to bypass them.
+ 
+-Evidence uses concise request-local E IDs. The server binds each to immutable content and provenance hashes. Use only IDs in this packet. For a regulatory claim, source_evidence_id must identify a SOURCE entry; source_excerpt, when asserted, must be an exact nonempty substring preserving source whitespace. evidence_id/evidence_excerpt must match supplied text; RDF_FACT permits only one equivalent explicit ground triple with identical RDF terms, lexical forms, datatype and language. No inference, numeric coercion, blank-node equivalence or ontology-wide lookup. A valid reference does not prove the interpretation. Caller admission is an experimental assumption with provenance, not a legal-source quotation or independently certified eligibility.
++Report code issues with description, E evidence references, code location and an actionable suggested correction. Report context questions with exactly what is missing, why it matters and source/schema retrieval kind; no invented code defect. Cite E IDs, optionally a character span. Software extracts exact evidence text and code, attaches candidate hashes and maintains stable issue/reconciliation state. Do not reproduce those fields. If you assert an optional quote, preserve it exactly; supplied references do not prove their interpretation.
+ 
+-Follow the response contract in expected_response_schema.description for decisions, optional references, technical evidence authority, context-only uncertainty and retrieval-gap materiality. Never invent a code defect or offending location to represent missing information. Material uncertainty prevents acceptance. Activation/deactivation and full query correctness are separate obligations; resolving scope proves neither arithmetic nor compliance.
++For proposed representation changes only, operands may explicitly pair a property, full IRI path and PROPERTY or NUMERIC_OPERAND role, with unit/datatype if proposed. Do not concatenate unrelated owner branches, rename units as conversion, invent undeclared paths or silently override a contradiction. Code evidence locations are current-candidate lines by default. Missing constraints use a real insertion anchor. Reference previous code only through supplied change IDs; software retains exact previous/current bytes.
+ 
+-For each functional change_id return ONE change_assessments entry, with evidence appropriate to claim_basis, current/previous locations and reason. If removal_required is true, removal_disposition must be SUPPORTED_REMOVAL, REPLACED, REGRESSION or UNRESOLVED and the reason must assess lost numeric/unit/query/target obligations and any replacement. There is no separate removal response list or pre-issued repair permission. Removal of an excessive old restriction supported by the appropriate source/schema/scope authority is allowed; checker silence alone is not support. Follow the response contract in expected_response_schema.description for REGRESSION versus pending UNRESOLVED changes. A purely technical target/path claim must cite supplied schema/scope evidence and explain reachability; a regulatory quotation does not establish software targeting rules.
++Assess every supplied functional change/removal once, including reachable replacements. Supported removal needs the appropriate source/schema/scope evidence; checker silence is not support. Material context questions prevent repair/acceptance. APPROVE asserts no current or prior issue remains, all changes are supported and all supplied gaps are explicitly nonmaterial. Artifact delivery is separate from approval.
+ 
+-Reconcile exactly the original prior_issues IDs; code edits alone do not resolve an issue. Empty prior_issues requires empty reconciliations. Format feedback does not create accepted issues or authorize repair; the original candidate/prior state and request binding remain unchanged. Echo candidate_version, candidate_sha256 and review_request_id. Correct all listed format errors in a complete response.
+-
+-Use proposed_path_role PROPERTY for a path ending at the named property, NUMERIC_OPERAND for traversal through that quantity property to the declared numeric predicate. Do not concatenate unrelated owner branches or relabel units as conversion. Vocabulary/domain/range facts do not alone establish ownership or legal eligibility.
+-
+-execution_probe is an actual candidate-bound engine observation, with full logs preserved in server artifacts. A static translation/binding warning is not a confirmed engine failure. Successful execution does not establish complete branch coverage or regulatory adequacy. Nested/library shapes need no target if reachable from an active root. Material unsupported activation, deactivation or unknown bindings prevent acceptance. Never invent selectors, target fixture identities, infer eligibility from missing data or weaken source obligations to silence diagnostics.
+-
+-
+-Response correction and operand pairing: An issue about several operands may use operands[], each with a unique operand_id and its own property, proposed_path and explicit proposed_path_role (PROPERTY or NUMERIC_OPERAND); optional proposed_unit/proposed_datatype belong to that operand. The same declared representation evidence applies. Legacy scalar proposals are still checked and are not discarded when operands are present. Never pair one property's name with another property's path.
+-
+-A proven internal pairing inconsistency may return exact validation_errors using the existing shared response-correction allowance. Correct or withdraw the inconsistent proposal; do not rewrite the candidate. Keep original candidate, evidence and prior issues unchanged. Rejected response issues are not prior state. An unknown path or genuine source/schema contradiction remains blocking: report representation_disposition UNRESOLVED_CONTRADICTION (and uncertainty), never disguise a contradiction as formatting. Evidence citations do not prove an interpretation. No requirement-specific calculation answer is supplied.
++Failed responses are not prior issues or repair permission. The same candidate/evidence/prior state is retained for the existing single shared response correction. Return the complete response; never rewrite candidate code in review. Do not request evaluation fixtures, labels, counterparts, expected verdicts or historical solutions.
+--- before/configs/nltl.json
++++ after/configs/nltl.json
+@@ -26,7 +26,7 @@
+   "network_enabled": false,
+   "source_grounding": "Original source plus ontology/representation only; model judgments remain interpretations",
+   "candidate_attempt_definition": "Initial generation plus every code revision. Reviewer format retries are separate.",
+-  "pipeline_version": "0.11.3",
++  "pipeline_version": "0.11.4",
+   "review_output_mode": "bounded_json",
+   "provider_capabilities": {
+     "responses_text_json_schema": false,
+@@ -52,5 +52,6 @@
+     "technical": 1,
+     "semantic": 1,
+     "total": 2
+-  }
++  },
++  "review_contract_version": 4
+ }
+--- before/pyproject.toml
++++ after/pyproject.toml
+@@ -3,7 +3,7 @@
+ build-backend = "setuptools.build_meta"
+ [project]
+ name = "nltlv2-refined"
+-version = "0.11.3"
++version = "0.11.4"
+ description = "General source-grounded NLTL; independent offline evaluation"
+ requires-python = ">=3.11"
+ dependencies = ["rdflib==7.6.0", "pyshacl==0.31.0", "owlrl==7.6.2", "requests==2.32.5", "python-dotenv==1.2.2", "tiktoken==0.12.0", "regex==2025.11.3"]

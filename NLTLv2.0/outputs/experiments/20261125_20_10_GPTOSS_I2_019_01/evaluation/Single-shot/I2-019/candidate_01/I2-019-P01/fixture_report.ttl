@@ -1,0 +1,51 @@
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[] a sh:ValidationReport ;
+    sh:conforms false ;
+    sh:result [ a sh:ValidationResult ;
+            sh:focusNode <https://w3id.org/nltl/benchmark/i2-batch-a/I2-019-P01/member> ;
+            sh:resultMessage "The selected hull area factor must equal the maximum hull area factor of all hull areas spanned by the structural member." ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraint [ a sh:SPARQLConstraint ;
+                    sh:select """
+            SELECT $this WHERE {
+                # Structural member must have at least one spanned hull area
+                $this nltl:hasSpannedHullArea ?area .
+                
+                # Retrieve the hull‑area factor (QuantityValue) for each spanned area
+                ?area nltl:hullAreaFactor ?areaFactor .
+                ?areaFactor qudt:numericValue ?areaValue .
+                OPTIONAL { ?areaFactor qudt:unit ?areaUnit . }
+
+                # The structural member must have a selected hull‑area factor
+                $this nltl:selectedHullAreaFactor ?selectedFactor .
+                ?selectedFactor qudt:numericValue ?selectedValue .
+                OPTIONAL { ?selectedFactor qudt:unit ?selectedUnit . }
+
+                # Units must be compatible (if present)
+                FILTER (
+                    (!bound(?areaUnit) && !bound(?selectedUnit)) ||
+                    (bound(?areaUnit) && bound(?selectedUnit) && ?areaUnit = ?selectedUnit)
+                )
+
+                # Compute the maximum numeric value among all spanned hull‑area factors
+                {
+                    SELECT (MAX(?v) AS ?maxValue) WHERE {
+                        $this nltl:hasSpannedHullArea ?a2 .
+                        ?a2 nltl:hullAreaFactor ?f2 .
+                        ?f2 qudt:numericValue ?v .
+                        OPTIONAL { ?f2 qudt:unit ?u2 . }
+                        FILTER ( !bound(?selectedUnit) || !bound(?u2) || ?u2 = ?selectedUnit )
+                    }
+                }
+
+                # The selected factor must equal that maximum
+                FILTER ( ?selectedValue = ?maxValue )
+            }
+        """ ] ;
+            sh:sourceConstraintComponent sh:SPARQLConstraintComponent ;
+            sh:sourceShape nltl:StructuralMemberLargestHullAreaFactorShape ;
+            sh:value <https://w3id.org/nltl/benchmark/i2-batch-a/I2-019-P01/member> ] .
+

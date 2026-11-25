@@ -100,7 +100,7 @@ class EvidenceControls(unittest.TestCase):
   c,ctx,r,obj=self.control();ctx['ontology_evidence']=[['_:supplied','<urn:p>','<urn:o>']];catalog=evidence_catalog(ctx);entry=next(e for e in catalog['entries'] if e.get('origin',{}).get('context_field')=='ontology_evidence');self.assertEqual(entry['kind'],'SCHEMA_TEXT');self.assertIsNone(citation_error(catalog,entry['evidence_id'],entry['text']));self.assertIsNotNone(citation_error(catalog,entry['evidence_id'],'_:different <urn:p> <urn:o> .'))
 
  def test_bounded_schema_optional_fields_and_strict_provider_schema(self):
-  from nltlv2.review_protocol import reviewer_schema
+  from nltlv2.review_protocol import legacy_reviewer_schema as reviewer_schema
   bounded=reviewer_schema();strict=reviewer_schema(strict=True);self.assertNotIn('evidence_requests',bounded['required']);self.assertIn('review_request_id',bounded['required']);self.assertNotIn('source_evidence_id',bounded['properties']['issues']['items']['required']);self.assertIn('source_evidence_id',bounded['properties']['issues']['items']['allOf'][0]['then']['required']);self.assertNotIn('change_id',bounded['properties']['issues']['items']['required']);self.assertIn('change_id',bounded['properties']['change_assessments']['items']['required']);self.assertEqual(set(strict['required']),set(strict['properties']))
  def test_unknown_issue_fields_reported(self):
   c,ctx,r,obj=self.control();obj['issues'][0]['invented_field']='x';errors=validate_review({'text':json.dumps(obj)},c,ctx)[2];self.assertTrue(any(e['code']=='UNKNOWN_REVIEW_FIELD' for e in errors))

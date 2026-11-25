@@ -1,0 +1,109 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix vocab: <https://w3id.org/nltl/vocab#> .
+@prefix ex: <http://example.org/> .
+
+# Shape targeting all ships (the admitted synthetic population)
+ex:ShipScantlingShape
+    a sh:NodeShape ;
+    sh:targetClass vocab:ship ;
+    
+    # Ice strengthening status (boolean) – optional but used in the conditional rule
+    sh:property [
+        sh:path vocab:iceStrengtheningStatus ;
+        sh:datatype xsd:boolean ;
+        sh:name "Ice strengthening status" ;
+        sh:description "True if the ship is ice‑strengthened, false otherwise." ;
+    ] ;
+    
+    # Regulation‑derived scantling (QuantityValue)
+    sh:property [
+        sh:path vocab:regulationRequiredScantling ;
+        sh:class qudt:QuantityValue ;
+        sh:name "Regulation required scantling" ;
+        sh:description "Scantlings obtained from the Ice Class Regulations." ;
+    ] ;
+    
+    # Classification‑society required scantling for a non‑ice‑strengthened ship (QuantityValue)
+    sh:property [
+        sh:path vocab:classificationSocietyRequiredScantling ;
+        sh:class qudt:QuantityValue ;
+        sh:name "Classification‑society required scantling" ;
+        sh:description "Scantlings required by the classification society for a ship without ice strengthening." ;
+    ] ;
+    
+    # Selected design scantling (QuantityValue) – the value that must satisfy the rule
+    sh:property [
+        sh:path vocab:selectedDesignScantling ;
+        sh:class qudt:QuantityValue ;
+        sh:name "Selected design scantling" ;
+        sh:description "The scantling actually used in the ship design." ;
+    ] ;
+    
+    # Conditional SPARQL constraint enforcing the requirement:
+    # If the ship is NOT ice‑strengthened (iceStrengtheningStatus = false) and the
+    # regulation‑derived scantling is less than the classification‑society scantling,
+    # then the selected design scantling must be at least the classification‑society scantling.
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "For a non‑ice‑strengthened ship, the selected design scantling must be ≥ the classification‑society required scantling." ;
+        sh:prefixes [
+            sh:declare [
+                sh:prefix "vocab" ;
+                sh:namespace "https://w3id.org/nltl/vocab#" ;
+            ] ,
+            sh:declare [
+                sh:prefix "qudt" ;
+                sh:namespace "http://qudt.org/schema/qudt/" ;
+            ] ,
+            sh:declare [
+                sh:prefix "xsd" ;
+                sh:namespace "http://www.w3.org/2001/XMLSchema#" ;
+            ]
+        ] ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                # Retrieve ice‑strengthening status (if present)
+                OPTIONAL { $this vocab:iceStrengtheningStatus ?iceStatus . }
+                
+                # Retrieve regulation‑derived scantling and its numeric value
+                OPTIONAL {
+                    $this vocab:regulationRequiredScantling ?regScantling .
+                    ?regScantling qudt:numericValue ?regVal .
+                    ?regScantling qudt:unit ?regUnit .
+                }
+                
+                # Retrieve classification‑society scantling and its numeric value
+                OPTIONAL {
+                    $this vocab:classificationSocietyRequiredScantling ?clsScantling .
+                    ?clsScantling qudt:numericValue ?clsVal .
+                    ?clsScantling qudt:unit ?clsUnit .
+                }
+                
+                # Retrieve selected design scantling and its numeric value
+                OPTIONAL {
+                    $this vocab:selectedDesignScantling ?selScantling .
+                    ?selScantling qudt:numericValue ?selVal .
+                    ?selScantling qudt:unit ?selUnit .
+                }
+                
+                # Apply the rule only when iceStrengtheningStatus is explicitly false
+                FILTER ( bound(?iceStatus) && ?iceStatus = false )
+                
+                # Both classification‑society and selected scantlings must be present for the check
+                FILTER ( bound(?clsVal) && bound(?selVal) )
+                
+                # Ensure unit compatibility (if units are present they must match)
+                FILTER ( (!bound(?regUnit) || !bound(?clsUnit) || ?regUnit = ?clsUnit) )
+                FILTER ( (!bound(?selUnit) || !bound(?clsUnit) || ?selUnit = ?clsUnit) )
+                
+                # If regulation scantling is less than classification‑society scantling,
+                # enforce selected ≥ classification‑society
+                FILTER ( (!bound(?regVal) || ?regVal >= ?clsVal) ||
+                         (bound(?regVal) && ?regVal < ?clsVal && ?selVal >= ?clsVal) )
+            }
+        """ ;
+        sh:severity sh:Violation ;
+    ] .

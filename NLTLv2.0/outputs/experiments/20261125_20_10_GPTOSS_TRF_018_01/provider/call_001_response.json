@@ -1,0 +1,147 @@
+{
+  "text": "<BEGIN_SHACL>\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n@prefix nltl: <https://w3id.org/nltl/vocab#> .\n\n# Shape applying to all ships (the admitted synthetic population)\nnltl:ShipEngineOutputShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:ship ;\n    \n    # Constraint for IA Super ships – minimum 2 800 kW\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        rdfs:comment \"The engine output shall not be less than 2 800 kW for ice class IA Super (TRF‑018).\" ;\n        sh:message \"Engine output for IA Super ships must be ≥ 2 800 kW.\" ;\n        sh:select \"\"\"\n            SELECT $this ?val WHERE {\n                $this nltl:iceClass nltl:iceClassIaSuper .\n                $this nltl:calculatedRequiredPower ?cp .\n                ?cp qudt:numericValue ?val .\n                ?cp qudt:unit unit:KiloW .\n                FILTER ( ?val < 2800 )\n            }\n        \"\"\" ;\n    ] ;\n    \n    # Constraint for IA, IB, IC ships – minimum 1 000 kW\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        rdfs:comment \"The engine output shall not be less than 1 000 kW for ice classes IA, IB and IC (TRF‑018).\" ;\n        sh:message \"Engine output for IA, IB, or IC ships must be ≥ 1 000 kW.\" ;\n        sh:select \"\"\"\n            SELECT $this ?val WHERE {\n                $this nltl:iceClass ?ic .\n                FILTER ( ?ic IN (nltl:iceClassIa, nltl:iceClassIb, nltl:iceClassIc) )\n                $this nltl:calculatedRequiredPower ?cp .\n                ?cp qudt:numericValue ?val .\n                ?cp qudt:unit unit:KiloW .\n                FILTER ( ?val < 1000 )\n            }\n        \"\"\" ;\n    ] .\n\n# Declaration of the quantity value class (required for the value nodes)\nunit:KiloW a rdf:Property .   # placeholder to ensure the IRI is known in the graph\n\n<END_SHACL>",
+  "status": "completed",
+  "finish_reason": null,
+  "usage": {
+    "input_tokens": 36975,
+    "input_tokens_details": {
+      "cached_tokens": 592,
+      "cache_write_tokens": 36368,
+      "input_tokens_per_turn": [
+        36975
+      ],
+      "cached_tokens_per_turn": [
+        592
+      ]
+    },
+    "output_tokens": 1538,
+    "output_tokens_details": {
+      "reasoning_tokens": 912,
+      "tool_output_tokens": 0,
+      "output_tokens_per_turn": [
+        1538
+      ],
+      "tool_output_tokens_per_turn": [
+        0
+      ]
+    },
+    "total_tokens": 38513
+  },
+  "provider_response": {
+    "id": "resp_bd79e8182add53dc",
+    "created_at": 1795617866,
+    "incomplete_details": null,
+    "instructions": null,
+    "metadata": null,
+    "model": "gpt-oss-120b",
+    "object": "response",
+    "output": [
+      {
+        "id": "rs_982422126997ab13",
+        "summary": [],
+        "type": "reasoning",
+        "content": [
+          {
+            "text": "We need to produce SHACL graph representing requirement TRF-018: engine output shall not be less than formula and not less than 1,000 kW for IA, IB, IC and not less than 2,800 kW for IA Super.\n\nWe have ontology terms: calculatedRequiredPower (quantity property) with domain benchmarkEntity and range QuantityValue. Also iceClass property linking benchmarkEntity to iceClassValue individuals (IA, IA Super, IB, IC, etc.)\n\nTerm owners: calculatedRequiredPower owner ship (owner_class ship). IceClass also owned by ship. maximumContinuousRatingPower also owned by ship.\n\nWe need to create SHACL shapes targeting ship class: targetClass https://w3id.org/nltl/vocab#ship\n\nWithin shape, we need constraints:\n\n- For ships with iceClass IA Super, calculatedRequiredPower must be >= 2800 kW.\n\n- For ships with iceClass IA, IB, IC, calculatedRequiredPower must be >= 1000 kW.\n\nQuantity encoding: use qudt:numericValue and qudt:unit.\n\nWe need to represent constraints using sh:property with sh:path referencing calculatedRequiredPower, and sh:minCount? Actually need numeric constraint: sh:datatype xsd:decimal maybe, and sh:minInclusive? For quantity we need to enforce numeric value when unit is kW.\n\nWe need to capture unit requirement: also ensure unit is kW? Could use sh:qualifiedValueShape with property path of calculatedRequiredPower then within that shape enforce both numeric and unit.\n\nSimplify: Use sh:property with sh:path calculatedRequiredPower ; sh:nodeKind sh:BlankNodeOrIRI? Actually calculatedRequiredPower points to QuantityValue node which is a blank node with qudt:numericValue and qudt:unit. So we need a sh:property with sh:path calculatedRequiredPower and sh:node (or sh:nodeShape) that checks numeric value.\n\nDefine shape for ship with iceClass IA Super etc using sh:or to select appropriate class.\n\nApproach: Create two shapes with sh:targetClass ship but with sh:condition based on iceClass value. In SHACL we can use sh:property with sh:qualifiedValueShape that includes sh:class iceClassIaSuper? Actually iceClass property points to iceClassValue individual. So we need to filter ships where iceClass = iceClassIaSuper. Use sh:property with sh:path iceClass and sh:hasValue <...> inside shape? Could use sh:property with sh:path iceClass; sh:hasValue <...>. But that would enforce that ship must have that value; we want condition for constraint only. We can use sh:if (sh:condition) maybe using sh:sparql? Simpler: Use SHACL SPARQL constraint to enforce rule: For each ship, if iceClass is IA Super then the calculatedRequiredPower's numericValue >= 2800; else if iceClass is IA, IB, IC then >=1000.\n\nWe'll implement a sh:property for calculatedRequiredPower with sh:datatype xsd:decimal, but numeric check using sh:minInclusive with separate shapes? Not straightforward.\n\nBetter: Use sh:sparql constraint on ship shape:\n\nsh:sparql [\n  a sh:SPARQLConstraint ;\n  sh:message \"Engine output must be at least 2800 kW for IA Super ships.\" ;\n  sh:select \"\"\"\n    SELECT $this ( ?value ) WHERE {\n      $this <https://w3id.org/nltl/vocab#iceClass> <https://w3id.org/nltl/vocab#iceClassIaSuper> .\n      $this <https://w3id.org/nltl/vocab#calculatedRequiredPower> ?cp .\n      ?cp <http://qudt.org/schema/qudt/numericValue> ?val .\n      ?cp <http://qudt.org/schema/qudt/unit> <http://qudt.org/vocab/unit/KiloW> .\n      FILTER ( ?val < 2800 )\n    }\n  \"\"\" ;\n] .\n\nAnother for IA, IB, IC with threshold 1000.\n\nThus need two sh:SPARQLConstraint.\n\nDefine shape with targetClass ship.\n\nAdd prefixes.\n\nMake sure IRIs correct.\n\nAlso need to include requirement evidence maybe using rdfs:comment.\n\nWe must not invent missing owners etc. Owner is ship already.\n\nProvide <BEGIN_SHACL> line then Turtle.\n\nLet's craft.\n\n",
+            "type": "reasoning_text"
+          }
+        ],
+        "encrypted_content": null,
+        "status": null
+      },
+      {
+        "id": "msg_9c4a96fa92c972fd",
+        "content": [
+          {
+            "annotations": [],
+            "text": "<BEGIN_SHACL>\n@prefix sh: <http://www.w3.org/ns/shacl#> .\n@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n@prefix qudt: <http://qudt.org/schema/qudt/> .\n@prefix unit: <http://qudt.org/vocab/unit/> .\n@prefix nltl: <https://w3id.org/nltl/vocab#> .\n\n# Shape applying to all ships (the admitted synthetic population)\nnltl:ShipEngineOutputShape\n    a sh:NodeShape ;\n    sh:targetClass nltl:ship ;\n    \n    # Constraint for IA Super ships – minimum 2 800 kW\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        rdfs:comment \"The engine output shall not be less than 2 800 kW for ice class IA Super (TRF‑018).\" ;\n        sh:message \"Engine output for IA Super ships must be ≥ 2 800 kW.\" ;\n        sh:select \"\"\"\n            SELECT $this ?val WHERE {\n                $this nltl:iceClass nltl:iceClassIaSuper .\n                $this nltl:calculatedRequiredPower ?cp .\n                ?cp qudt:numericValue ?val .\n                ?cp qudt:unit unit:KiloW .\n                FILTER ( ?val < 2800 )\n            }\n        \"\"\" ;\n    ] ;\n    \n    # Constraint for IA, IB, IC ships – minimum 1 000 kW\n    sh:sparql [\n        a sh:SPARQLConstraint ;\n        rdfs:comment \"The engine output shall not be less than 1 000 kW for ice classes IA, IB and IC (TRF‑018).\" ;\n        sh:message \"Engine output for IA, IB, or IC ships must be ≥ 1 000 kW.\" ;\n        sh:select \"\"\"\n            SELECT $this ?val WHERE {\n                $this nltl:iceClass ?ic .\n                FILTER ( ?ic IN (nltl:iceClassIa, nltl:iceClassIb, nltl:iceClassIc) )\n                $this nltl:calculatedRequiredPower ?cp .\n                ?cp qudt:numericValue ?val .\n                ?cp qudt:unit unit:KiloW .\n                FILTER ( ?val < 1000 )\n            }\n        \"\"\" ;\n    ] .\n\n# Declaration of the quantity value class (required for the value nodes)\nunit:KiloW a rdf:Property .   # placeholder to ensure the IRI is known in the graph\n\n<END_SHACL>",
+            "type": "output_text",
+            "logprobs": null
+          }
+        ],
+        "role": "assistant",
+        "status": "completed",
+        "type": "message",
+        "phase": null
+      }
+    ],
+    "parallel_tool_calls": true,
+    "temperature": 1.0,
+    "tool_choice": "none",
+    "tools": [],
+    "top_p": 1.0,
+    "background": false,
+    "max_output_tokens": 16000,
+    "max_tool_calls": null,
+    "previous_response_id": null,
+    "prompt": null,
+    "prompt_cache_options": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": null,
+    "reasoning": null,
+    "safety_identifier": null,
+    "service_tier": "auto",
+    "status": "completed",
+    "text": null,
+    "top_logprobs": null,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 36975,
+      "input_tokens_details": {
+        "cached_tokens": 592,
+        "cache_write_tokens": 36368,
+        "input_tokens_per_turn": [
+          36975
+        ],
+        "cached_tokens_per_turn": [
+          592
+        ]
+      },
+      "output_tokens": 1538,
+      "output_tokens_details": {
+        "reasoning_tokens": 912,
+        "tool_output_tokens": 0,
+        "output_tokens_per_turn": [
+          1538
+        ],
+        "tool_output_tokens_per_turn": [
+          0
+        ]
+      },
+      "total_tokens": 38513
+    },
+    "user": null,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "kv_transfer_params": null,
+    "ec_transfer_params": null,
+    "input_messages": null,
+    "output_messages": null
+  },
+  "returned_model": "gpt-oss-120b",
+  "identity_status": "MATCH",
+  "elapsed_seconds": 10.160380625005928,
+  "physical_call": 1,
+  "final_output_present": true,
+  "token_budget": {
+    "encoding": "o200k_harmony",
+    "supplied_text_tokens": 36901,
+    "input_text_count_verified": true,
+    "complete_provider_input_count_verified": false,
+    "provider_framing_tokens": null,
+    "requested_output_tokens": 16000,
+    "input_plus_output_lower_bound": 52901,
+    "model_context_tokens": 131072,
+    "provider_context_tokens": null,
+    "provider_max_output_tokens": null,
+    "exceeds_known_token_limit": false,
+    "status": "CONTENT_COUNT_WITHIN_LIMIT_PROVIDER_FRAMING_UNVERIFIED",
+    "uncertainty": "Provider-added framing, deployed tokenizer revision and any lower provider limit are not exposed. Count is verified for supplied text under pinned public tokenizer, not claimed exact full provider input. Provider context rejection is terminal; truncation stays disabled.",
+    "material_context_truncated": false,
+    "request_bytes": 136853,
+    "route": "generation",
+    "logical_dispatch_attempt": 1,
+    "actual_provider_input_tokens": 36975,
+    "actual_input_minus_content_tokens": 74
+  }
+}

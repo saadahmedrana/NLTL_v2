@@ -1,0 +1,78 @@
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix nltl: <https://w3id.org/nltl/vocab#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+
+# -----------------------------------------------------------------
+# Activation boundary: the shape is activated only for members of the
+# declared population class (the ship).
+# -----------------------------------------------------------------
+nltl:ShipStructuralMemberLargestHullAreaFactorShape
+    a sh:NodeShape ;
+    sh:targetClass nltl:ship ;
+    sh:message "A structural member of this ship violates I2‑019: the selected hull‑area factor must equal the maximum hull‑area factor of all hull areas spanned by the member." ;
+    sh:severity sh:Violation ;
+    sh:property [
+        sh:path nltl:hasStructuralMember ;
+        sh:node nltl:StructuralMemberLargestHullAreaFactorShape ;
+    ] .
+
+# -----------------------------------------------------------------
+# Core obligation: for any structural member (reached via the ship
+# activation above) the selected hull‑area factor must be the maximum
+# of the factors of the spanned hull areas (I2‑019, clause I2.3.5 (ii)).
+# -----------------------------------------------------------------
+nltl:StructuralMemberLargestHullAreaFactorShape
+    a sh:NodeShape ;
+    # No direct target class – activation controlled by the ship shape above.
+    sh:message "The selected hull area factor must equal the maximum hull area factor of all hull areas spanned by the structural member." ;
+    sh:severity sh:Violation ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:select """
+            PREFIX nltl: <https://w3id.org/nltl/vocab#>
+            PREFIX qudt: <http://qudt.org/schema/qudt/>
+            PREFIX unit: <http://qudt.org/vocab/unit/>
+
+            SELECT $this WHERE {
+                # The structural member must have at least one spanned hull area
+                $this nltl:hasSpannedHullArea ?area .
+
+                # Retrieve the hull‑area factor (QuantityValue) for each spanned area
+                ?area nltl:hullAreaFactor ?areaFactor .
+                ?areaFactor qudt:numericValue ?areaValue .
+                OPTIONAL { ?areaFactor qudt:unit ?areaUnit . }
+
+                # The structural member must have a selected hull‑area factor
+                $this nltl:selectedHullAreaFactor ?selectedFactor .
+                ?selectedFactor qudt:numericValue ?selectedValue .
+                OPTIONAL { ?selectedFactor qudt:unit ?selectedUnit . }
+
+                # Units must be compatible (if present)
+                FILTER (
+                    (!bound(?areaUnit) && !bound(?selectedUnit)) ||
+                    (bound(?areaUnit) && bound(?selectedUnit) && ?areaUnit = ?selectedUnit)
+                )
+
+                # Compute the maximum numeric value among all spanned hull‑area factors
+                {
+                    SELECT (MAX(?v) AS ?maxValue) WHERE {
+                        $this nltl:hasSpannedHullArea ?a2 .
+                        ?a2 nltl:hullAreaFactor ?f2 .
+                        ?f2 qudt:numericValue ?v .
+                        OPTIONAL { ?f2 qudt:unit ?u2 . }
+                        FILTER ( !bound(?selectedUnit) || !bound(?u2) || ?u2 = ?selectedUnit )
+                    }
+                }
+
+                # The selected factor must equal that maximum
+                FILTER ( ?selectedValue = ?maxValue )
+            }
+        """ ;
+    ] .
+
+# NOTE: The property hullAreaBoundary has unresolved ownership (no explicit owner binding);
+# it is therefore not included in the constraint model.

@@ -1,0 +1,9 @@
+from pathlib import Path
+import os,time,json,datetime
+import dotenv,requests
+R=Path('/Users/sadisfaction570/Desktop/Journal 1/NLTL_v2/NLTLv2.0');A=R/'outputs/audits/20261125_IDENTIFIER_ROUTING_AND_20_10_READINESS';p=Path(os.environ.get('NLTL_ENV_FILE','/Users/sadisfaction570/Desktop/Journal 1/env/NLTL_v2.env'));env=dotenv.dotenv_values(p);key=env.get('AALTO_AI_API_KEY');assert key;url='https://ai-api-v2.aalto.fi/v1/models';session=requests.Session();session.mount('https://',requests.adapters.HTTPAdapter(max_retries=0));start=time.monotonic()
+try:
+ r=session.get(url,headers={'Authorization':'Bearer '+key},timeout=30,allow_redirects=False);body=r.content.replace(key.encode(),b'[REDACTED_CREDENTIAL]');(A/'provider_models.current.response.json').write_bytes(body);data=json.loads(body) if r.status_code==200 else {};matches=[x for x in data.get('data',[]) if 'gpt-5.5' in x.get('id','') or x.get('id')=='gpt-oss-120b'];result=dict(method='GET',url=url,http_status=r.status_code,metadata_HTTP_calls=1,model_inference_calls=0,checked_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),elapsed_seconds=time.monotonic()-start,matching_model_metadata=matches,candidate_responses_endpoint='https://ai-api-v2.aalto.fi/v1/responses',responses_model_execution_verified=False,credential_logged=False,meaning='Current advertised IDs verified only. Listing does not prove inference access, backend identity, deployed context/tokenizer or Responses compatibility. No model invocation performed.')
+except Exception as e:result=dict(method='GET',url=url,metadata_HTTP_calls=1,model_inference_calls=0,error_type=type(e).__name__,credential_logged=False,responses_model_execution_verified=False)
+finally:session.close()
+(A/'gpt55_endpoint_verification.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result))

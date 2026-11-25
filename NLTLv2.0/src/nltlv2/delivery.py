@@ -22,7 +22,8 @@ def finalize(output,history,terminal):
  review=chosen.get('review') if chosen else None
  decision=(review or {}).get('decision')
  # Terminal review is preserved. This mapping is a handoff, not another review call.
- handoff='APPROVE' if status=='ACCEPTED' else 'REJECT' if status=='NO_VERDICT' or decision=='REJECT' else 'HUMAN_REVIEW_REQUIRED'
- result=dict(status=status,version=chosen['version'] if chosen else None,sha256=chosen['sha256'] if chosen else None,final_review=handoff,final_review_basis='Deterministic handoff from validated saved review and technical eligibility; no additional model review or repair',selected_review_decision=decision,terminal_review_decision=next((h['review']['decision'] for h in reversed(history) if h.get('review')),None),terminal_reason=terminal,selection_basis='Highest version passing fixed technical checks; no external scores',findings=chosen.get('findings',[]) if chosen else [],all_candidate_findings_preserved=True,correctness_certified=False)
+ context_pending=bool((review or {}).get('material_unchecked')) or any(f.get('category')=='UNRESOLVED_CONTEXT' and f.get('blocking') for f in (chosen or {}).get('findings',[]))
+ handoff='APPROVE' if status=='ACCEPTED' else 'HUMAN_REVIEW_REQUIRED' if context_pending else 'REJECT' if status=='NO_VERDICT' or decision=='REJECT' else 'HUMAN_REVIEW_REQUIRED'
+ result=dict(context_pending=context_pending,status=status,version=chosen['version'] if chosen else None,sha256=chosen['sha256'] if chosen else None,final_review=handoff,final_review_basis='Deterministic handoff from validated saved review and technical eligibility; no additional model review or repair',selected_review_decision=decision,terminal_review_decision=next((h['review']['decision'] for h in reversed(history) if h.get('review')),None),terminal_reason=terminal,selection_basis='Highest version passing fixed technical checks; no external scores',findings=chosen.get('findings',[]) if chosen else [],all_candidate_findings_preserved=True,correctness_certified=False)
  if chosen:shutil.copyfile(output/f"candidate_{chosen['version']:02d}.ttl",output/'delivered.ttl')
  write(output/'delivery.json',result);return result

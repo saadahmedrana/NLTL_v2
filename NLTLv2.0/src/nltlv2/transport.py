@@ -49,6 +49,7 @@ class LiveTransport:
 
 HOSTED_URL='https://ai-api-v2.aalto.fi/v1/responses'
 HOSTED_MODEL='gpt-oss-120b'
+HOSTED_MODELS=(HOSTED_MODEL,'gpt-5.5-2026-04-24')
 
 def final_assistant_text(obj):
  """Typed assistant final text only. Never scrape reasoning or Harmony strings."""
@@ -62,8 +63,10 @@ def final_assistant_text(obj):
 
 class HostedResponsesTransport:
  is_live=True
- def __init__(self,*,enabled=False,project_root,output,max_calls,max_seconds,max_output_tokens_total,timeout=180,env_file=None,token_limits=None,token_counter=None):
+ def __init__(self,*,enabled=False,project_root,output,max_calls,max_seconds,max_output_tokens_total,timeout=180,env_file=None,token_limits=None,token_counter=None,model=HOSTED_MODEL):
   if not enabled or os.environ.get('NLTL_ALLOW_MODEL_CALLS')!='YES':raise RuntimeError('LIVE_MODEL_CALLS_DISABLED')
+  if model not in HOSTED_MODELS:raise ValueError('UNSUPPORTED_HOSTED_MODEL')
+  self.expected_model=model
   import dotenv,requests
   p=pathlib.Path(env_file or os.environ.get('NLTL_ENV_FILE','')).expanduser().resolve()
   if not p.is_file() or p.is_relative_to(pathlib.Path(project_root).resolve()):raise ValueError('EXTERNAL_CREDENTIAL_CONFIGURATION_REQUIRED')
@@ -84,7 +87,7 @@ class HostedResponsesTransport:
   self.disabled=True;self.session.close()
  def dispatch(self,request,latest=None,expected_findings=None):
   if self.disabled:raise RuntimeError('DISPATCH_CLOSED')
-  if request['model']!=HOSTED_MODEL:raise ValueError('PROVIDER_MODEL_INTEGRITY_FAILURE')
+  if request['model']!=self.expected_model:raise ValueError('PROVIDER_MODEL_INTEGRITY_FAILURE')
   if request['route']=='fresh_regeneration':raise ValueError('FRESH_REGENERATION_DISABLED')
   if request['route'].endswith('repair'):assert_integrity(request,latest,expected_findings)
   payload=provider_payload(request)
@@ -125,12 +128,12 @@ class HostedResponsesTransport:
   try:obj=json.loads(raw)
   except Exception:raise RuntimeError('HOSTED_INVALID_JSON') from None
   returned=obj.get('model');text=final_assistant_text(obj)
-  response=dict(text=text,status=obj.get('status'),finish_reason=(obj.get('incomplete_details') or {}).get('reason') or obj.get('finish_reason'),usage=obj.get('usage'),provider_response=obj,returned_model=returned,identity_status='UNKNOWN' if returned is None else 'MATCH' if returned==HOSTED_MODEL else 'MISMATCH',elapsed_seconds=elapsed,physical_call=n,final_output_present=bool(text),token_budget=budget)
+  response=dict(text=text,status=obj.get('status'),finish_reason=(obj.get('incomplete_details') or {}).get('reason') or obj.get('finish_reason'),usage=obj.get('usage'),provider_response=obj,returned_model=returned,identity_status='UNKNOWN' if returned is None else 'MATCH' if returned==self.expected_model else 'MISMATCH',elapsed_seconds=elapsed,physical_call=n,final_output_present=bool(text),token_budget=budget)
   actual_input=(obj.get('usage') or {}).get('input_tokens')
   response['token_budget']['actual_provider_input_tokens']=actual_input
   response['token_budget']['actual_input_minus_content_tokens']=None if actual_input is None or budget['supplied_text_tokens'] is None else actual_input-budget['supplied_text_tokens']
   write(self.output/f'call_{n:03d}_response.json',response)
-  if returned is not None and returned!=HOSTED_MODEL:raise ValueError('PROVIDER_MODEL_INTEGRITY_FAILURE')
+  if returned is not None and returned!=self.expected_model:raise ValueError('PROVIDER_MODEL_INTEGRITY_FAILURE')
   if obj.get('error') or obj.get('status') in ['failed','cancelled','queued','in_progress']:raise RuntimeError('HOSTED_RESPONSE_NOT_COMPLETED')
   # Incomplete output belongs to the existing bounded response-correction path.
   # A completed missing-final response remains a provider/protocol error.

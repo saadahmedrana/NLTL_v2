@@ -73,8 +73,9 @@ def probe_summary(c,probe=None,reason='No execution probe was run for this candi
  if probe is None:return dict(candidate_version=c.version,candidate_sha256=c.sha256,engine_outcome='NOT_RUN',exact_diagnostics=dict(reason=reason),regulatory_correctness_established=False)
  if probe.get('candidate_sha256') not in [None,c.sha256] or probe.get('candidate_version') not in [None,c.version]:raise ValueError('STALE_EXECUTION_PROBE_INTEGRITY_FAILURE')
  return dict(candidate_version=c.version,candidate_sha256=c.sha256,engine='pyshacl',engine_version=probe.get('engine_version','NOT_EMBEDDED_IN_LEGACY_ARTIFACT'),engine_outcome=probe.get('engine_outcome','HISTORICAL_ERROR_RECORDED' if probe.get('error') else 'HISTORICAL_COMPLETED_PROBE_ARTIFACT'),exact_diagnostics={k:probe[k] for k in ['error','failure_kind','stdout','stderr'] if k in probe},diagnostic_availability='Captured verbatim' if 'stdout' in probe else 'Legacy artifact did not capture successful engine stdout/stderr',activation=probe.get('activation'),regulatory_correctness_established=False,scope='Execution-only schema-derived probe; no expected regulatory verdict; success is not complete correctness')
-def review_binding(c,context,prior=(),previous=None,changes=None,execution=None):
+def review_binding(c,context,prior=(),previous=None,changes=None,execution=None,*,questions=()):
  catalog=evidence_catalog(context,execution);identity=dict(candidate_version=c.version,candidate_sha256=c.sha256,context_sha256=digest(canonical(context)),catalog_sha256=catalog['catalog_sha256'],prior_issues=list(prior),previous_candidate=None if previous is None else dict(version=previous.version,sha256=previous.sha256,full_code=previous.code),changes=(changes or {}).get('changes',[]),execution_probe=execution)
+ if questions:identity['prior_context_questions']=list(questions)
  return dict(candidate_version=c.version,candidate_sha256=c.sha256,review_request_id='review:'+digest(canonical(identity)))
 def assert_review_packet(body,c):
  if body.get('protocol_version')==2 and 'packet_sha256' in body:
@@ -82,7 +83,7 @@ def assert_review_packet(body,c):
   return assert_compact_review(body,c)
  from .core import Candidate
  previous=body.get('previous_candidate');p=None if previous is None else Candidate(previous['version'],previous['full_code'],'')
- expected=review_binding(c,body['context'],body['prior_issues'],p,body['change_manifest'],body.get('execution_probe'))
+ expected=review_binding(c,body['context'],body['prior_issues'],p,body['change_manifest'],body.get('execution_probe'),questions=body.get('prior_context_questions',()))
  if type(body.get('candidate_version')) is not int or any(body.get(k)!=v for k,v in expected.items()) or body['full_candidate']!=c.code:raise ValueError('STALE_REVIEW_STATE_INTEGRITY_FAILURE')
  if body.get('evidence_catalog')!=evidence_catalog(body['context'],body.get('execution_probe')):raise ValueError('UNSUPPLIED_REVIEW_EVIDENCE_INTEGRITY_FAILURE')
  execution=body.get('execution_probe')
